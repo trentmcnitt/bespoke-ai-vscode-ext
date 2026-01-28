@@ -1,0 +1,187 @@
+{
+  "name": "ai-prose-completion",
+  "displayName": "AI Prose Completion",
+  "description": "Inline ghost-text completions for prose and code using Anthropic Claude or Ollama",
+  "version": "0.1.0",
+  "publisher": "trenthm",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-prose-completion.trigger",
+        "title": "AI Prose: Trigger Completion"
+      },
+      {
+        "command": "ai-prose-completion.toggleEnabled",
+        "title": "AI Prose: Toggle Enabled"
+      },
+      {
+        "command": "ai-prose-completion.cycleMode",
+        "title": "AI Prose: Cycle Mode"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ai-prose-completion.trigger",
+        "key": "ctrl+l",
+        "mac": "ctrl+l",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "AI Prose Completion",
+      "properties": {
+        "aiProseCompletion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable inline completions"
+        },
+        "aiProseCompletion.backend": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "ollama"
+          ],
+          "default": "anthropic",
+          "description": "Backend provider for completions"
+        },
+        "aiProseCompletion.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "prose",
+            "code"
+          ],
+          "default": "auto",
+          "description": "Completion mode (auto detects based on file type)"
+        },
+        "aiProseCompletion.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Delay in milliseconds before triggering completion"
+        },
+        "aiProseCompletion.anthropic.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key (leave empty to read from ~/.creds/api-keys.env)"
+        },
+        "aiProseCompletion.anthropic.model": {
+          "type": "string",
+          "default": "claude-haiku-4-5-20241022",
+          "description": "Anthropic model to use"
+        },
+        "aiProseCompletion.anthropic.useCaching": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable prompt caching for cost savings"
+        },
+        "aiProseCompletion.ollama.endpoint": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama API endpoint URL"
+        },
+        "aiProseCompletion.ollama.model": {
+          "type": "string",
+          "default": "qwen2.5:3b",
+          "description": "Ollama model to use"
+        },
+        "aiProseCompletion.ollama.raw": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use raw mode (bypasses chat template, for base models)"
+        },
+        "aiProseCompletion.prose.maxTokens": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum tokens for prose completions"
+        },
+        "aiProseCompletion.prose.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature for prose completions"
+        },
+        "aiProseCompletion.prose.stopSequences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "\n\n",
+            "---",
+            "##"
+          ],
+          "description": "Stop sequences for prose completions"
+        },
+        "aiProseCompletion.prose.contextChars": {
+          "type": "number",
+          "default": 2000,
+          "description": "Number of prefix characters to include for prose context"
+        },
+        "aiProseCompletion.prose.fileTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "markdown",
+            "plaintext"
+          ],
+          "description": "Language IDs treated as prose"
+        },
+        "aiProseCompletion.code.maxTokens": {
+          "type": "number",
+          "default": 256,
+          "description": "Maximum tokens for code completions"
+        },
+        "aiProseCompletion.code.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "description": "Temperature for code completions"
+        },
+        "aiProseCompletion.code.stopSequences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "\n\n"
+          ],
+          "description": "Stop sequences for code completions"
+        },
+        "aiProseCompletion.code.contextChars": {
+          "type": "number",
+          "default": 4000,
+          "description": "Number of prefix characters to include for code context"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src/",
+    "check": "npm run lint && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.39.2",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}
