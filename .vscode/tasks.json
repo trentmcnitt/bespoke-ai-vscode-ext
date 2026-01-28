@@ -4,12 +4,23 @@
     {
       "type": "npm",
       "script": "watch",
-      "problemMatcher": [],
       "isBackground": true,
       "label": "npm: watch",
       "group": {
         "kind": "build",
         "isDefault": true
+      },
+      "problemMatcher": {
+        "owner": "esbuild",
+        "pattern": {
+          "regexp": "^✘ \\[ERROR\\] (.+)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\> .+watch",
+          "endsPattern": "^Watching for changes\\.\\.\\."
+        }
       }
     }
   ]

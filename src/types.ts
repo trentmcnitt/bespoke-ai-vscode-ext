@@ -18,6 +18,8 @@ export interface BuiltPrompt {
   system: string;
   userMessage: string;
   assistantPrefill?: string;
+  /** Raw suffix text for providers that support native FIM (e.g. Ollama suffix param) */
+  suffix?: string;
   maxTokens: number;
   temperature: number;
   stopSequences: string[];

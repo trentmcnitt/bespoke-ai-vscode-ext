@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CompletionContext, CompletionProvider, BuiltPrompt, ExtensionConfig } from '../types';
 import { PromptBuilder } from '../prompt-builder';
+import { postProcessCompletion } from '../utils/post-process';
 
 export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
@@ -22,7 +23,10 @@ export class AnthropicProvider implements CompletionProvider {
       this.client = null;
       return;
     }
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({
+      apiKey,
+      timeout: 30_000, // 30s — default is 10min, far too long for inline completions
+    });
   }
 
   isAvailable(): boolean {
@@ -35,18 +39,13 @@ export class AnthropicProvider implements CompletionProvider {
     const prompt = this.promptBuilder.buildPrompt(context, this.config);
 
     try {
-      const result = await this.callApi(prompt, signal);
-      if (!result) { return null; }
+      const raw = await this.callApi(prompt, signal);
+      if (!raw) { return null; }
 
-      // Strip prefill from the response if used
-      if (prompt.assistantPrefill && result.startsWith(prompt.assistantPrefill)) {
-        const stripped = result.slice(prompt.assistantPrefill.length);
-        // Remove leading space that may be left after stripping
-        return stripped.startsWith(' ') ? stripped.slice(1) : stripped;
-      }
-
-      return result;
+      return postProcessCompletion(raw, prompt);
     } catch (err: unknown) {
+      // SDK throws APIUserAbortError on signal abort
+      if (err instanceof Anthropic.APIUserAbortError) { return null; }
       if (err instanceof Error && err.name === 'AbortError') { return null; }
       console.error('[AI Prose] Anthropic API error:', err);
       return null;
@@ -78,7 +77,9 @@ export class AnthropicProvider implements CompletionProvider {
         model: this.config.anthropic.model,
         max_tokens: prompt.maxTokens,
         temperature: prompt.temperature,
-        stop_sequences: prompt.stopSequences,
+        // Anthropic rejects stop sequences that are purely whitespace (e.g. "\n\n").
+        // Filter them out — the system prompt + maxTokens constrain output length instead.
+        stop_sequences: prompt.stopSequences.filter(s => /\S/.test(s)),
         system: [systemContent],
         messages,
       },

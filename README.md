@@ -24,11 +24,11 @@ The mode is auto-detected but can be overridden via settings or by clicking the 
 
 **Anthropic Claude** — Cloud API via `@anthropic-ai/sdk`. Features:
 - Assistant prefill for prose mode (forces natural continuation by seeding the response with the last 4 words of your text)
-- Prompt caching (`cache_control: { type: "ephemeral" }`) for ~90% cost reduction on repeated system prompts within a 5-minute window
-- Default model: `claude-haiku-4-5-20241022`
+- Prompt caching headers sent (`cache_control: { type: "ephemeral" }`), though caching likely does not activate — Anthropic requires 1,024+ token cached prefix and our system prompts are ~50 tokens. See `docs/anthropic-sdk-reference.md`.
+- Default model: `claude-haiku-4-5-20251001`
 
 **Ollama** — Local inference via HTTP API. Features:
-- Raw mode (`raw: true`) bypasses the chat template, which is essential for base/completion models
+- Prose uses raw mode (`raw: true`) for direct text continuation; code FIM uses templated mode with native `suffix` parameter
 - No SDK dependency — uses native `fetch`
 - Default model: `qwen2.5:3b`
 
@@ -57,11 +57,11 @@ src/
   extension.ts                  Entry point: activate, config, status bar, commands
   types.ts                      Shared interfaces (CompletionMode, Backend, etc.)
   completion-provider.ts        InlineCompletionItemProvider orchestrator
-  mode-detector.ts              Maps languageId → prose/code/universal
+  mode-detector.ts              Maps languageId → prose/code
   prompt-builder.ts             Constructs prompts per mode
   providers/
     anthropic.ts                Claude API client with prefill + caching
-    ollama.ts                   Ollama HTTP client with raw mode
+    ollama.ts                   Ollama HTTP client with raw + FIM modes
     provider-router.ts          Selects backend based on config
   utils/
     debouncer.ts                Promise-based debounce with CancellationToken + AbortSignal
@@ -87,7 +87,7 @@ All settings are under `aiProseCompletion.*` in VS Code/VSCodium settings.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `anthropic.apiKey` | string | `""` | API key. Falls back to `~/.creds/api-keys.env` (`ANTHROPIC_API_KEY`) |
-| `anthropic.model` | string | `"claude-haiku-4-5-20241022"` | Model ID |
+| `anthropic.model` | string | `"claude-haiku-4-5-20251001"` | Model ID |
 | `anthropic.useCaching` | boolean | `true` | Enable prompt caching |
 
 ### Ollama
@@ -170,7 +170,7 @@ npm run lint     # ESLint only
 
 **Prefill for prose.** Anthropic's assistant prefill feature seeds the response with the last few words of the user's text, which forces the model to continue naturally instead of paraphrasing or commenting on the text.
 
-**Raw mode for Ollama.** Base/completion models (like `qwen2.5`) don't have a chat template. Sending `raw: true` bypasses template formatting and sends the prompt directly, which is necessary for completion-style inference.
+**Smart raw mode for Ollama.** Prose mode uses `raw: true` to bypass the chat template — essential for base/completion models doing direct text continuation. Code mode with a suffix uses `raw: false` so Ollama can apply its model-specific FIM template (e.g., Qwen2.5's `<|fim_prefix|>`/`<|fim_suffix|>`/`<|fim_middle|>` tokens) via the native `suffix` parameter.
 
 **No streaming.** Ghost text must be returned as a complete string. Streaming would require incremental rendering, which the VS Code inline completion API doesn't support natively.
 
@@ -178,16 +178,20 @@ npm run lint     # ESLint only
 
 ## Known Issues
 
-Identified during code review (01-28-26). To be addressed in future work.
+Identified during code review and API research (01-28-26). To be addressed in future work.
 
-- **Anthropic prefill stripping may be unnecessary.** The API may not echo the prefill back in the response, in which case the stripping logic in `anthropic.ts` is a no-op. Needs testing against the live API to confirm behavior.
 - **Cache key collisions.** The LRU cache keys on the last 500 chars of prefix + first 200 of suffix. Two different cursor positions with the same surrounding text will collide. Consider adding document URI or offset to the key.
-- **Ollama raw mode discards system prompts.** When `raw: true`, only the user message is sent — the mode-specific system prompt is built but thrown away. This is intentional for base models but means Ollama completions lack instructional context.
 - **No config validation.** Negative `debounceMs`, out-of-range `temperature`, zero `maxTokens`, etc. are not caught. Invalid values pass through to the providers.
 - **Console logging instead of output channel.** Errors go to `console.error`, which lands in the developer console most users never open. Should use a `vscode.OutputChannel` for visibility.
 - **Non-null assertions in config loading.** `loadConfig()` uses `!` on every `ws.get()` call even though the default parameter guarantees non-null. Noise, not a bug.
 - **Status bar doesn't reflect backend availability.** If no Anthropic API key is configured, the status bar still shows "Claude" with no warning indicator.
-- **Ollama `raw: false` path is incomplete.** The non-raw path concatenates system + user as plain text and sends it to `/api/generate`. For chat models, it should use `/api/chat` with structured messages instead.
+- **Prompt caching may not activate.** Anthropic requires a minimum of 1,024 tokens in the cached prefix for caching to take effect. Our system prompts are short (~50 tokens), so the `cache_control` header is sent but caching likely never engages. Needs a longer cacheable prefix or should be disabled to avoid confusion.
+
+### Resolved Issues (01-28-26)
+
+- ~~Anthropic prefill stripping~~ — Confirmed the API does NOT echo prefill back. Removed the dead stripping logic that could corrupt output.
+- ~~Ollama raw mode discards system prompts~~ — Ollama now uses `raw: false` with the `system` and `suffix` params for code FIM. Raw mode is only used for prose (simple continuation with base models).
+- ~~Ollama `raw: false` path is incomplete~~ — Non-raw path now properly sends `system` and `suffix` params to `/api/generate`, which Ollama handles with model-specific templates.
 
 ## Future Enhancements
 
@@ -197,4 +201,3 @@ Identified during code review (01-28-26). To be addressed in future work.
 - OpenAI-compatible API provider (covers LM Studio, OpenRouter, etc.)
 - Adaptive debounce (shorter delay after accepting a completion)
 - Per-workspace mode/backend overrides
-- Automated tests

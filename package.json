@@ -76,7 +76,7 @@
         },
         "aiProseCompletion.anthropic.model": {
           "type": "string",
-          "default": "claude-haiku-4-5-20241022",
+          "default": "claude-haiku-4-5-20251001",
           "description": "Anthropic model to use"
         },
         "aiProseCompletion.anthropic.useCaching": {
@@ -170,7 +170,12 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint src/",
-    "check": "npm run lint && tsc --noEmit"
+    "check": "npm run lint && tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:api": "vitest run --config vitest.api.config.ts",
+    "test:quality": "vitest run --config vitest.quality.config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -179,7 +184,8 @@
     "@typescript-eslint/parser": "^8.54.0",
     "esbuild": "^0.24.0",
     "eslint": "^9.39.2",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0"

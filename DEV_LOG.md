@@ -4,6 +4,24 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 01-28-26 (late evening)
+
+### API research and provider fixes
+
+Deep-dived into both the Anthropic SDK and Ollama API to ensure correct, token-efficient usage. Two research agents ran in parallel. Full findings documented in:
+- `docs/anthropic-sdk-reference.md` — prefill behavior, stop sequence constraints, caching limits, timeout config, error classes
+- `docs/ollama-api-reference.md` — raw vs templated mode, FIM via suffix param, keep_alive, KV cache reuse, endpoint selection
+
+**Code changes based on research:**
+
+- **Anthropic:** Removed dead prefill stripping logic (API doesn't echo prefill). Set client timeout to 30s (was 10min default). Added `\n\n` post-processing trim (Anthropic drops whitespace-only stop sequences). Added `APIUserAbortError` catch.
+- **Ollama:** Redesigned raw mode usage — prose uses `raw: true` (continuation), code FIM uses `raw: false` with `suffix` param (Ollama handles model-specific FIM tokens). Added `keep_alive: "30m"`. System prompt now sent in non-raw mode.
+- **Types/prompt-builder:** Added `suffix` to `BuiltPrompt` for providers with native FIM support.
+
+**Test results:** 64 unit tests passing (+3 new), 4 API tests passing (Anthropic), 4 skipped (Ollama — no local model). `npm run check` clean.
+
+---
+
 ## 01-28-26 (evening)
 
 ### Code review and critical bug fixes

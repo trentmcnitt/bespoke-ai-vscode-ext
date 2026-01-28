@@ -93,7 +93,7 @@ function loadConfig(): ExtensionConfig {
     debounceMs: ws.get<number>('debounceMs', 300)!,
     anthropic: {
       apiKey,
-      model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20241022')!,
+      model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20251001')!,
       useCaching: ws.get<boolean>('anthropic.useCaching', true)!,
     },
     ollama: {
@@ -130,7 +130,10 @@ function readApiKeyFromEnvFile(): string {
             (value.startsWith("'") && value.endsWith("'"))) {
           value = value.slice(1, -1);
         }
-        return value;
+        // Strip inline comments (e.g. "sk-ant-xxx # project-name")
+        const commentIdx = value.indexOf(' #');
+        if (commentIdx >= 0) { value = value.slice(0, commentIdx); }
+        return value.trim();
       }
     }
   } catch {
