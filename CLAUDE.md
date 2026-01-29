@@ -44,7 +44,7 @@ Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metad
 
 **Key components, listed in request-flow order:**
 
-- `src/extension.ts` — Activation entry point. Loads config from VS Code's `aiProseCompletion.*` settings (falls back to `ANTHROPIC_API_KEY` in `~/.creds/api-keys.env` for the API key). Creates the `Logger`, all components, and registers the inline completion provider, status bar, and six commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), and `showMenu` (unified status bar menu). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
+- `src/extension.ts` — Activation entry point. Loads config from VS Code's `aiProseCompletion.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and six commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), and `showMenu` (unified status bar menu). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` as 3rd constructor param for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
 
@@ -64,8 +64,6 @@ Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metad
 
 - `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Cache key is built from the mode, the last 500 characters of prefix, and the first 200 characters of suffix. URI is intentionally excluded — see Known Limitations.
 
-- `src/utils/env.ts` — Reads the Anthropic API key from `~/.creds/api-keys.env`. Shared by both the extension activation (`src/extension.ts`) and test helpers (`src/test/helpers.ts`).
-
 - `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Both `prefixChars` and `suffixChars` are configurable via `prose.contextChars`/`prose.suffixChars` and `code.contextChars`/`code.suffixChars` settings. Uses `path.basename()` for cross-platform filename.
 
 - `src/utils/logger.ts` — `Logger` class wrapping `vscode.OutputChannel`. Provides `info()`, `debug()`, `trace()`, and `error()` methods with timestamps. Level-gated by `setLevel()`: trace shows all, debug shows debug+info+error, info shows only info+error. Created once in `activate()` and injected into `CompletionProvider` and both providers.
@@ -74,7 +72,7 @@ Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metad
 
 - `src/utils/profile.ts` — `applyProfile()` pure function. Deep-merges a `ProfileOverrides` object over a base `ExtensionConfig`. The API key always comes from the base config (security guard against profile injection).
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which both provider implementations (Anthropic and Ollama) conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled` and `apiKey`). `ExtensionConfig` defines the same fields as the `aiProseCompletion.*` settings in `package.json` — when modifying either, update both to keep them in sync.
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which both provider implementations (Anthropic and Ollama) conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled` and `apiKey`). `ExtensionConfig` defines the same fields as the `aiProseCompletion.*` settings in `package.json` — when modifying either, update both to keep them in sync. Both `anthropic` and `ollama` sub-objects include a `models` array (informational catalog of available models) and a `model` string (the active model).
 
 ## Adding a New Setting
 
@@ -104,7 +102,7 @@ After `test:quality` completes, it prints Layer 2 instructions to stdout. Follow
 
 ### Unit tests
 
-Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
+Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
@@ -112,7 +110,7 @@ Context-builder tests (`context-builder.test.ts`) use a minimal mock `TextDocume
 
 ### API integration tests
 
-API integration tests (`src/test/api/`) make real HTTP calls. They use `describe.skipIf()` to skip when backends aren't available (no API key, Ollama not running). The Anthropic test reads the `ANTHROPIC_API_KEY` from `~/.creds/api-keys.env`. The Ollama test checks for model availability via `/api/tags` before running. The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
+API integration tests (`src/test/api/`) make real HTTP calls. They use `describe.skipIf()` to skip when backends aren't available (no API key, Ollama not running). The Anthropic test reads `ANTHROPIC_API_KEY` from the environment (run with `ANTHROPIC_API_KEY=sk-ant-... npm run test:api`). The Ollama test checks for model availability via `/api/tags` before running. The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
 
 ### Quality Tests (LLM-as-Judge)
 

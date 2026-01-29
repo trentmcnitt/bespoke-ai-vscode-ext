@@ -41,6 +41,10 @@ export class Logger {
     this.channel.appendLine(`[ERROR ${ts()}] ${msg}${suffix}`);
   }
 
+  show(): void {
+    this.channel.show(true);
+  }
+
   dispose(): void {
     this.channel.dispose();
   }

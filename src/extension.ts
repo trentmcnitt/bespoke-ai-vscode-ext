@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { ExtensionConfig, Backend, ProfileOverrides } from './types';
 import { CompletionProvider } from './completion-provider';
 import { ProviderRouter } from './providers/provider-router';
-import { readApiKeyFromEnvFile } from './utils/env';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
@@ -179,6 +178,22 @@ export function activate(context: vscode.ExtensionContext) {
         completionProvider.clearCache();
       });
 
+      const openSettingsItem: vscode.QuickPickItem = {
+        label: '$(settings-gear) Open Settings',
+      };
+      items.push(openSettingsItem);
+      handlers.set(openSettingsItem, () => {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'aiProseCompletion');
+      });
+
+      const openLogItem: vscode.QuickPickItem = {
+        label: '$(output) Open Output Log',
+      };
+      items.push(openLogItem);
+      handlers.set(openLogItem, () => {
+        logger.show();
+      });
+
       const picked = await vscode.window.showQuickPick(items, {
         title: 'AI Prose Completion',
         placeHolder: 'Select an option',
@@ -215,7 +230,7 @@ export function activate(context: vscode.ExtensionContext) {
   if (config.backend === 'anthropic' && !config.anthropic.apiKey) {
     logger.info('No Anthropic API key configured');
     vscode.window.showWarningMessage(
-      'AI Prose Completion: No Anthropic API key configured. Set it in settings or ~/.creds/api-keys.env.'
+      'AI Prose Completion: No Anthropic API key configured. Set it in Settings → AI Prose Completion → Anthropic: Api Key.'
     );
   }
 
@@ -225,12 +240,7 @@ export function activate(context: vscode.ExtensionContext) {
 function loadConfig(): ExtensionConfig {
   const ws = vscode.workspace.getConfiguration('aiProseCompletion');
 
-  let apiKey = ws.get<string>('anthropic.apiKey', '');
-
-  // Fall back to env file
-  if (!apiKey) {
-    apiKey = readApiKeyFromEnvFile();
-  }
+  const apiKey = ws.get<string>('anthropic.apiKey', '');
 
   const activeProfile = ws.get<string>('activeProfile', '')!;
 
@@ -242,11 +252,13 @@ function loadConfig(): ExtensionConfig {
     anthropic: {
       apiKey,
       model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20251001')!,
+      models: ws.get<string[]>('anthropic.models', ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'])!,
       useCaching: ws.get<boolean>('anthropic.useCaching', true)!,
     },
     ollama: {
       endpoint: ws.get<string>('ollama.endpoint', 'http://localhost:11434')!,
       model: ws.get<string>('ollama.model', 'qwen2.5:3b')!,
+      models: ws.get<string[]>('ollama.models', ['qwen2.5:3b', 'qwen2.5-coder:3b', 'llama3.2:3b', 'deepseek-coder-v2:latest'])!,
       raw: ws.get<boolean>('ollama.raw', true)!,
     },
     prose: {

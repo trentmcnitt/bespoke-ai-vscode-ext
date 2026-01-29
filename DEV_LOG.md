@@ -56,7 +56,7 @@ Built the entire extension from scratch based on a design plan developed in a pr
 
 **What got built (11 source files, compiles clean with zero TypeScript errors):**
 
-- `extension.ts` — Entry point. Loads config (including API key fallback to `~/.creds/api-keys.env`), wires up the inline completion provider, status bar, and three commands (trigger, toggle, cycle mode).
+- `extension.ts` — Entry point. Loads config from VS Code settings, wires up the inline completion provider, status bar, and three commands (trigger, toggle, cycle mode).
 - `types.ts` — Central type definitions: `CompletionMode`, `Backend`, `CompletionContext`, `CompletionProvider` interface, `BuiltPrompt`, `ExtensionConfig`.
 - `completion-provider.ts` — The orchestrator. Implements `InlineCompletionItemProvider`. Runs the full chain: mode detection → context extraction → cache check → debounce → provider call → cache write → return.
 - `mode-detector.ts` — Maps VS Code `languageId` to prose/code. Maintains sets of known code languages and prose languages. Unrecognized languages default to prose (intentional — primary use case is writing).

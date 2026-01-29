@@ -86,8 +86,9 @@ All settings are under `aiProseCompletion.*` in VS Code/VSCodium settings.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `anthropic.apiKey` | string | `""` | API key. Falls back to `~/.creds/api-keys.env` (`ANTHROPIC_API_KEY`) |
-| `anthropic.model` | string | `"claude-haiku-4-5-20251001"` | Model ID |
+| `anthropic.apiKey` | string | `""` | Anthropic API key for Claude completions |
+| `anthropic.model` | string | `"claude-haiku-4-5-20251001"` | Model ID. See `anthropic.models` for available options. |
+| `anthropic.models` | string[] | `["claude-haiku-4-5-20251001", ...]` | Available Anthropic models |
 | `anthropic.useCaching` | boolean | `true` | Enable prompt caching |
 
 ### Ollama
@@ -95,7 +96,8 @@ All settings are under `aiProseCompletion.*` in VS Code/VSCodium settings.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `ollama.endpoint` | string | `"http://localhost:11434"` | Ollama API URL |
-| `ollama.model` | string | `"qwen2.5:3b"` | Model name |
+| `ollama.model` | string | `"qwen2.5:3b"` | Model name. See `ollama.models` for available options. |
+| `ollama.models` | string[] | `["qwen2.5:3b", ...]` | Available Ollama models |
 | `ollama.raw` | boolean | `true` | Use raw mode (no chat template) |
 
 ### Prose Mode

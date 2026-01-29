@@ -10,7 +10,7 @@
  * After generation completes, the afterAll hook prints instructions
  * for Claude to begin Layer 2 (semantic quality) validation.
  *
- * Requires a valid ANTHROPIC_API_KEY in ~/.creds/api-keys.env.
+ * Requires ANTHROPIC_API_KEY set in the environment.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';

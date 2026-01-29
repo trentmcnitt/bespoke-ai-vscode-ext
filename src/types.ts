@@ -33,11 +33,13 @@ export interface ExtensionConfig {
   anthropic: {
     apiKey: string;
     model: string;
+    models: string[];
     useCaching: boolean;
   };
   ollama: {
     endpoint: string;
     model: string;
+    models: string[];
     raw: boolean;
   };
   prose: {

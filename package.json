@@ -84,12 +84,18 @@
         "aiProseCompletion.anthropic.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Anthropic API key (leave empty to read from ~/.creds/api-keys.env)"
+          "description": "Anthropic API key for Claude completions"
         },
         "aiProseCompletion.anthropic.model": {
           "type": "string",
           "default": "claude-haiku-4-5-20251001",
-          "description": "Anthropic model to use"
+          "description": "Anthropic model to use. See anthropic.models for available options."
+        },
+        "aiProseCompletion.anthropic.models": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+          "description": "Available Anthropic models. The active model is set in anthropic.model."
         },
         "aiProseCompletion.anthropic.useCaching": {
           "type": "boolean",
@@ -104,7 +110,13 @@
         "aiProseCompletion.ollama.model": {
           "type": "string",
           "default": "qwen2.5:3b",
-          "description": "Ollama model to use"
+          "description": "Ollama model to use. See ollama.models for available options."
+        },
+        "aiProseCompletion.ollama.models": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["qwen2.5:3b", "qwen2.5-coder:3b", "llama3.2:3b", "deepseek-coder-v2:latest"],
+          "description": "Available Ollama models. The active model is set in ollama.model."
         },
         "aiProseCompletion.ollama.raw": {
           "type": "boolean",
@@ -196,8 +208,14 @@
         },
         "aiProseCompletion.profiles": {
           "type": "object",
-          "default": {},
-          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings.",
+          "default": {
+            "haiku-fast": {
+              "anthropic": { "model": "claude-haiku-4-5-20251001", "useCaching": true },
+              "prose": { "maxTokens": 80, "temperature": 0.7, "stopSequences": ["\n\n", "---", "##"], "contextChars": 2000, "suffixChars": 500 },
+              "code": { "maxTokens": 200, "temperature": 0.2, "stopSequences": ["\n\n"], "contextChars": 4000, "suffixChars": 500 }
+            }
+          },
+          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings. The default 'haiku-fast' profile is a template showing all overridable fields.",
           "additionalProperties": {
             "type": "object",
             "properties": {
