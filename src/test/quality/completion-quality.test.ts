@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AnthropicProvider } from '../../providers/anthropic';
 import { CompletionContext } from '../../types';
-import { makeConfig, loadApiKey } from '../helpers';
+import { makeConfig, makeLogger, loadApiKey } from '../helpers';
 import { TestScenario } from './judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from './scenarios';
 
@@ -100,7 +100,7 @@ describe.skipIf(!hasApiKey)('Completion Quality — Generation', () => {
   let provider: AnthropicProvider;
 
   beforeAll(() => {
-    provider = new AnthropicProvider(makeCompletionConfig());
+    provider = new AnthropicProvider(makeCompletionConfig(), makeLogger());
     fs.mkdirSync(RUN_DIR, { recursive: true });
   });
 

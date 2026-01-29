@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AnthropicProvider } from '../../providers/anthropic';
 import { CompletionContext } from '../../types';
-import { makeConfig, loadApiKey } from '../helpers';
+import { makeConfig, makeLogger, loadApiKey } from '../helpers';
 
 const apiKey = loadApiKey();
 const hasApiKey = apiKey.length > 0;
@@ -17,7 +17,7 @@ function makeRealConfig() {
 
 describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
   it('returns a prose completion', async () => {
-    const provider = new AnthropicProvider(makeRealConfig());
+    const provider = new AnthropicProvider(makeRealConfig(), makeLogger());
     expect(provider.isAvailable()).toBe(true);
 
     const ctx: CompletionContext = {
@@ -38,7 +38,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
   });
 
   it('returns a code completion', async () => {
-    const provider = new AnthropicProvider(makeRealConfig());
+    const provider = new AnthropicProvider(makeRealConfig(), makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'function fibonacci(n: number): number {\n  if (n <= 1) return n;\n  ',
@@ -57,7 +57,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
   });
 
   it('returns null when signal is pre-aborted', async () => {
-    const provider = new AnthropicProvider(makeRealConfig());
+    const provider = new AnthropicProvider(makeRealConfig(), makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'Hello world',
@@ -76,7 +76,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
   it('returns null when API key is invalid', async () => {
     const config = makeRealConfig();
     config.anthropic.apiKey = 'sk-ant-invalid-key';
-    const provider = new AnthropicProvider(config);
+    const provider = new AnthropicProvider(config, makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'Hello',

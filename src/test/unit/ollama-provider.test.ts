@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OllamaProvider } from '../../providers/ollama';
-import { makeConfig, makeProseContext, makeCodeContext } from '../helpers';
+import { makeConfig, makeProseContext, makeCodeContext, makeLogger } from '../helpers';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -24,7 +24,7 @@ describe('OllamaProvider', () => {
 
   describe('availability', () => {
     it('always reports available (checked at request time)', () => {
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       expect(provider.isAvailable()).toBe(true);
     });
   });
@@ -32,14 +32,14 @@ describe('OllamaProvider', () => {
   describe('prose completion (raw mode)', () => {
     it('returns text from API response', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse(' something profound'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBe(' something profound');
     });
 
     it('sends raw=true for prose mode', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -48,7 +48,7 @@ describe('OllamaProvider', () => {
 
     it('sends formatted userMessage as prompt in raw mode', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const ctx = makeProseContext({ prefix: 'Hello world' });
       await provider.getCompletion(ctx, new AbortController().signal);
 
@@ -59,7 +59,7 @@ describe('OllamaProvider', () => {
 
     it('does not send system or suffix in raw mode', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -71,7 +71,7 @@ describe('OllamaProvider', () => {
   describe('code FIM completion (non-raw mode)', () => {
     it('uses raw=false for code with suffix (FIM)', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('a + b;'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeCodeContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -80,7 +80,7 @@ describe('OllamaProvider', () => {
 
     it('sends raw prefix as prompt for FIM (not formatted userMessage)', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('a + b;'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const ctx = makeCodeContext({ prefix: 'function add() {\n  return ' });
       await provider.getCompletion(ctx, new AbortController().signal);
 
@@ -91,7 +91,7 @@ describe('OllamaProvider', () => {
 
     it('sends suffix param for native FIM', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('a + b;'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeCodeContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -100,7 +100,7 @@ describe('OllamaProvider', () => {
 
     it('sends system prompt in non-raw mode', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('a + b;'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeCodeContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -110,7 +110,7 @@ describe('OllamaProvider', () => {
 
     it('falls back to raw mode for code without suffix', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('// comment'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const ctx = makeCodeContext({ suffix: '' });
       await provider.getCompletion(ctx, new AbortController().signal);
 
@@ -125,7 +125,7 @@ describe('OllamaProvider', () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
       const config = makeConfig();
       config.ollama.model = 'llama3:8b';
-      const provider = new OllamaProvider(config);
+      const provider = new OllamaProvider(config, makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -134,7 +134,7 @@ describe('OllamaProvider', () => {
 
     it('sends keep_alive for model persistence', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -143,7 +143,7 @@ describe('OllamaProvider', () => {
 
     it('sends stream=false', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -152,7 +152,7 @@ describe('OllamaProvider', () => {
 
     it('sends options with num_predict, temperature, stop', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -165,7 +165,7 @@ describe('OllamaProvider', () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
       const config = makeConfig();
       config.ollama.endpoint = 'http://localhost:11434/';
-      const provider = new OllamaProvider(config);
+      const provider = new OllamaProvider(config, makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const url = mockFetch.mock.calls[0][0];
@@ -176,21 +176,21 @@ describe('OllamaProvider', () => {
   describe('post-processing', () => {
     it('strips markdown code fences from response', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('```python\nreturn x + 1\n```'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeCodeContext(), new AbortController().signal);
       expect(result).toBe('return x + 1');
     });
 
     it('strips leading newlines from response', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('\n\nhello world'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBe('hello world');
     });
 
     it('returns null when response is only newlines', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('\n\n'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
@@ -201,33 +201,28 @@ describe('OllamaProvider', () => {
       const err = new Error('Aborted');
       err.name = 'AbortError';
       mockFetch.mockRejectedValue(err);
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
 
-    it('returns null on non-200 response', async () => {
-      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('throws on non-200 response', async () => {
       mockFetch.mockResolvedValue(new Response('Not Found', { status: 404 }));
-      const provider = new OllamaProvider(makeConfig());
-      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBeNull();
-      expect(spy).toHaveBeenCalled();
-      spy.mockRestore();
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
+      await expect(provider.getCompletion(makeProseContext(), new AbortController().signal))
+        .rejects.toThrow('Ollama returned 404');
     });
 
-    it('returns null on network error', async () => {
-      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('throws on network error', async () => {
       mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
-      const provider = new OllamaProvider(makeConfig());
-      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBeNull();
-      spy.mockRestore();
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
+      await expect(provider.getCompletion(makeProseContext(), new AbortController().signal))
+        .rejects.toThrow('ECONNREFUSED');
     });
 
     it('returns null when response is empty string', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse(''));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
@@ -236,7 +231,7 @@ describe('OllamaProvider', () => {
   describe('config updates', () => {
     it('uses new config after updateConfig', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('text'));
-      const provider = new OllamaProvider(makeConfig());
+      const provider = new OllamaProvider(makeConfig(), makeLogger());
 
       const newConfig = makeConfig();
       newConfig.ollama.model = 'codellama:7b';

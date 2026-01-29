@@ -1,4 +1,5 @@
 import { CompletionContext, ExtensionConfig } from '../types';
+import { Logger } from '../utils/logger';
 
 export { readApiKeyFromEnvFile as loadApiKey } from '../utils/env';
 
@@ -11,6 +12,8 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   ollama: { endpoint: 'http://localhost:11434', model: 'qwen2.5:3b', raw: true },
   prose: { maxTokens: 100, temperature: 0.7, stopSequences: ['\n\n', '---', '##'], contextChars: 2000, suffixChars: 500, fileTypes: ['markdown', 'plaintext'] },
   code: { maxTokens: 256, temperature: 0.2, stopSequences: ['\n\n'], contextChars: 4000, suffixChars: 500 },
+  logLevel: 'info',
+  activeProfile: '',
 };
 
 export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
@@ -22,6 +25,18 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
   };
+}
+
+/** No-op Logger for unit tests (avoids vscode dependency) */
+export function makeLogger(): Logger {
+  return {
+    setLevel: () => {},
+    info: () => {},
+    debug: () => {},
+    trace: () => {},
+    error: () => {},
+    dispose: () => {},
+  } as unknown as Logger;
 }
 
 export function makeProseContext(overrides: Partial<CompletionContext> = {}): CompletionContext {

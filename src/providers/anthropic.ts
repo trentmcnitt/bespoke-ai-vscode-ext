@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CompletionContext, CompletionProvider, BuiltPrompt, ExtensionConfig } from '../types';
+import { Logger } from '../utils/logger';
 import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
 
@@ -7,7 +8,7 @@ export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
   private promptBuilder: PromptBuilder;
 
-  constructor(private config: ExtensionConfig) {
+  constructor(private config: ExtensionConfig, private logger: Logger) {
     this.promptBuilder = new PromptBuilder();
     this.initClient();
   }
@@ -38,8 +39,18 @@ export class AnthropicProvider implements CompletionProvider {
 
     const prompt = this.promptBuilder.buildPrompt(context, this.config);
 
+    this.logger.debug(`Anthropic request: model=${this.config.anthropic.model} max_tokens=${prompt.maxTokens} temp=${prompt.temperature} stop=${JSON.stringify(prompt.stopSequences.filter(s => /\S/.test(s)))} caching=${this.config.anthropic.useCaching} system_len=${prompt.system.length} user_len=${prompt.userMessage.length} prefill_len=${prompt.assistantPrefill?.length ?? 0}`);
+    this.logger.trace(`Anthropic system: ${prompt.system}`);
+    this.logger.trace(`Anthropic userMessage: ${prompt.userMessage}`);
+    if (prompt.assistantPrefill) {
+      this.logger.trace(`Anthropic prefill: ${prompt.assistantPrefill}`);
+    }
+
     try {
       const raw = await this.callApi(prompt, signal);
+
+      this.logger.debug(`Anthropic response: length=${raw?.length ?? 'null'}`);
+
       if (!raw) { return null; }
 
       return postProcessCompletion(raw, prompt);
@@ -47,8 +58,7 @@ export class AnthropicProvider implements CompletionProvider {
       // SDK throws APIUserAbortError on signal abort
       if (err instanceof Anthropic.APIUserAbortError) { return null; }
       if (err instanceof Error && err.name === 'AbortError') { return null; }
-      console.error('[AI Prose] Anthropic API error:', err);
-      return null;
+      throw err;
     }
   }
 
@@ -85,6 +95,12 @@ export class AnthropicProvider implements CompletionProvider {
       },
       { signal },
     );
+
+    if (response.usage) {
+      const usage = response.usage;
+      const usageAny = usage as unknown as Record<string, unknown>;
+      this.logger.debug(`Anthropic usage: input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} stop_reason=${response.stop_reason} cache_read=${usageAny.cache_read_input_tokens ?? 0} cache_creation=${usageAny.cache_creation_input_tokens ?? 0}`);
+    }
 
     const block = response.content[0];
     if (block && block.type === 'text') {

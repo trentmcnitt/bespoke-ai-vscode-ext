@@ -55,4 +55,17 @@ export interface ExtensionConfig {
     contextChars: number;
     suffixChars: number;
   };
+  logLevel: 'info' | 'debug' | 'trace';
+  activeProfile: string;
+}
+
+export interface ProfileOverrides {
+  backend?: Backend;
+  mode?: 'auto' | 'prose' | 'code';
+  debounceMs?: number;
+  logLevel?: 'info' | 'debug' | 'trace';
+  anthropic?: Partial<Omit<ExtensionConfig['anthropic'], 'apiKey'>>;
+  ollama?: Partial<ExtensionConfig['ollama']>;
+  prose?: Partial<ExtensionConfig['prose']>;
+  code?: Partial<ExtensionConfig['code']>;
 }

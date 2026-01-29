@@ -1,4 +1,5 @@
 import { Backend, CompletionProvider, ExtensionConfig } from '../types';
+import { Logger } from '../utils/logger';
 import { AnthropicProvider } from './anthropic';
 import { OllamaProvider } from './ollama';
 
@@ -6,9 +7,9 @@ export class ProviderRouter {
   private anthropic: AnthropicProvider;
   private ollama: OllamaProvider;
 
-  constructor(config: ExtensionConfig) {
-    this.anthropic = new AnthropicProvider(config);
-    this.ollama = new OllamaProvider(config);
+  constructor(config: ExtensionConfig, logger: Logger) {
+    this.anthropic = new AnthropicProvider(config, logger);
+    this.ollama = new OllamaProvider(config, logger);
   }
 
   updateConfig(config: ExtensionConfig): void {

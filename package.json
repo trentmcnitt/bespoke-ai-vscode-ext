@@ -27,6 +27,18 @@
       {
         "command": "ai-prose-completion.cycleMode",
         "title": "AI Prose: Cycle Mode"
+      },
+      {
+        "command": "ai-prose-completion.clearCache",
+        "title": "AI Prose: Clear Completion Cache"
+      },
+      {
+        "command": "ai-prose-completion.selectProfile",
+        "title": "AI Prose: Select Profile"
+      },
+      {
+        "command": "ai-prose-completion.showMenu",
+        "title": "AI Prose: Show Menu"
       }
     ],
     "keybindings": [
@@ -171,6 +183,82 @@
           "type": "number",
           "default": 500,
           "description": "Number of suffix characters (after cursor) to include for code context"
+        },
+        "aiProseCompletion.logLevel": {
+          "type": "string",
+          "enum": [
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "description": "Logging verbosity in the Output channel"
+        },
+        "aiProseCompletion.profiles": {
+          "type": "object",
+          "default": {},
+          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "backend": {
+                "type": "string",
+                "enum": ["anthropic", "ollama"]
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["auto", "prose", "code"]
+              },
+              "debounceMs": {
+                "type": "number"
+              },
+              "logLevel": {
+                "type": "string",
+                "enum": ["info", "debug", "trace"]
+              },
+              "anthropic": {
+                "type": "object",
+                "properties": {
+                  "model": { "type": "string" },
+                  "useCaching": { "type": "boolean" }
+                }
+              },
+              "ollama": {
+                "type": "object",
+                "properties": {
+                  "endpoint": { "type": "string" },
+                  "model": { "type": "string" },
+                  "raw": { "type": "boolean" }
+                }
+              },
+              "prose": {
+                "type": "object",
+                "properties": {
+                  "maxTokens": { "type": "number" },
+                  "temperature": { "type": "number" },
+                  "stopSequences": { "type": "array", "items": { "type": "string" } },
+                  "contextChars": { "type": "number" },
+                  "suffixChars": { "type": "number" },
+                  "fileTypes": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "code": {
+                "type": "object",
+                "properties": {
+                  "maxTokens": { "type": "number" },
+                  "temperature": { "type": "number" },
+                  "stopSequences": { "type": "array", "items": { "type": "string" } },
+                  "contextChars": { "type": "number" },
+                  "suffixChars": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "aiProseCompletion.activeProfile": {
+          "type": "string",
+          "default": "",
+          "description": "Name of the active profile (empty = use base settings)"
         }
       }
     }

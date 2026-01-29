@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { OllamaProvider } from '../../providers/ollama';
 import { CompletionContext } from '../../types';
-import { makeConfig } from '../helpers';
+import { makeConfig, makeLogger } from '../helpers';
 
 async function isOllamaReady(endpoint: string, model: string): Promise<boolean> {
   try {
@@ -28,7 +28,7 @@ const ollamaAvailable = await isOllamaReady('http://localhost:11434', 'qwen2.5:3
 
 describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
   it('returns a prose completion in raw mode', async () => {
-    const provider = new OllamaProvider(makeOllamaConfig());
+    const provider = new OllamaProvider(makeOllamaConfig(), makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'The meaning of life is',
@@ -48,7 +48,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
   });
 
   it('returns a code completion in raw mode', async () => {
-    const provider = new OllamaProvider(makeOllamaConfig());
+    const provider = new OllamaProvider(makeOllamaConfig(), makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'def fibonacci(n):\n    if n <= 1:\n        return n\n    ',
@@ -67,7 +67,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
   });
 
   it('returns null when signal is pre-aborted', async () => {
-    const provider = new OllamaProvider(makeOllamaConfig());
+    const provider = new OllamaProvider(makeOllamaConfig(), makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'Hello',
@@ -86,7 +86,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
   it('handles invalid endpoint gracefully', async () => {
     const config = makeOllamaConfig();
     config.ollama.endpoint = 'http://localhost:19999';
-    const provider = new OllamaProvider(config);
+    const provider = new OllamaProvider(config, makeLogger());
 
     const ctx: CompletionContext = {
       prefix: 'Hello',

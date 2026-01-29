@@ -1,4 +1,5 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
+import { Logger } from '../utils/logger';
 import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
 
@@ -10,7 +11,7 @@ interface OllamaGenerateResponse {
 export class OllamaProvider implements CompletionProvider {
   private promptBuilder: PromptBuilder;
 
-  constructor(private config: ExtensionConfig) {
+  constructor(private config: ExtensionConfig, private logger: Logger) {
     this.promptBuilder = new PromptBuilder();
   }
 
@@ -67,6 +68,15 @@ export class OllamaProvider implements CompletionProvider {
       }
     }
 
+    this.logger.debug(`Ollama request: model=${this.config.ollama.model} endpoint=${url} raw=${String(useRaw)} fim=${String(!!hasFimSuffix)} max_tokens=${prompt.maxTokens} temp=${prompt.temperature} prompt_len=${promptText.length}`);
+    this.logger.trace(`Ollama prompt: ${promptText}`);
+    if (!useRaw && prompt.system) {
+      this.logger.trace(`Ollama system: ${prompt.system}`);
+    }
+    if (hasFimSuffix && prompt.suffix) {
+      this.logger.trace(`Ollama suffix: ${prompt.suffix}`);
+    }
+
     try {
       // Combine caller's abort signal with a 30s timeout.
       // Ollama model loading can take 5-15s; 30s covers that plus generation.
@@ -81,18 +91,18 @@ export class OllamaProvider implements CompletionProvider {
       });
 
       if (!response.ok) {
-        console.error(`[AI Prose] Ollama returned ${response.status}: ${response.statusText}`);
-        return null;
+        throw new Error(`Ollama returned ${response.status}: ${response.statusText}`);
       }
 
       const data = (await response.json()) as OllamaGenerateResponse;
       if (!data.response) { return null; }
 
+      this.logger.debug(`Ollama response: length=${data.response.length}`);
+
       return postProcessCompletion(data.response, prompt);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') { return null; }
-      console.error('[AI Prose] Ollama error:', err);
-      return null;
+      throw err;
     }
   }
 }
