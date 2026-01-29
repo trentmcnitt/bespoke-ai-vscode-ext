@@ -13,6 +13,7 @@ export function applyProfile(base: ExtensionConfig, profile: ProfileOverrides): 
     ...(profile.logLevel !== undefined && { logLevel: profile.logLevel }),
     anthropic: { ...base.anthropic, ...profile.anthropic, apiKey: base.anthropic.apiKey },
     ollama: { ...base.ollama, ...profile.ollama },
+    claudeCode: { ...base.claudeCode, ...profile.claudeCode },
     prose: { ...base.prose, ...profile.prose },
     code: { ...base.code, ...profile.code },
     oracle: { ...base.oracle, ...profile.oracle },

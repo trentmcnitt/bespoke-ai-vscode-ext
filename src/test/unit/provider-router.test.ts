@@ -34,11 +34,35 @@ describe('ProviderRouter', () => {
     expect(router.isBackendAvailable('ollama')).toBe(true);
   });
 
-  it('updates config on both providers', () => {
+  it('returns claude-code provider when backend is claude-code', () => {
+    const router = new ProviderRouter(makeConfig(), makeLogger());
+    const provider = router.getProvider('claude-code');
+    expect(provider).toBeDefined();
+    expect(provider.getCompletion).toBeTypeOf('function');
+  });
+
+  it('reports claude-code as unavailable before activation', () => {
+    const router = new ProviderRouter(makeConfig(), makeLogger());
+    expect(router.isBackendAvailable('claude-code')).toBe(false);
+  });
+
+  it('reports anthropic as unavailable when apiCallsEnabled is false', () => {
+    const config = makeConfig();
+    config.anthropic.apiCallsEnabled = false;
+    const router = new ProviderRouter(config, makeLogger());
+    expect(router.isBackendAvailable('anthropic')).toBe(false);
+  });
+
+  it('updates config on all providers', () => {
     const router = new ProviderRouter(makeConfig(), makeLogger());
     const newConfig = makeConfig();
     newConfig.anthropic.apiKey = '';
     router.updateConfig(newConfig);
     expect(router.isBackendAvailable('anthropic')).toBe(false);
+  });
+
+  it('dispose does not throw', () => {
+    const router = new ProviderRouter(makeConfig(), makeLogger());
+    expect(() => router.dispose()).not.toThrow();
   });
 });

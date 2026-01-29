@@ -74,10 +74,11 @@
         "bespokeAI.backend": {
           "type": "string",
           "enum": [
+            "claude-code",
             "anthropic",
             "ollama"
           ],
-          "default": "anthropic",
+          "default": "claude-code",
           "description": "Backend provider for completions"
         },
         "bespokeAI.mode": {
@@ -122,6 +123,11 @@
           "default": true,
           "description": "Enable prompt caching for cost savings"
         },
+        "bespokeAI.anthropic.apiCallsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Safety switch to disable all direct Anthropic API calls"
+        },
         "bespokeAI.ollama.endpoint": {
           "type": "string",
           "default": "http://localhost:11434",
@@ -149,6 +155,23 @@
           "type": "boolean",
           "default": true,
           "description": "Use raw mode (bypasses chat template, for base models)"
+        },
+        "bespokeAI.claudeCode.model": {
+          "type": "string",
+          "default": "haiku",
+          "description": "Claude Code model to use (e.g. haiku, sonnet, opus)"
+        },
+        "bespokeAI.claudeCode.models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "haiku",
+            "sonnet",
+            "opus"
+          ],
+          "description": "Available Claude Code models. The active model is set in claudeCode.model."
         },
         "bespokeAI.prose.maxTokens": {
           "type": "number",
@@ -302,6 +325,7 @@
               "backend": {
                 "type": "string",
                 "enum": [
+                  "claude-code",
                   "anthropic",
                   "ollama"
                 ]
@@ -422,6 +446,14 @@
                     "items": {
                       "type": "string"
                     }
+                  }
+                }
+              },
+              "claudeCode": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string"
                   }
                 }
               }

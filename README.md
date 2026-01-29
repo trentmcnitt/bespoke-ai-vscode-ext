@@ -203,3 +203,77 @@ Identified during code review and API research (01-28-26). To be addressed in fu
 - OpenAI-compatible API provider (covers LM Studio, OpenRouter, etc.)
 - Adaptive debounce (shorter delay after accepting a completion)
 - Per-workspace mode/backend overrides
+
+## Vision: Text Actions — AI-Powered Reading & Writing Toolkit
+
+Beyond inline completions, Bespoke AI aims to become a full AI toolkit for working with text in VS Code. The core idea: **select text → right-click → pick an AI action → get a result**. This works in the editor, the terminal, and anywhere VS Code supports context menus.
+
+The architecture is an **Action Registry** — each action is an ID, a prompt template, and an output mode. The infrastructure makes adding new actions trivial once the plumbing exists.
+
+### Output Modes
+
+| Mode | Use case |
+|---|---|
+| **Side panel** (Webview, renders Markdown) | Explanations, summaries, analysis |
+| **Inline replace** (with undo) | Rephrase, fix errors, expand |
+| **Diff preview** (accept/reject) | Rewrites where you want to compare before/after |
+| **New document tab** | Long outputs like outlines, document digests |
+| **Notification/hover** | Short answers, quick definitions |
+
+### Selection Actions (Right-Click Menu)
+
+- **Explain** — plain-language explanation of selected text (jargon, technical, legal, etc.)
+- **Rephrase** — with sub-options: simpler, more formal, more concise, more detailed, custom
+- **Check for Errors** — grammar, spelling, and semantic/logical issues beyond what spell-check catches
+- **Summarize Selection** — condense a passage to key points
+- **Expand** — flesh out a brief note or outline bullet into full prose
+- **Define / Look Up** — terms, acronyms, jargon
+- **Simplify** — rewrite at a lower reading level (great for dense academic/legal docs)
+- **Formalize** — casual notes → professional prose
+- **Translate** — to/from any language
+- **Ask About Selection** — free-form question about the highlighted text (catch-all)
+- **Counter-Argument** — "What would someone argue against this?"
+- **Extract Action Items** — pull tasks/TODOs from meeting notes, emails, etc.
+
+### Dictation Cleanup
+
+- **Fix Dictation** — purpose-built for voice-to-text artifacts: wrong homophones, missing punctuation, run-on sentences, dropped words. Different from generic grammar check — understands dictation-specific errors.
+
+### Whole-Document Actions
+
+- **Summarize Document** — executive summary + key points
+- **Document Digest** — side panel with summary, section-by-section breakdown, click to navigate
+- **Check Consistency** — find contradictions, repeated points, tone shifts, terminology inconsistencies
+- **Suggest Structure** — propose headings and organization for unstructured text
+- **Generate Table of Contents** — from existing headings or AI-suggested
+- **Extract Key Facts / Entities** — people, dates, numbers, decisions, organizations
+- **Generate Questions** — "What does this document leave unanswered?" or study/review questions
+- **Assess Reading Level** — Flesch-Kincaid style analysis with plain-language interpretation
+- **Fact-Check Flags** — highlight claims that should be verified (flags, doesn't verify)
+- **Bias / Tone Analysis** — flag potentially biased language or framing issues
+
+### Markdown-Specific Tools
+
+- **Fix / Clean Formatting** — repair broken links, inconsistent headings, malformed tables (especially for docs pulled from other sources)
+- **Smart Paste** — detect pasted format (HTML, plain text, messy Markdown) and convert to clean Markdown
+- **Generate Mermaid Diagram** — from text descriptions of processes, relationships, timelines
+- **Table Operations** — AI-powered sort, summarize, add computed columns
+- **Link Enhancer** — suggest links for referenced concepts, check for broken references
+
+### Writing Assistance
+
+- **Continue Writing** — explicit longer-form generation beyond inline ghost text
+- **Suggest Transitions** — between paragraphs or sections
+- **Outline from Prompt** — describe a topic, get a structured outline
+- **Template Generation** — "I need a project proposal" → structured template with guidance
+- **Style Match** — read surrounding document and ensure new text matches tone/terminology
+
+### Advanced / Power Features
+
+- **Document Q&A** — chat-like interface in side panel; ask questions about the open document
+- **Multi-Document Synthesis** — select multiple files, find common themes, contradictions, or produce a unified summary
+- **Compare Documents** — AI-powered diff: not line-by-line, but "what changed and why it matters"
+- **Semantic Search** — find passages by meaning, not just keyword ("where does the author discuss budget implications?")
+- **Create Flashcards / Study Notes** — from selection or whole document
+- **Meeting Notes Pipeline** — raw notes → structured format → extracted action items
+- **Writing Metrics** — live word count, reading level, sentence complexity, passive voice %

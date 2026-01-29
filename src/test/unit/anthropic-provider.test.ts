@@ -57,6 +57,19 @@ describe('AnthropicProvider', () => {
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
+
+    it('is not available when apiCallsEnabled is false', () => {
+      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: 'test-key', model: 'test', useCaching: false, apiCallsEnabled: false } }), makeLogger());
+      expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('returns null from getCompletion when apiCallsEnabled is false', async () => {
+      mockCreate.mockResolvedValue(makeApiResponse('should not be called'));
+      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: 'test-key', model: 'test', useCaching: false, apiCallsEnabled: false } }), makeLogger());
+      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
+      expect(result).toBeNull();
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
   });
 
   describe('prose completion', () => {

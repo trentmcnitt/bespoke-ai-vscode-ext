@@ -63,4 +63,17 @@ describe('applyProfile', () => {
     expect(result.ollama.raw).toBe(false);
     expect(result.ollama.endpoint).toBe(base.ollama.endpoint);
   });
+
+  it('overrides claudeCode model', () => {
+    const base = makeConfig();
+    const result = applyProfile(base, { claudeCode: { model: 'sonnet' } });
+    expect(result.claudeCode.model).toBe('sonnet');
+    expect(result.claudeCode.models).toEqual(base.claudeCode.models);
+  });
+
+  it('overrides backend to claude-code', () => {
+    const base = makeConfig();
+    const result = applyProfile(base, { backend: 'claude-code' });
+    expect(result.backend).toBe('claude-code');
+  });
 });

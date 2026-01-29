@@ -1,5 +1,5 @@
 export type CompletionMode = 'prose' | 'code';
-export type Backend = 'anthropic' | 'ollama';
+export type Backend = 'anthropic' | 'ollama' | 'claude-code';
 
 export interface CompletionContext {
   prefix: string;
@@ -36,6 +36,7 @@ export interface ExtensionConfig {
     model: string;
     models: string[];
     useCaching: boolean;
+    apiCallsEnabled: boolean;
   };
   ollama: {
     endpoint: string;
@@ -58,6 +59,10 @@ export interface ExtensionConfig {
     contextChars: number;
     suffixChars: number;
   };
+  claudeCode: {
+    model: string;
+    models: string[];
+  };
   logLevel: 'info' | 'debug' | 'trace';
   activeProfile: string;
   oracle: {
@@ -76,6 +81,7 @@ export interface ProfileOverrides {
   logLevel?: 'info' | 'debug' | 'trace';
   anthropic?: Partial<Omit<ExtensionConfig['anthropic'], 'apiKey'>>;
   ollama?: Partial<ExtensionConfig['ollama']>;
+  claudeCode?: Partial<ExtensionConfig['claudeCode']>;
   prose?: Partial<ExtensionConfig['prose']>;
   code?: Partial<ExtensionConfig['code']>;
   oracle?: Partial<ExtensionConfig['oracle']>;

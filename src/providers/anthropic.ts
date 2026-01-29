@@ -69,11 +69,11 @@ export class AnthropicProvider implements CompletionProvider {
   }
 
   isAvailable(): boolean {
-    return this.client !== null;
+    return this.client !== null && this.config.anthropic.apiCallsEnabled;
   }
 
   async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
-    if (!this.client) { return null; }
+    if (!this.client || !this.config.anthropic.apiCallsEnabled) { return null; }
 
     const prompt = this.promptBuilder.buildPrompt(context, this.config);
 
@@ -91,7 +91,7 @@ export class AnthropicProvider implements CompletionProvider {
 
       if (!raw) { return null; }
 
-      return postProcessCompletion(raw, prompt, context.prefix);
+      return postProcessCompletion(raw, prompt, context.prefix, context.suffix);
     } catch (err: unknown) {
       // Abort errors — normal during typing, not worth logging
       if (err instanceof Anthropic.APIUserAbortError) { return null; }

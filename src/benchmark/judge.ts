@@ -26,6 +26,29 @@ export interface JudgeConfig {
 }
 
 const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-20250514';
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
+const RETRYABLE_STATUS_CODES = new Set([429, 529]);
+
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Anthropic.APIError) {
+    return RETRYABLE_STATUS_CODES.has(err.status);
+  }
+  if (err instanceof Error && err.name === 'TimeoutError') {
+    return true;
+  }
+  return false;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function retryDelay(attempt: number): number {
+  const base = BASE_DELAY_MS * 2 ** attempt;
+  const jitter = base * 0.3 * (Math.random() * 2 - 1); // ±30%
+  return Math.max(0, base + jitter);
+}
 
 let cachedValidatorPrompt: string | null = null;
 
@@ -118,66 +141,78 @@ export async function evaluateCompletion(
 
   const client = new Anthropic({ apiKey: config.apiKey, timeout: 60_000 });
 
-  try {
-    const response = await client.messages.create({
-      model: config.model,
-      max_tokens: 1024,
-      temperature: 0,
-      system: [{ type: 'text', text: validatorPrompt }],
-      messages: [{ role: 'user', content: userMessage }],
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await client.messages.create({
+        model: config.model,
+        max_tokens: 1024,
+        temperature: 0,
+        system: [{ type: 'text', text: validatorPrompt }],
+        messages: [{ role: 'user', content: userMessage }],
+      });
 
-    const block = response.content[0];
-    const text = block && block.type === 'text' ? block.text : '';
+      const block = response.content[0];
+      const text = block && block.type === 'text' ? block.text : '';
 
-    const judgment = parseJudgmentResponse(text);
-    if (judgment) {
+      const judgment = parseJudgmentResponse(text);
+      if (judgment) {
+        return {
+          index: input.judgeIndex,
+          judgeModel: config.model,
+          score: judgment.score,
+          accept: judgment.accept ?? (judgment.score >= 7),
+          pass: judgment.pass,
+          reasoning: judgment.reasoning,
+          criteria_results: judgment.criteria_results,
+        };
+      }
+
+      // Parse failed — hard fallback (not retryable)
       return {
         index: input.judgeIndex,
         judgeModel: config.model,
-        score: judgment.score,
-        accept: judgment.accept ?? (judgment.score >= 7),
-        pass: judgment.pass,
-        reasoning: judgment.reasoning,
-        criteria_results: judgment.criteria_results,
+        score: 0,
+        accept: false,
+        pass: false,
+        reasoning: `Failed to parse judge response: ${text.slice(0, 200)}`,
+        criteria_results: {
+          seamless_continuation: false,
+          no_repetition: false,
+          appropriate_length: false,
+          context_awareness: false,
+          mode_specific: false,
+          test_requirements: false,
+        },
+      };
+    } catch (err) {
+      if (isRetryable(err) && attempt < MAX_RETRIES) {
+        const delay = retryDelay(attempt);
+        console.log(`      Judge retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms (${err instanceof Anthropic.APIError ? err.status : 'timeout'})`);
+        await sleep(delay);
+        continue;
+      }
+
+      return {
+        index: input.judgeIndex,
+        judgeModel: config.model,
+        score: 0,
+        accept: false,
+        pass: false,
+        reasoning: `Judge API error: ${err instanceof Error ? err.message : String(err)}`,
+        criteria_results: {
+          seamless_continuation: false,
+          no_repetition: false,
+          appropriate_length: false,
+          context_awareness: false,
+          mode_specific: false,
+          test_requirements: false,
+        },
       };
     }
-
-    // Parse failed — hard fallback
-    return {
-      index: input.judgeIndex,
-      judgeModel: config.model,
-      score: 0,
-      accept: false,
-      pass: false,
-      reasoning: `Failed to parse judge response: ${text.slice(0, 200)}`,
-      criteria_results: {
-        seamless_continuation: false,
-        no_repetition: false,
-        appropriate_length: false,
-        context_awareness: false,
-        mode_specific: false,
-        test_requirements: false,
-      },
-    };
-  } catch (err) {
-    return {
-      index: input.judgeIndex,
-      judgeModel: config.model,
-      score: 0,
-      accept: false,
-      pass: false,
-      reasoning: `Judge API error: ${err instanceof Error ? err.message : String(err)}`,
-      criteria_results: {
-        seamless_continuation: false,
-        no_repetition: false,
-        appropriate_length: false,
-        context_awareness: false,
-        mode_specific: false,
-        test_requirements: false,
-      },
-    };
   }
+
+  // Unreachable, but TypeScript needs it
+  throw new Error('Exhausted retries without returning');
 }
 
 /** Evaluate a batch of inputs with a concurrency limit. */

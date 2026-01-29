@@ -13,7 +13,11 @@ type ModeLabel = typeof MODE_LABELS[number];
 const MODE_ICONS: Record<string, string> = { auto: '$(symbol-misc)', prose: '$(book)', code: '$(code)' };
 
 function getActiveModel(config: ExtensionConfig): string {
-  return config.backend === 'anthropic' ? config.anthropic.model : config.ollama.model;
+  switch (config.backend) {
+    case 'anthropic': return config.anthropic.model;
+    case 'ollama': return config.ollama.model;
+    case 'claude-code': return config.claudeCode.model;
+  }
 }
 
 let statusBarItem: vscode.StatusBarItem;
@@ -39,6 +43,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({ dispose: () => oracle.dispose() });
 
   providerRouter = new ProviderRouter(config, logger, (filePath) => oracle.getBrief(filePath));
+  context.subscriptions.push({ dispose: () => providerRouter.dispose() });
+
+  // Activate Claude Code provider with workspace root (async, non-blocking)
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  providerRouter.activateClaudeCode(workspaceRoot).catch((err) => {
+    logger.error(`Claude Code activation failed: ${err}`);
+  });
+
   completionProvider = new CompletionProvider(config, providerRouter, logger);
 
   completionProvider.setRequestCallbacks(
@@ -240,7 +252,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Warn if no API key when using Anthropic
+  // Warn if no API key when using Anthropic (not needed for claude-code backend)
   if (config.backend === 'anthropic' && !config.anthropic.apiKey) {
     logger.info('No Anthropic API key configured');
     vscode.window.showWarningMessage(
@@ -260,7 +272,7 @@ function loadConfig(): ExtensionConfig {
 
   const baseConfig: ExtensionConfig = {
     enabled: ws.get<boolean>('enabled', true)!,
-    backend: ws.get<Backend>('backend', 'anthropic')!,
+    backend: ws.get<Backend>('backend', 'claude-code')!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
     debounceMs: ws.get<number>('debounceMs', 300)!,
     anthropic: {
@@ -268,6 +280,7 @@ function loadConfig(): ExtensionConfig {
       model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20251001')!,
       models: ws.get<string[]>('anthropic.models', ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'])!,
       useCaching: ws.get<boolean>('anthropic.useCaching', true)!,
+      apiCallsEnabled: ws.get<boolean>('anthropic.apiCallsEnabled', true)!,
     },
     ollama: {
       endpoint: ws.get<string>('ollama.endpoint', 'http://localhost:11434')!,
@@ -289,6 +302,10 @@ function loadConfig(): ExtensionConfig {
       stopSequences: ws.get<string[]>('code.stopSequences', ['\n\n'])!,
       contextChars: ws.get<number>('code.contextChars', 4000)!,
       suffixChars: ws.get<number>('code.suffixChars', 500)!,
+    },
+    claudeCode: {
+      model: ws.get<string>('claudeCode.model', 'haiku')!,
+      models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
     activeProfile,
