@@ -23,7 +23,7 @@ let activeRequests = 0;
 let lastConfig: ExtensionConfig;
 
 export function activate(context: vscode.ExtensionContext) {
-  logger = new Logger('AI Prose Completion');
+  logger = new Logger('Bespoke AI');
   context.subscriptions.push(logger);
 
   const config = loadConfig();
@@ -54,28 +54,28 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = 'ai-prose-completion.showMenu';
+  statusBarItem.command = 'bespoke-ai.showMenu';
   context.subscriptions.push(statusBarItem);
   updateStatusBar(config);
 
   // Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.trigger', () => {
+    vscode.commands.registerCommand('bespoke-ai.trigger', () => {
       vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.toggleEnabled', () => {
-      const ws = vscode.workspace.getConfiguration('aiProseCompletion');
+    vscode.commands.registerCommand('bespoke-ai.toggleEnabled', () => {
+      const ws = vscode.workspace.getConfiguration('bespokeAI');
       const current = ws.get<boolean>('enabled', true);
       ws.update('enabled', !current, vscode.ConfigurationTarget.Global);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.cycleMode', () => {
-      const ws = vscode.workspace.getConfiguration('aiProseCompletion');
+    vscode.commands.registerCommand('bespoke-ai.cycleMode', () => {
+      const ws = vscode.workspace.getConfiguration('bespokeAI');
       const current = ws.get<string>('mode', 'auto') as ModeLabel;
       const idx = MODE_LABELS.indexOf(current);
       const next = MODE_LABELS[(idx + 1) % MODE_LABELS.length];
@@ -84,18 +84,18 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.clearCache', () => {
+    vscode.commands.registerCommand('bespoke-ai.clearCache', () => {
       completionProvider.clearCache();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.selectProfile', async () => {
-      const ws = vscode.workspace.getConfiguration('aiProseCompletion');
+    vscode.commands.registerCommand('bespoke-ai.selectProfile', async () => {
+      const ws = vscode.workspace.getConfiguration('bespokeAI');
       const profiles = ws.get<Record<string, ProfileOverrides>>('profiles', {})!;
       const names = Object.keys(profiles);
       if (names.length === 0) {
-        vscode.window.showInformationMessage('No profiles configured. Add them in aiProseCompletion.profiles.');
+        vscode.window.showInformationMessage('No profiles configured. Add them in bespokeAI.profiles.');
         return;
       }
       const picked = await vscode.window.showQuickPick(['(none)', ...names], {
@@ -108,8 +108,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-prose-completion.showMenu', async () => {
-      const ws = vscode.workspace.getConfiguration('aiProseCompletion');
+    vscode.commands.registerCommand('bespoke-ai.showMenu', async () => {
+      const ws = vscode.workspace.getConfiguration('bespokeAI');
       const config = lastConfig;
 
       type MenuHandler = () => void | Promise<void>;
@@ -183,7 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
       };
       items.push(openSettingsItem);
       handlers.set(openSettingsItem, () => {
-        vscode.commands.executeCommand('workbench.action.openSettings', 'aiProseCompletion');
+        vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
       });
 
       const openLogItem: vscode.QuickPickItem = {
@@ -195,7 +195,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       const picked = await vscode.window.showQuickPick(items, {
-        title: 'AI Prose Completion',
+        title: 'Bespoke AI',
         placeHolder: 'Select an option',
       });
 
@@ -209,7 +209,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Watch for config changes
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('aiProseCompletion')) {
+      if (e.affectsConfiguration('bespokeAI')) {
         const newConfig = loadConfig();
 
         if (newConfig.activeProfile !== currentProfile) {
@@ -230,7 +230,7 @@ export function activate(context: vscode.ExtensionContext) {
   if (config.backend === 'anthropic' && !config.anthropic.apiKey) {
     logger.info('No Anthropic API key configured');
     vscode.window.showWarningMessage(
-      'AI Prose Completion: No Anthropic API key configured. Set it in Settings → AI Prose Completion → Anthropic: Api Key.'
+      'Bespoke AI: No Anthropic API key configured. Set it in Settings → Bespoke AI → Anthropic: Api Key.'
     );
   }
 
@@ -238,7 +238,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function loadConfig(): ExtensionConfig {
-  const ws = vscode.workspace.getConfiguration('aiProseCompletion');
+  const ws = vscode.workspace.getConfiguration('bespokeAI');
 
   const apiKey = ws.get<string>('anthropic.apiKey', '');
 
@@ -296,14 +296,14 @@ function updateStatusBar(config: ExtensionConfig) {
   lastConfig = config;
   if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
-    statusBarItem.tooltip = 'AI Prose Completion: Disabled (click for menu)';
+    statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
   } else {
     const activeModel = getActiveModel(config);
     const modelLabel = shortenModelName(activeModel);
     statusBarItem.text = `${MODE_ICONS[config.mode]} ${config.mode} | ${modelLabel}`;
 
     const profileInfo = config.activeProfile ? `, profile: ${config.activeProfile}` : '';
-    statusBarItem.tooltip = `AI Prose Completion: ${config.mode} mode, ${config.backend} (${activeModel})${profileInfo} (click for menu)`;
+    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.backend} (${activeModel})${profileInfo} (click for menu)`;
   }
   statusBarItem.show();
 }

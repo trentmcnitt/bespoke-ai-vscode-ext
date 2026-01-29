@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A VS Code extension providing inline completions (ghost text) for prose and code. Two backends: Anthropic Claude (cloud) and Ollama (local). Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
+Bespoke AI is a personal AI toolkit for VS Code, currently providing inline completions (ghost text) for prose and code. Two backends: Anthropic Claude (cloud) and Ollama (local). Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
 
 ## Commands
 
@@ -18,6 +18,7 @@ npm run test:unit      # Vitest unit tests (src/test/unit/)
 npm run test:unit:watch  # Vitest watch mode
 npm run test:api       # API integration tests (src/test/api/, needs live backends)
 npm run test:quality   # LLM-as-judge completion quality tests (needs Anthropic key)
+npm run benchmark      # Parameter sweep benchmarking (needs Anthropic key)
 ```
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
@@ -28,27 +29,36 @@ esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting
 
 ## Architecture
 
-**Request flow:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (300ms) → call provider (which builds the prompt internally and post-processes the result) → cache result → return `InlineCompletionItem`.
+### Request flow
 
-**Error handling:** Providers catch abort errors and return `null`; all other errors propagate to `CompletionProvider`, which logs them via the `Logger` and returns `null`. The extension does not surface runtime completion errors to the user, though configuration issues (e.g., missing API key) show a one-time warning at activation. **Follow this same pattern for new code.**
+User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (300ms) → call provider (which builds the prompt internally and post-processes the result) → cache result → return `InlineCompletionItem`.
 
-**Logging:** The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("AI Prose Completion"). Created in `activate()` and injected into `CompletionProvider`, `ProviderRouter`, and both providers. The `aiProseCompletion.logLevel` setting controls verbosity:
+### Error handling
 
-| Level | Use |
-|-------|-----|
+Providers catch abort errors and return `null`; all other errors propagate to `CompletionProvider`, which logs them via the `Logger` and returns `null`. The extension does not surface runtime completion errors to the user, though configuration issues (e.g., missing API key) show a one-time warning at activation. **Follow this same pattern for new code.**
+
+### Logging
+
+The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). Created in `activate()` and injected into `CompletionProvider`, `ProviderRouter`, and both providers. The `bespokeAI.logLevel` setting controls verbosity:
+
+| Level | What gets logged |
+|-------|-----------------|
 | `info` (default) | Lifecycle: activation, config changes, profile switches |
 | `debug` | Per-request metadata: mode, backend, char counts, model params, token usage |
 | `trace` | Full payloads: complete prefix, suffix, system, user message, prefill |
+| `error` | Failures (always logged regardless of level) |
 
 Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metadata, `logger.trace()` for full payloads, and `logger.error()` for failures. The output channel is visible in the VS Code Output panel.
 
-**Key components, listed in request-flow order:**
+### Components
 
-- `src/extension.ts` — Activation entry point. Loads config from VS Code's `aiProseCompletion.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and six commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), and `showMenu` (unified status bar menu). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
+Key components, listed in request-flow order:
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` as 3rd constructor param for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
+- `src/extension.ts` — Activation entry point. Loads config from VS Code's `bespokeAI.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and six commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), and `showMenu` (unified status bar menu). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
 
-- `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. The `aiProseCompletion.mode` setting overrides auto-detection when set to `prose` or `code`. Unknown languages default to prose because the primary use case is writing.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` via its constructor for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
+
+- `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode` when set to `prose` or `code`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose because the primary use case is writing.
 
 - `src/prompt-builder.ts` — Constructs `BuiltPrompt` per mode. Each provider instantiates its own `PromptBuilder` and calls it internally. Prose uses continuation-style prompting with assistant prefill (seeding the assistant response with the last 4 words so the model continues naturally). Code uses FIM (Fill-in-the-Middle) with prefix/suffix and filename/language context.
 
@@ -66,13 +76,15 @@ Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metad
 
 - `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Both `prefixChars` and `suffixChars` are configurable via `prose.contextChars`/`prose.suffixChars` and `code.contextChars`/`code.suffixChars` settings. Uses `path.basename()` for cross-platform filename.
 
-- `src/utils/logger.ts` — `Logger` class wrapping `vscode.OutputChannel`. Provides `info()`, `debug()`, `trace()`, and `error()` methods with timestamps. Level-gated by `setLevel()`: trace shows all, debug shows debug+info+error, info shows only info+error. Created once in `activate()` and injected into `CompletionProvider` and both providers.
+- `src/utils/logger.ts` — See Logging above.
 
 - `src/utils/model-name.ts` — `shortenModelName()` pure function. Shortens model IDs for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`). Strips `claude-` prefix, date suffixes, and converts version separators.
 
 - `src/utils/profile.ts` — `applyProfile()` pure function. Deep-merges a `ProfileOverrides` object over a base `ExtensionConfig`. The API key always comes from the base config (security guard against profile injection).
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which both provider implementations (Anthropic and Ollama) conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled` and `apiKey`). `ExtensionConfig` defines the same fields as the `aiProseCompletion.*` settings in `package.json` — when modifying either, update both to keep them in sync. Both `anthropic` and `ollama` sub-objects include a `models` array (informational catalog of available models) and a `model` string (the active model).
+### Types
+
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which both provider implementations (Anthropic and Ollama) conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled`, `apiKey`, and `activeProfile`). `ExtensionConfig` defines the same fields as the `bespokeAI.*` settings in `package.json` — when modifying either, update both to keep them in sync. Both `anthropic` and `ollama` sub-objects include a `models` array (informational catalog of available models) and a `model` string (the active model).
 
 ## Adding a New Setting
 
@@ -83,8 +95,10 @@ Adding or modifying a VS Code setting requires coordinated changes to:
 | 1 | `package.json` | Add to `contributes.configuration` |
 | 2 | `src/types.ts` | Add field to `ExtensionConfig` |
 | 3 | `src/extension.ts` | Read it in `loadConfig()` |
-| 4 | `src/test/helpers.ts` | Add default value in `makeConfig()` |
-| 5 | (varies) | Use the new config field in the consuming component |
+| 4 | `src/test/helpers.ts` | Add default value in `DEFAULT_CONFIG` |
+| 5 | (varies) | Wire the new field into the component that needs it |
+| 6 | `src/types.ts` | If profile-overridable: add to `ProfileOverrides` |
+| 7 | `package.json` | If profile-overridable: add to `profiles` → `additionalProperties` schema |
 
 If the setting should take effect without restarting VS Code, also propagate the new value through `CompletionProvider.updateConfig()` and/or `ProviderRouter.updateConfig()`.
 
@@ -92,7 +106,7 @@ If the setting should take effect without restarting VS Code, also propagate the
 
 ### Running all tests
 
-When asked to "run tests" (without further qualification), run the full test suite:
+When asked to "run tests" (without further qualification), run the full test suite. API and quality tests require `ANTHROPIC_API_KEY` in the environment (source it from `~/.creds/api-keys.env` if not already set). Without it, those suites skip silently. After the run, report any skipped suites and why.
 
 ```bash
 npm run check && npm run test:unit && npm run test:api && npm run test:quality
@@ -102,7 +116,7 @@ After `test:quality` completes, it prints Layer 2 instructions to stdout. Follow
 
 ### Unit tests
 
-Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
+Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext` with sensible defaults), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
@@ -114,7 +128,7 @@ API integration tests (`src/test/api/`) make real HTTP calls. They use `describe
 
 ### Quality Tests (LLM-as-Judge)
 
-Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. This uses a two-layer validation pattern:
+Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests always use the Anthropic backend; to test Ollama quality, use the benchmark system with an Ollama config. This uses a two-layer validation pattern:
 
 **Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `requirements.json`, and `metadata.json`. Layer 1 only checks that the provider didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The `summary.json` file records which model was used.
 
@@ -138,23 +152,23 @@ To add a new scenario, add a `TestScenario` object to the prose, code, or edge-c
 
 ## Profiles
 
-Profiles are named config presets stored in `aiProseCompletion.profiles`. Each profile is a partial config that deep-merges over the base settings. The active profile is set via `aiProseCompletion.activeProfile` (empty string = no profile, use base settings).
+Profiles are named config presets stored in `bespokeAI.profiles`. Each profile is a partial config that deep-merges over the base settings. The active profile is set via `bespokeAI.activeProfile` (empty string = no profile, use base settings).
 
 **Commands:**
-- `AI Prose: Show Menu` — Unified QuickPick menu (mode, profile, actions) — status bar click target
-- `AI Prose: Select Profile` — QuickPick UI to switch profiles (or select "(none)" for base settings)
-- `AI Prose: Clear Completion Cache` — manually clear the LRU cache
+- `Bespoke AI: Show Menu` — Unified QuickPick menu (mode, profile, actions) — status bar click target
+- `Bespoke AI: Select Profile` — QuickPick UI to switch profiles (or select "(none)" for base settings)
+- `Bespoke AI: Clear Completion Cache` — manually clear the LRU cache
 
 **Behavior:**
-- Clicking the status bar opens the unified menu (mode selection, profile switching, toggle enable, clear cache)
+- Clicking the status bar opens the unified menu (mode selection, profile switching, toggle enable, clear cache, open settings, open output log)
 - The status bar shows a `$(loading~spin)` spinner while a completion request is in-flight
 - Switching profiles auto-clears the completion cache
-- Profiles cannot override `apiKey` or `enabled` (security and UX guards)
+- Profiles cannot override `apiKey`, `enabled`, or `activeProfile` (security and UX guards)
 - The status bar shows the shortened model name (e.g., `haiku-4.5`) and the tooltip includes the profile name when active
 
 **Example config:**
 ```json
-"aiProseCompletion.profiles": {
+"bespokeAI.profiles": {
   "haiku-fast": {
     "anthropic": { "model": "claude-haiku-4-5-20251001" },
     "prose": { "temperature": 0.7, "maxTokens": 80 }
@@ -170,6 +184,51 @@ Profiles are named config presets stored in `aiProseCompletion.profiles`. Each p
 }
 ```
 
+## Benchmarking
+
+Benchmarking is **separate from the test suite** — it's an experimentation system for running quality scenarios across multiple config variations, accumulating scored results over time, and generating comparison reports. Source lives in `src/benchmark/`, output in `test-results/benchmarks/` (gitignored).
+
+### Running benchmarks
+
+```bash
+# Run all configs (default: 1 judge per scenario)
+npm run benchmark
+
+# Run specific configs
+BENCHMARK_CONFIGS="haiku-temp0.5,haiku-temp0.9" npm run benchmark
+
+# Request 3 independent judges per scenario for higher confidence
+BENCHMARK_JUDGES=3 npm run benchmark
+```
+
+### Layer 2 workflow
+
+After Layer 1 (generation) completes, the runner prints instructions to stdout. Follow them:
+
+1. Read the validator prompt: `src/test/quality/validator-prompt.md`
+2. For each config/scenario directory, evaluate `completion.txt` against `input.json` and `requirements.json`
+3. Write `validation.json` to each scenario directory
+4. Update the ledger with scores using `updateLedgerScores()` from `src/benchmark/ledger.ts`
+5. Generate comparison report: `npx tsx src/benchmark/reporter.ts`
+
+Use sub-agents to parallelize scoring. When `BENCHMARK_JUDGES` > 1, spin up that many sub-agents per scenario — each writes a `ValidationResult` with a unique `judgeId`, and the final score is the average.
+
+### Adding new configs
+
+Edit `src/benchmark/configs.ts` and add a `BenchmarkConfig` to the `BENCHMARK_CONFIGS` array. Each config needs a label, description, and partial `ExtensionConfig` overrides.
+
+### Ledger
+
+The ledger (`test-results/benchmarks/ledger.json`) is append-only. Multiple runs with the same model/config are expected — you build up data over time. The comparison report (`test-results/benchmarks/comparison-report.md`) is regenerated from ledger data after scoring.
+
+### Key files
+
+- `src/benchmark/types.ts` — Benchmark-specific types
+- `src/benchmark/configs.ts` — Named config presets + env var filtering
+- `src/benchmark/runner.ts` — Layer 1 generation (standalone script)
+- `src/benchmark/ledger.ts` — Ledger read/write/update utilities
+- `src/benchmark/reporter.ts` — Comparison report generator
+
 ## Known Limitations
 
 These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
@@ -177,6 +236,13 @@ These are accepted trade-offs. Do not attempt to fix them unless explicitly aske
 - The Anthropic API rejects stop sequences that are purely whitespace, so `src/utils/post-process.ts` enforces `\n\n` stop boundaries in post-processing instead.
 - Ollama discards the system prompt in raw mode — only `userMessage` is sent.
 - Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
-- The cache is auto-cleared on profile switch, but not on individual setting changes. It may serve completions generated with previous settings until they expire (5-minute TTL) or are evicted. Use the "AI Prose: Clear Completion Cache" command to manually clear it.
+- The cache is auto-cleared on profile switch, but not on individual setting changes. It may serve completions generated with previous settings until they expire (5-minute TTL) or are evicted. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values, so it passes invalid settings through to providers unchecked.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. This does not affect test execution because Vitest uses its own TypeScript transformer independent of `tsconfig.json`.
+
+## Future Direction
+
+Bespoke AI is evolving from a single-purpose inline completion extension into a broader personal AI toolkit. Planned capabilities beyond inline completions (do not implement unless explicitly asked):
+
+- **Commit message generation** — Leverage Claude Code as a backend (via `claude --print` or the `agentapi`) to generate commit messages from staged diffs, surfaced through a VS Code command.
+- **Autocomplete via Claude Code** — Explore using a Claude Code subscription as the completion backend (instead of direct Anthropic API calls), potentially via `claude --print` for single-shot completions or the `agentapi` for richer integration. This would let users leverage their existing Claude Code subscription rather than managing a separate API key.

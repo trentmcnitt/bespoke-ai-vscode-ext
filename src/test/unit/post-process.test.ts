@@ -63,4 +63,31 @@ describe('postProcessCompletion', () => {
     const result = postProcessCompletion('```\n```', makePrompt());
     expect(result).toBeNull();
   });
+
+  it('strips leading space when prefix ends with space and prefill does not', () => {
+    const result = postProcessCompletion(
+      ' the quick brown fox',
+      makePrompt({ assistantPrefill: 'You can use' }),
+      'You can use '
+    );
+    expect(result).toBe('the quick brown fox');
+  });
+
+  it('does not strip leading space when prefix does not end with space', () => {
+    const result = postProcessCompletion(
+      ' the quick brown fox',
+      makePrompt({ assistantPrefill: 'You can use' }),
+      'You can use'
+    );
+    expect(result).toBe(' the quick brown fox');
+  });
+
+  it('does not strip leading space when there is no prefill', () => {
+    const result = postProcessCompletion(
+      ' some text',
+      makePrompt(),
+      'Hello '
+    );
+    expect(result).toBe(' some text');
+  });
 });

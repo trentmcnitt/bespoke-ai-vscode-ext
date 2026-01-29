@@ -1,6 +1,6 @@
 {
-  "name": "ai-prose-completion",
-  "displayName": "AI Prose Completion",
+  "name": "bespoke-ai",
+  "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Anthropic Claude or Ollama",
   "version": "0.1.0",
   "publisher": "trenthm",
@@ -17,47 +17,47 @@
   "contributes": {
     "commands": [
       {
-        "command": "ai-prose-completion.trigger",
-        "title": "AI Prose: Trigger Completion"
+        "command": "bespoke-ai.trigger",
+        "title": "Bespoke AI: Trigger Completion"
       },
       {
-        "command": "ai-prose-completion.toggleEnabled",
-        "title": "AI Prose: Toggle Enabled"
+        "command": "bespoke-ai.toggleEnabled",
+        "title": "Bespoke AI: Toggle Enabled"
       },
       {
-        "command": "ai-prose-completion.cycleMode",
-        "title": "AI Prose: Cycle Mode"
+        "command": "bespoke-ai.cycleMode",
+        "title": "Bespoke AI: Cycle Mode"
       },
       {
-        "command": "ai-prose-completion.clearCache",
-        "title": "AI Prose: Clear Completion Cache"
+        "command": "bespoke-ai.clearCache",
+        "title": "Bespoke AI: Clear Completion Cache"
       },
       {
-        "command": "ai-prose-completion.selectProfile",
-        "title": "AI Prose: Select Profile"
+        "command": "bespoke-ai.selectProfile",
+        "title": "Bespoke AI: Select Profile"
       },
       {
-        "command": "ai-prose-completion.showMenu",
-        "title": "AI Prose: Show Menu"
+        "command": "bespoke-ai.showMenu",
+        "title": "Bespoke AI: Show Menu"
       }
     ],
     "keybindings": [
       {
-        "command": "ai-prose-completion.trigger",
+        "command": "bespoke-ai.trigger",
         "key": "ctrl+l",
         "mac": "ctrl+l",
         "when": "editorTextFocus"
       }
     ],
     "configuration": {
-      "title": "AI Prose Completion",
+      "title": "Bespoke AI",
       "properties": {
-        "aiProseCompletion.enabled": {
+        "bespokeAI.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable inline completions"
         },
-        "aiProseCompletion.backend": {
+        "bespokeAI.backend": {
           "type": "string",
           "enum": [
             "anthropic",
@@ -66,7 +66,7 @@
           "default": "anthropic",
           "description": "Backend provider for completions"
         },
-        "aiProseCompletion.mode": {
+        "bespokeAI.mode": {
           "type": "string",
           "enum": [
             "auto",
@@ -76,64 +76,64 @@
           "default": "auto",
           "description": "Completion mode (auto detects based on file type)"
         },
-        "aiProseCompletion.debounceMs": {
+        "bespokeAI.debounceMs": {
           "type": "number",
           "default": 300,
           "description": "Delay in milliseconds before triggering completion"
         },
-        "aiProseCompletion.anthropic.apiKey": {
+        "bespokeAI.anthropic.apiKey": {
           "type": "string",
           "default": "",
           "description": "Anthropic API key for Claude completions"
         },
-        "aiProseCompletion.anthropic.model": {
+        "bespokeAI.anthropic.model": {
           "type": "string",
           "default": "claude-haiku-4-5-20251001",
           "description": "Anthropic model to use. See anthropic.models for available options."
         },
-        "aiProseCompletion.anthropic.models": {
+        "bespokeAI.anthropic.models": {
           "type": "array",
           "items": { "type": "string" },
           "default": ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"],
           "description": "Available Anthropic models. The active model is set in anthropic.model."
         },
-        "aiProseCompletion.anthropic.useCaching": {
+        "bespokeAI.anthropic.useCaching": {
           "type": "boolean",
           "default": true,
           "description": "Enable prompt caching for cost savings"
         },
-        "aiProseCompletion.ollama.endpoint": {
+        "bespokeAI.ollama.endpoint": {
           "type": "string",
           "default": "http://localhost:11434",
           "description": "Ollama API endpoint URL"
         },
-        "aiProseCompletion.ollama.model": {
+        "bespokeAI.ollama.model": {
           "type": "string",
           "default": "qwen2.5:3b",
           "description": "Ollama model to use. See ollama.models for available options."
         },
-        "aiProseCompletion.ollama.models": {
+        "bespokeAI.ollama.models": {
           "type": "array",
           "items": { "type": "string" },
           "default": ["qwen2.5:3b", "qwen2.5-coder:3b", "llama3.2:3b", "deepseek-coder-v2:latest"],
           "description": "Available Ollama models. The active model is set in ollama.model."
         },
-        "aiProseCompletion.ollama.raw": {
+        "bespokeAI.ollama.raw": {
           "type": "boolean",
           "default": true,
           "description": "Use raw mode (bypasses chat template, for base models)"
         },
-        "aiProseCompletion.prose.maxTokens": {
+        "bespokeAI.prose.maxTokens": {
           "type": "number",
           "default": 100,
           "description": "Maximum tokens for prose completions"
         },
-        "aiProseCompletion.prose.temperature": {
+        "bespokeAI.prose.temperature": {
           "type": "number",
           "default": 0.7,
           "description": "Temperature for prose completions"
         },
-        "aiProseCompletion.prose.stopSequences": {
+        "bespokeAI.prose.stopSequences": {
           "type": "array",
           "items": {
             "type": "string"
@@ -145,17 +145,17 @@
           ],
           "description": "Stop sequences for prose completions"
         },
-        "aiProseCompletion.prose.contextChars": {
+        "bespokeAI.prose.contextChars": {
           "type": "number",
           "default": 2000,
           "description": "Number of prefix characters to include for prose context"
         },
-        "aiProseCompletion.prose.suffixChars": {
+        "bespokeAI.prose.suffixChars": {
           "type": "number",
           "default": 500,
           "description": "Number of suffix characters (after cursor) to include for prose context"
         },
-        "aiProseCompletion.prose.fileTypes": {
+        "bespokeAI.prose.fileTypes": {
           "type": "array",
           "items": {
             "type": "string"
@@ -166,17 +166,17 @@
           ],
           "description": "Language IDs treated as prose"
         },
-        "aiProseCompletion.code.maxTokens": {
+        "bespokeAI.code.maxTokens": {
           "type": "number",
           "default": 256,
           "description": "Maximum tokens for code completions"
         },
-        "aiProseCompletion.code.temperature": {
+        "bespokeAI.code.temperature": {
           "type": "number",
           "default": 0.2,
           "description": "Temperature for code completions"
         },
-        "aiProseCompletion.code.stopSequences": {
+        "bespokeAI.code.stopSequences": {
           "type": "array",
           "items": {
             "type": "string"
@@ -186,17 +186,17 @@
           ],
           "description": "Stop sequences for code completions"
         },
-        "aiProseCompletion.code.contextChars": {
+        "bespokeAI.code.contextChars": {
           "type": "number",
           "default": 4000,
           "description": "Number of prefix characters to include for code context"
         },
-        "aiProseCompletion.code.suffixChars": {
+        "bespokeAI.code.suffixChars": {
           "type": "number",
           "default": 500,
           "description": "Number of suffix characters (after cursor) to include for code context"
         },
-        "aiProseCompletion.logLevel": {
+        "bespokeAI.logLevel": {
           "type": "string",
           "enum": [
             "info",
@@ -206,7 +206,7 @@
           "default": "info",
           "description": "Logging verbosity in the Output channel"
         },
-        "aiProseCompletion.profiles": {
+        "bespokeAI.profiles": {
           "type": "object",
           "default": {
             "haiku-fast": {
@@ -273,7 +273,7 @@
             }
           }
         },
-        "aiProseCompletion.activeProfile": {
+        "bespokeAI.activeProfile": {
           "type": "string",
           "default": "",
           "description": "Name of the active profile (empty = use base settings)"
@@ -291,7 +291,8 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
-    "test:quality": "vitest run --config vitest.quality.config.ts"
+    "test:quality": "vitest run --config vitest.quality.config.ts",
+    "benchmark": "tsx src/benchmark/runner.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -301,6 +302,7 @@
     "esbuild": "^0.24.0",
     "eslint": "^9.39.2",
     "typescript": "^5.3.0",
+    "tsx": "^4.0.0",
     "vitest": "^4.0.18"
   },
   "dependencies": {

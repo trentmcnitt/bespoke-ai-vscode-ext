@@ -1,4 +1,4 @@
-# AI Prose Completion
+# Bespoke AI
 
 A VSCodium/VS Code extension that provides inline ghost-text completions for both prose and code, powered by Anthropic Claude or Ollama.
 
@@ -71,7 +71,7 @@ src/
 
 ## Configuration
 
-All settings are under `aiProseCompletion.*` in VS Code/VSCodium settings.
+All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 ### General
 
@@ -123,9 +123,9 @@ All settings are under `aiProseCompletion.*` in VS Code/VSCodium settings.
 
 | Command | Keybinding | Description |
 |---|---|---|
-| `AI Prose: Trigger Completion` | `Ctrl+L` | Manually trigger a completion |
-| `AI Prose: Toggle Enabled` | — | Toggle the extension on/off |
-| `AI Prose: Cycle Mode` | Click status bar | Cycle through auto → prose → code |
+| `Bespoke AI: Trigger Completion` | `Ctrl+L` | Manually trigger a completion |
+| `Bespoke AI: Toggle Enabled` | — | Toggle the extension on/off |
+| `Bespoke AI: Cycle Mode` | Click status bar | Cycle through auto → prose → code |
 
 ## Setup
 

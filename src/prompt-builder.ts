@@ -1,8 +1,8 @@
 import { CompletionContext, BuiltPrompt, ExtensionConfig } from './types';
 
-const PROSE_SYSTEM = `You are a text continuation engine. Output ONLY the natural continuation of the text. Do not add commentary, explanations, or meta-text. Match the voice, tone, and style exactly. Output 1-2 sentences maximum. Do NOT repeat any of the provided text. Do NOT start with a newline.`;
+const PROSE_SYSTEM = `You are a text continuation engine. Output ONLY the natural continuation of the text. Do not add commentary, explanations, or meta-text. Match the voice, tone, and style exactly. Output 1-2 sentences maximum. Do NOT repeat any of the provided text. Do NOT start with a newline. If the text ends mid-word, complete the word directly without adding a leading space.`;
 
-const CODE_SYSTEM_BASE = `You are a code completion engine. Complete the code at the cursor position. Output ONLY the raw code that should be inserted — no explanations, no comments about what the code does. NEVER wrap output in markdown code fences (\`\`\`). Your output is inserted directly into a source file, so it must be valid code with no formatting wrappers. Match the existing code style.`;
+const CODE_SYSTEM_BASE = `You are a code completion engine. Complete the code at the cursor position. Output ONLY the raw code that should be inserted — no explanations, no comments about what the code does. NEVER wrap output in markdown code fences (\`\`\`). Your output is inserted directly into a source file, so it must be valid code with no formatting wrappers. Match the existing code style. When code exists after the cursor, your output must fit exactly between the before and after code — do not generate code that belongs outside that scope or duplicates the surrounding context.`;
 
 export class PromptBuilder {
   buildPrompt(context: CompletionContext, config: ExtensionConfig): BuiltPrompt {
@@ -41,7 +41,7 @@ export class PromptBuilder {
 
     let userMessage: string;
     if (context.suffix.trim()) {
-      userMessage = `Code before cursor:\n${context.prefix}\n\nCode after cursor:\n${context.suffix}\n\nInsert code at the cursor:`;
+      userMessage = `Code before cursor:\n${context.prefix}\n\nCode after cursor:\n${context.suffix}\n\nInsert ONLY the code that belongs at the cursor position. The code after the cursor already exists — do not regenerate or extend beyond it:`;
     } else {
       userMessage = context.prefix;
     }

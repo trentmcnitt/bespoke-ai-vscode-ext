@@ -99,7 +99,7 @@ export class OllamaProvider implements CompletionProvider {
 
       this.logger.debug(`Ollama response: length=${data.response.length}`);
 
-      return postProcessCompletion(data.response, prompt);
+      return postProcessCompletion(data.response, prompt, context.prefix);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') { return null; }
       throw err;

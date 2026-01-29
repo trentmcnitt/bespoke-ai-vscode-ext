@@ -66,6 +66,15 @@ describe('PromptBuilder', () => {
       expect(result.assistantPrefill).toBe('The quick fox');
     });
 
+    it('does not include trailing whitespace in prefill (API rejects it)', () => {
+      const ctx: CompletionContext = {
+        ...proseContext,
+        prefix: 'You can use ',
+      };
+      const result = builder.buildPrompt(ctx, makeConfig());
+      expect(result.assistantPrefill).toBe('You can use');
+    });
+
     it('handles empty prefix gracefully', () => {
       const ctx: CompletionContext = { ...proseContext, prefix: '' };
       const result = builder.buildPrompt(ctx, makeConfig());
@@ -110,7 +119,7 @@ describe('PromptBuilder', () => {
       const result = builder.buildPrompt(codeContext, makeConfig());
       expect(result.userMessage).toContain('Code before cursor:');
       expect(result.userMessage).toContain('Code after cursor:');
-      expect(result.userMessage).toContain('Insert code at the cursor:');
+      expect(result.userMessage).toContain('Insert ONLY the code that belongs at the cursor position');
     });
 
     it('uses plain prefix when no suffix', () => {

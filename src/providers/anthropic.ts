@@ -53,11 +53,17 @@ export class AnthropicProvider implements CompletionProvider {
 
       if (!raw) { return null; }
 
-      return postProcessCompletion(raw, prompt);
+      return postProcessCompletion(raw, prompt, context.prefix);
     } catch (err: unknown) {
-      // SDK throws APIUserAbortError on signal abort
+      // Abort errors — normal during typing, not worth logging
       if (err instanceof Anthropic.APIUserAbortError) { return null; }
       if (err instanceof Error && err.name === 'AbortError') { return null; }
+      // API errors (auth, rate limit, server errors, etc.) — log and return null
+      // per the architecture pattern: providers catch errors, return null
+      if (err instanceof Anthropic.APIError) {
+        this.logger.error(`Anthropic API error: ${err.status} ${err.message}`);
+        return null;
+      }
       throw err;
     }
   }
