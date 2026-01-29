@@ -45,6 +45,7 @@ export interface ExtensionConfig {
     temperature: number;
     stopSequences: string[];
     contextChars: number;
+    suffixChars: number;
     fileTypes: string[];
   };
   code: {
@@ -52,5 +53,6 @@ export interface ExtensionConfig {
     temperature: number;
     stopSequences: string[];
     contextChars: number;
+    suffixChars: number;
   };
 }

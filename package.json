@@ -126,6 +126,11 @@
           "default": 2000,
           "description": "Number of prefix characters to include for prose context"
         },
+        "aiProseCompletion.prose.suffixChars": {
+          "type": "number",
+          "default": 500,
+          "description": "Number of suffix characters (after cursor) to include for prose context"
+        },
         "aiProseCompletion.prose.fileTypes": {
           "type": "array",
           "items": {
@@ -161,6 +166,11 @@
           "type": "number",
           "default": 4000,
           "description": "Number of prefix characters to include for code context"
+        },
+        "aiProseCompletion.code.suffixChars": {
+          "type": "number",
+          "default": 500,
+          "description": "Number of suffix characters (after cursor) to include for code context"
         }
       }
     }

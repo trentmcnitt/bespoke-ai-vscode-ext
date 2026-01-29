@@ -12,7 +12,7 @@ export function buildDocumentContext(
   document: vscode.TextDocument,
   position: vscode.Position,
   prefixChars: number,
-  suffixChars: number = 500
+  suffixChars: number
 ): DocumentContext {
   const offset = document.offsetAt(position);
   const fullText = document.getText();

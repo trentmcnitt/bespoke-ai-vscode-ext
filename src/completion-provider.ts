@@ -40,7 +40,8 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
     // Build document context
     const contextChars = mode === 'code' ? this.config.code.contextChars : this.config.prose.contextChars;
-    const docContext = buildDocumentContext(document, position, contextChars);
+    const suffixChars = mode === 'code' ? this.config.code.suffixChars : this.config.prose.suffixChars;
+    const docContext = buildDocumentContext(document, position, contextChars, suffixChars);
 
     // Skip if no prefix content
     if (!docContext.prefix.trim()) { return null; }

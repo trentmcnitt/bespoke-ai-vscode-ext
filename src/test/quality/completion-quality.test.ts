@@ -30,6 +30,10 @@ function makeCompletionConfig() {
   const config = makeConfig();
   config.anthropic.apiKey = apiKey;
   config.anthropic.useCaching = false;
+  // Allow overriding the model via environment variable for A/B testing
+  if (process.env.QUALITY_TEST_MODEL) {
+    config.anthropic.model = process.env.QUALITY_TEST_MODEL;
+  }
   return config;
 }
 
@@ -110,6 +114,7 @@ describe.skipIf(!hasApiKey)('Completion Quality — Generation', () => {
 
     const summary = {
       timestamp,
+      model: makeCompletionConfig().anthropic.model,
       totalScenarios: results.length,
       generated,
       nullResults: nulls,

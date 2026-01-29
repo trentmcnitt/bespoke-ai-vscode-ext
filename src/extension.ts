@@ -1,10 +1,8 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { ExtensionConfig, Backend } from './types';
 import { CompletionProvider } from './completion-provider';
 import { ProviderRouter } from './providers/provider-router';
+import { readApiKeyFromEnvFile } from './utils/env';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = typeof MODE_LABELS[number];
@@ -106,6 +104,7 @@ function loadConfig(): ExtensionConfig {
       temperature: ws.get<number>('prose.temperature', 0.7)!,
       stopSequences: ws.get<string[]>('prose.stopSequences', ['\n\n', '---', '##'])!,
       contextChars: ws.get<number>('prose.contextChars', 2000)!,
+      suffixChars: ws.get<number>('prose.suffixChars', 500)!,
       fileTypes: ws.get<string[]>('prose.fileTypes', ['markdown', 'plaintext'])!,
     },
     code: {
@@ -113,34 +112,11 @@ function loadConfig(): ExtensionConfig {
       temperature: ws.get<number>('code.temperature', 0.2)!,
       stopSequences: ws.get<string[]>('code.stopSequences', ['\n\n'])!,
       contextChars: ws.get<number>('code.contextChars', 4000)!,
+      suffixChars: ws.get<number>('code.suffixChars', 500)!,
     },
   };
 }
 
-function readApiKeyFromEnvFile(): string {
-  try {
-    const envPath = path.join(os.homedir(), '.creds', 'api-keys.env');
-    const content = fs.readFileSync(envPath, 'utf-8');
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('ANTHROPIC_API_KEY=')) {
-        let value = trimmed.slice('ANTHROPIC_API_KEY='.length);
-        // Strip surrounding quotes
-        if ((value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.slice(1, -1);
-        }
-        // Strip inline comments (e.g. "sk-ant-xxx # project-name")
-        const commentIdx = value.indexOf(' #');
-        if (commentIdx >= 0) { value = value.slice(0, commentIdx); }
-        return value.trim();
-      }
-    }
-  } catch {
-    // File not found or unreadable — that's fine
-  }
-  return '';
-}
 
 function updateStatusBar(config: ExtensionConfig) {
   if (!config.enabled) {
