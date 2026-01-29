@@ -54,7 +54,9 @@ Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metad
 
 Key components, listed in request-flow order:
 
-- `src/extension.ts` — Activation entry point. Loads config from VS Code's `bespokeAI.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and six commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), and `showMenu` (unified status bar menu). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
+- `src/extension.ts` — Activation entry point. Loads config from VS Code's `bespokeAI.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and seven commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), `showMenu` (unified status bar menu), and `generateCommitMessage` (generates a commit message via Claude Code CLI). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
+
+- `src/commit-message.ts` — Generates commit messages via the Claude Code CLI (`claude -p`). Accesses VS Code's built-in Git extension to read diffs, auto-detects staged vs unstaged changes (prompts if both exist), spawns `claude` as a child process with the diff piped to stdin, and writes the result into the SCM commit message input box. Standalone module — independent of the inline completion pipeline. Exports `buildCommitPrompt()` and `parseCommitMessage()` as pure functions for unit testing.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` via its constructor for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
 
@@ -186,32 +188,51 @@ Profiles are named config presets stored in `bespokeAI.profiles`. Each profile i
 
 ## Benchmarking
 
-Benchmarking is **separate from the test suite** — it's an experimentation system for running quality scenarios across multiple config variations, accumulating scored results over time, and generating comparison reports. Source lives in `src/benchmark/`, output in `test-results/benchmarks/` (gitignored).
+Benchmarking is **separate from the test suite** — it's a fully automated experimentation system for running quality scenarios across multiple config variations, scoring them with an LLM judge, accumulating results over time, and generating statistical comparison reports. Source lives in `src/benchmark/`, output in `test-results/benchmarks/` (gitignored).
 
-### Running benchmarks
+One command runs the full pipeline — generation, automated judging, aggregation, ledger write, and report generation:
 
 ```bash
-# Run all configs (default: 1 judge per scenario)
 npm run benchmark
-
-# Run specific configs
-BENCHMARK_CONFIGS="haiku-temp0.5,haiku-temp0.9" npm run benchmark
-
-# Request 3 independent judges per scenario for higher confidence
-BENCHMARK_JUDGES=3 npm run benchmark
 ```
 
-### Layer 2 workflow
+### Environment variables
 
-After Layer 1 (generation) completes, the runner prints instructions to stdout. Follow them:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BENCHMARK_CONFIGS` | (all) | Comma-separated config labels to run |
+| `BENCHMARK_K` | `3` | Generations per scenario (statistical replication) |
+| `BENCHMARK_J` | `3` | Independent judges per generation |
+| `BENCHMARK_JUDGE_MODEL` | `claude-sonnet-4-20250514` | Model used for automated judging |
+| `BENCHMARK_CONCURRENCY` | `5` | Max concurrent judge API calls |
 
-1. Read the validator prompt: `src/test/quality/validator-prompt.md`
-2. For each config/scenario directory, evaluate `completion.txt` against `input.json` and `requirements.json`
-3. Write `validation.json` to each scenario directory
-4. Update the ledger with scores using `updateLedgerScores()` from `src/benchmark/ledger.ts`
-5. Generate comparison report: `npx tsx src/benchmark/reporter.ts`
+### Examples
 
-Use sub-agents to parallelize scoring. When `BENCHMARK_JUDGES` > 1, spin up that many sub-agents per scenario — each writes a `ValidationResult` with a unique `judgeId`, and the final score is the average.
+```bash
+# Quick smoke test (1 gen, 1 judge, single config)
+BENCHMARK_K=1 BENCHMARK_J=1 BENCHMARK_CONFIGS=haiku-baseline npm run benchmark
+
+# Full statistical run (3 gens × 3 judges = 9 evaluations per scenario)
+BENCHMARK_K=3 BENCHMARK_J=3 BENCHMARK_CONFIGS=haiku-baseline,haiku-temp0.5 npm run benchmark
+
+# Run all configs with default K/J
+npm run benchmark
+```
+
+### Output structure
+
+```
+test-results/benchmarks/run-{timestamp}/{config}/{scenario}/
+  input.json, requirements.json          (once per scenario)
+  generation-{k}/
+    completion.txt, metadata.json        (per generation)
+    judgment-{j}.json                    (per judge)
+  aggregation.json                       (per scenario)
+```
+
+### Primary metric: accept rate
+
+The primary quality signal is **accept rate** — the percentage of judgments where the automated judge determines a reasonable user would press Tab to accept the ghost text without editing it. The comparison report sorts configs by accept rate.
 
 ### Adding new configs
 
@@ -219,15 +240,16 @@ Edit `src/benchmark/configs.ts` and add a `BenchmarkConfig` to the `BENCHMARK_CO
 
 ### Ledger
 
-The ledger (`test-results/benchmarks/ledger.json`) is append-only. Multiple runs with the same model/config are expected — you build up data over time. The comparison report (`test-results/benchmarks/comparison-report.md`) is regenerated from ledger data after scoring.
+The ledger (`test-results/benchmarks/ledger.json`, version 2) is append-only. Multiple runs with the same model/config are expected — you build up data over time. The comparison report (`test-results/benchmarks/comparison-report.md`) is regenerated from ledger data after each run.
 
 ### Key files
 
-- `src/benchmark/types.ts` — Benchmark-specific types
+- `src/benchmark/types.ts` — Benchmark-specific types (GenerationResult, JudgmentFileResult, ScenarioAggregation, etc.)
 - `src/benchmark/configs.ts` — Named config presets + env var filtering
-- `src/benchmark/runner.ts` — Layer 1 generation (standalone script)
+- `src/benchmark/runner.ts` — Full automated pipeline (generation → judging → aggregation → ledger → report)
+- `src/benchmark/judge.ts` — Automated evaluator using Claude as judge (reads validator-prompt.md)
 - `src/benchmark/ledger.ts` — Ledger read/write/update utilities
-- `src/benchmark/reporter.ts` — Comparison report generator
+- `src/benchmark/reporter.ts` — Comparison report with accept rates, pairwise sign tests, failure modes
 
 ## Known Limitations
 
@@ -244,5 +266,4 @@ These are accepted trade-offs. Do not attempt to fix them unless explicitly aske
 
 Bespoke AI is evolving from a single-purpose inline completion extension into a broader personal AI toolkit. Planned capabilities beyond inline completions (do not implement unless explicitly asked):
 
-- **Commit message generation** — Leverage Claude Code as a backend (via `claude --print` or the `agentapi`) to generate commit messages from staged diffs, surfaced through a VS Code command.
-- **Autocomplete via Claude Code** — Explore using a Claude Code subscription as the completion backend (instead of direct Anthropic API calls), potentially via `claude --print` for single-shot completions or the `agentapi` for richer integration. This would let users leverage their existing Claude Code subscription rather than managing a separate API key.
+- **Autocomplete via Claude Code** — Explore using a Claude Code subscription as the completion backend (instead of direct Anthropic API calls), potentially via the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for richer integration. This would let users leverage their existing Claude Code subscription rather than managing a separate API key. See `docs/claude-code-latency-research.md` for feasibility analysis.

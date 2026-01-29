@@ -21,6 +21,14 @@ export interface ScenarioGenerationResult {
   error?: string;
 }
 
+/** One of K completions for a single scenario. */
+export interface GenerationResult {
+  index: number;
+  completion: string | null;
+  durationMs: number;
+  error?: string;
+}
+
 /** Per-config result from a benchmark run. */
 export interface ConfigRunResult {
   label: string;
@@ -36,6 +44,18 @@ export interface ScenarioScore {
   id: string;
   score: number;
   pass: boolean;
+  accept?: boolean;
+}
+
+/** One judge's output for a single generation. */
+export interface JudgmentFileResult {
+  index: number;
+  judgeModel: string;
+  score: number;
+  accept: boolean;
+  pass: boolean;
+  reasoning: string;
+  criteria_results: JudgmentResult['criteria_results'];
 }
 
 /** A single judge's validation output for one scenario. */
@@ -45,6 +65,7 @@ export interface ValidationResult {
   timestamp: string;
   pass: boolean;
   score: number;
+  accept?: boolean;
   reasoning: string;
   criteria_results: JudgmentResult['criteria_results'];
 }
@@ -57,6 +78,18 @@ export interface ValidationFile {
     pass: boolean;
     judgeCount: number;
   };
+}
+
+/** Per-scenario aggregated stats across K generations × J judges. */
+export interface ScenarioAggregation {
+  scenarioId: string;
+  mode: 'prose' | 'code';
+  meanScore: number;
+  stdev: number;
+  acceptRate: number;
+  passRate: number;
+  generationCount: number;
+  judgmentCount: number;
 }
 
 /** One config entry in the ledger. */
@@ -72,9 +105,14 @@ export interface ConfigLedgerEntry {
   /** Populated after Layer 2 scoring */
   avgScore?: number;
   passRate?: number;
+  acceptRate?: number;
+  scoreStdev?: number;
   proseAvgScore?: number;
   codeAvgScore?: number;
   scenarioScores?: ScenarioScore[];
+  generationsPerScenario?: number;
+  judgesPerGeneration?: number;
+  scenarioAggregations?: ScenarioAggregation[];
 }
 
 /** One benchmark run in the ledger. */
@@ -83,6 +121,9 @@ export interface BenchmarkLedgerEntry {
   timestamp: string;
   judgeCount: number;
   totalScenarios: number;
+  generationCount?: number;
+  judgeModel?: string;
+  automated?: boolean;
   configs: ConfigLedgerEntry[];
 }
 

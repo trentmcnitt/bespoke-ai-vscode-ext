@@ -54,7 +54,7 @@ The requirements field may specify:
 
 Respond with ONLY a JSON object. No markdown fences, no extra text before or after. Example shape:
 
-{"pass": true, "score": 8, "reasoning": "...", "criteria_results": {"seamless_continuation": true, "no_repetition": true, "appropriate_length": true, "context_awareness": true, "mode_specific": true, "test_requirements": true}}
+{"pass": true, "score": 8, "accept": true, "reasoning": "...", "criteria_results": {"seamless_continuation": true, "no_repetition": true, "appropriate_length": true, "context_awareness": true, "mode_specific": true, "test_requirements": true}}
 
 **Scoring guide:**
 - 9-10: Excellent. Would genuinely help the user.
@@ -65,3 +65,5 @@ Respond with ONLY a JSON object. No markdown fences, no extra text before or aft
 - 0: Complete failure. Empty, nonsensical, or harmful.
 
 **Pass threshold:** Score >= 6 is a pass.
+
+**Accept decision:** Would a reasonable user press Tab to accept this ghost text without editing it? Set `"accept": true` if the completion is good enough to use as-is, `"accept": false` if the user would dismiss or need to edit it. This is the primary quality signal — a completion can score 6-7 but still not be worth accepting if it requires editing.

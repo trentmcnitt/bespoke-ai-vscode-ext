@@ -30,6 +30,7 @@ export interface TestScenario {
 export interface JudgmentResult {
   pass: boolean;
   score: number;
+  accept?: boolean;
   reasoning: string;
   criteria_results: {
     seamless_continuation: boolean;

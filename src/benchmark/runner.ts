@@ -1,16 +1,16 @@
 /**
- * Benchmark runner — Layer 1 generation engine.
+ * Benchmark runner — full automated pipeline.
  *
  * Standalone script (run via `npx tsx` or `npm run benchmark`).
- * Generates completions for all quality scenarios across multiple config
- * variations, saves results to disk, and appends to the ledger.
+ * Generates K completions per scenario, evaluates each with J judges,
+ * aggregates scores, writes to ledger, and generates a comparison report.
  *
  * Usage:
  *   npm run benchmark
  *   BENCHMARK_CONFIGS="haiku-temp0.5,haiku-temp0.9" npm run benchmark
- *   BENCHMARK_JUDGES=3 npm run benchmark
- *
- * After Layer 1 completes, follow the printed instructions for Layer 2.
+ *   BENCHMARK_K=3 BENCHMARK_J=3 npm run benchmark
+ *   BENCHMARK_JUDGE_MODEL=claude-sonnet-4-20250514 npm run benchmark
+ *   BENCHMARK_CONCURRENCY=10 npm run benchmark
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -21,23 +21,52 @@ import { makeConfig, makeLogger } from '../test/helpers';
 import { TestScenario } from '../test/quality/judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from '../test/quality/scenarios';
 import { getConfigsToRun } from './configs';
-import { appendToLedger } from './ledger';
+import { appendFullRunToLedger } from './ledger';
+import { evaluateBatch, EvaluationInput, JudgeConfig, DEFAULT_JUDGE_MODEL } from './judge';
+import { writeComparisonReport } from './reporter';
 import {
   BENCHMARKS_DIR,
   BenchmarkConfig,
   BenchmarkLedgerEntry,
-  ConfigRunResult,
-  ScenarioGenerationResult,
+  ConfigLedgerEntry,
+  GenerationResult,
+  JudgmentFileResult,
+  ScenarioAggregation,
+  ScenarioScore,
 } from './types';
 
 // ─── Constants ───────────────────────────────────────────────────────
 const ALL_SCENARIOS: TestScenario[] = [...proseScenarios, ...codeScenarios, ...edgeCaseScenarios];
 
+// ─── Env config ──────────────────────────────────────────────────────
+
+interface RunParams {
+  K: number;
+  J: number;
+  judgeModel: string;
+  concurrency: number;
+  apiKey: string;
+}
+
+function parseRunParams(): RunParams {
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
+  if (!apiKey) {
+    console.error('ERROR: ANTHROPIC_API_KEY not set in environment.');
+    process.exit(1);
+  }
+  return {
+    K: parseInt(process.env.BENCHMARK_K ?? '3', 10),
+    J: parseInt(process.env.BENCHMARK_J ?? '3', 10),
+    judgeModel: process.env.BENCHMARK_JUDGE_MODEL ?? DEFAULT_JUDGE_MODEL,
+    concurrency: parseInt(process.env.BENCHMARK_CONCURRENCY ?? '5', 10),
+    apiKey,
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function resolveConfig(benchConfig: BenchmarkConfig, apiKey: string): ExtensionConfig {
   const config = makeConfig(benchConfig.overrides);
-  // Always inject the real API key (overrides may have set it to '' for model-comparison presets)
   config.anthropic.apiKey = apiKey;
   return config;
 }
@@ -54,10 +83,19 @@ function createProvider(config: ExtensionConfig): CompletionProvider {
   return new AnthropicProvider(config, logger);
 }
 
-async function runScenario(
+function stddev(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sqDiffs = values.map(v => (v - mean) ** 2);
+  return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / (values.length - 1));
+}
+
+// ─── Layer 1: Generation ─────────────────────────────────────────────
+
+async function generateCompletion(
   provider: CompletionProvider,
   scenario: TestScenario,
-): Promise<ScenarioGenerationResult> {
+): Promise<{ completion: string | null; durationMs: number; error?: string }> {
   const ctx: CompletionContext = {
     prefix: scenario.prefix,
     suffix: scenario.suffix,
@@ -70,16 +108,9 @@ async function runScenario(
   try {
     const ac = new AbortController();
     const completion = await provider.getCompletion(ctx, ac.signal);
-    return {
-      scenarioId: scenario.id,
-      mode: scenario.mode,
-      completion,
-      durationMs: Date.now() - start,
-    };
+    return { completion, durationMs: Date.now() - start };
   } catch (err) {
     return {
-      scenarioId: scenario.id,
-      mode: scenario.mode,
       completion: null,
       durationMs: Date.now() - start,
       error: err instanceof Error ? err.message : String(err),
@@ -87,11 +118,22 @@ async function runScenario(
   }
 }
 
-function saveScenarioOutput(
-  scenarioDir: string,
+async function generateK(
+  provider: CompletionProvider,
   scenario: TestScenario,
-  result: ScenarioGenerationResult,
-): void {
+  K: number,
+): Promise<GenerationResult[]> {
+  const results: GenerationResult[] = [];
+  for (let k = 0; k < K; k++) {
+    const { completion, durationMs, error } = await generateCompletion(provider, scenario);
+    results.push({ index: k, completion, durationMs, error });
+  }
+  return results;
+}
+
+// ─── File I/O ────────────────────────────────────────────────────────
+
+function saveScenarioInput(scenarioDir: string, scenario: TestScenario): void {
   fs.mkdirSync(scenarioDir, { recursive: true });
 
   fs.writeFileSync(
@@ -109,154 +151,278 @@ function saveScenarioOutput(
     path.join(scenarioDir, 'requirements.json'),
     JSON.stringify(scenario.requirements, null, 2),
   );
+}
+
+function saveGeneration(scenarioDir: string, gen: GenerationResult): void {
+  const genDir = path.join(scenarioDir, `generation-${gen.index}`);
+  fs.mkdirSync(genDir, { recursive: true });
 
   fs.writeFileSync(
-    path.join(scenarioDir, 'completion.txt'),
-    result.completion ?? '(null — provider returned no completion)',
+    path.join(genDir, 'completion.txt'),
+    gen.completion ?? '(null — provider returned no completion)',
   );
 
   fs.writeFileSync(
-    path.join(scenarioDir, 'metadata.json'),
+    path.join(genDir, 'metadata.json'),
     JSON.stringify({
-      scenarioId: result.scenarioId,
-      mode: result.mode,
-      durationMs: result.durationMs,
-      completionLength: result.completion?.length ?? 0,
-      error: result.error ?? null,
+      index: gen.index,
+      durationMs: gen.durationMs,
+      completionLength: gen.completion?.length ?? 0,
+      error: gen.error ?? null,
       generatedAt: new Date().toISOString(),
     }, null, 2),
   );
 }
 
-async function runConfig(
-  benchConfig: BenchmarkConfig,
-  apiKey: string,
-  runDir: string,
-): Promise<ConfigRunResult> {
-  const config = resolveConfig(benchConfig, apiKey);
-  const provider = createProvider(config);
-  const configDir = path.join(runDir, benchConfig.label);
-  fs.mkdirSync(configDir, { recursive: true });
+function saveJudgment(scenarioDir: string, genIndex: number, judgment: JudgmentFileResult): void {
+  const genDir = path.join(scenarioDir, `generation-${genIndex}`);
+  fs.mkdirSync(genDir, { recursive: true });
 
-  // Save resolved config (redact API key)
-  const sanitizedConfig = { ...config, anthropic: { ...config.anthropic, apiKey: '(redacted)' } };
-  fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(sanitizedConfig, null, 2));
+  fs.writeFileSync(
+    path.join(genDir, `judgment-${judgment.index}.json`),
+    JSON.stringify(judgment, null, 2),
+  );
+}
 
-  const results: ScenarioGenerationResult[] = [];
-  const totalStart = Date.now();
+function saveAggregation(scenarioDir: string, agg: ScenarioAggregation): void {
+  fs.writeFileSync(
+    path.join(scenarioDir, 'aggregation.json'),
+    JSON.stringify(agg, null, 2),
+  );
+}
 
-  for (const scenario of ALL_SCENARIOS) {
-    const scenarioDir = path.join(configDir, scenario.id);
-    console.log(`  [${benchConfig.label}] ${scenario.id}...`);
-    const result = await runScenario(provider, scenario);
-    saveScenarioOutput(scenarioDir, scenario, result);
-    results.push(result);
-  }
+// ─── Aggregation ─────────────────────────────────────────────────────
+
+function aggregateScenario(
+  scenarioId: string,
+  mode: 'prose' | 'code',
+  judgments: JudgmentFileResult[],
+): ScenarioAggregation {
+  const scores = judgments.map(j => j.score);
+  const meanScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+  const acceptCount = judgments.filter(j => j.accept).length;
+  const passCount = judgments.filter(j => j.pass).length;
 
   return {
-    label: benchConfig.label,
-    resolvedConfig: config,
-    scenarioResults: results,
-    totalDurationMs: Date.now() - totalStart,
-    successCount: results.filter(r => !r.error && r.completion !== null).length,
-    errorCount: results.filter(r => r.error).length,
+    scenarioId,
+    mode,
+    meanScore,
+    stdev: stddev(scores),
+    acceptRate: judgments.length > 0 ? acceptCount / judgments.length : 0,
+    passRate: judgments.length > 0 ? passCount / judgments.length : 0,
+    generationCount: new Set(judgments.map(j => j.index)).size || 0,
+    judgmentCount: judgments.length,
   };
+}
+
+function aggregateConfig(aggregations: ScenarioAggregation[]): {
+  avgScore: number;
+  passRate: number;
+  acceptRate: number;
+  scoreStdev: number;
+  proseAvgScore: number;
+  codeAvgScore: number;
+} {
+  const allScores = aggregations.map(a => a.meanScore);
+  const avgScore = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+
+  const allPassRates = aggregations.map(a => a.passRate);
+  const passRate = allPassRates.length > 0 ? allPassRates.reduce((a, b) => a + b, 0) / allPassRates.length : 0;
+
+  const allAcceptRates = aggregations.map(a => a.acceptRate);
+  const acceptRate = allAcceptRates.length > 0 ? allAcceptRates.reduce((a, b) => a + b, 0) / allAcceptRates.length : 0;
+
+  const prose = aggregations.filter(a => a.mode === 'prose');
+  const code = aggregations.filter(a => a.mode === 'code');
+  const proseAvgScore = prose.length > 0 ? prose.reduce((s, a) => s + a.meanScore, 0) / prose.length : 0;
+  const codeAvgScore = code.length > 0 ? code.reduce((s, a) => s + a.meanScore, 0) / code.length : 0;
+
+  return { avgScore, passRate, acceptRate, scoreStdev: stddev(allScores), proseAvgScore, codeAvgScore };
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
-  if (!apiKey) {
-    console.error('ERROR: ANTHROPIC_API_KEY not set in environment.');
-    process.exit(1);
-  }
-
-  const judgeCount = parseInt(process.env.BENCHMARK_JUDGES ?? '1', 10);
+  const params = parseRunParams();
   const configs = getConfigsToRun();
 
   console.log(`\nBenchmark run: ${configs.length} config(s), ${ALL_SCENARIOS.length} scenarios each`);
-  console.log(`Judge count: ${judgeCount}`);
+  console.log(`Generations per scenario (K): ${params.K}`);
+  console.log(`Judges per generation (J): ${params.J}`);
+  console.log(`Judge model: ${params.judgeModel}`);
+  console.log(`Concurrency: ${params.concurrency}`);
   console.log(`Configs: ${configs.map(c => c.label).join(', ')}\n`);
 
-  // Create run directory
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const runId = timestamp;
   const runDir = path.join(BENCHMARKS_DIR, `run-${timestamp}`);
   fs.mkdirSync(runDir, { recursive: true });
 
-  // Run all configs
-  const configResults: ConfigRunResult[] = [];
+  const judgeConfig: JudgeConfig = {
+    apiKey: params.apiKey,
+    model: params.judgeModel,
+    concurrency: params.concurrency,
+  };
+
+  const configEntries: ConfigLedgerEntry[] = [];
+
   for (const benchConfig of configs) {
     console.log(`\n── Config: ${benchConfig.label} (${benchConfig.description}) ──`);
-    const result = await runConfig(benchConfig, apiKey, runDir);
-    configResults.push(result);
-    console.log(`  Done: ${result.successCount} success, ${result.errorCount} errors, ${(result.totalDurationMs / 1000).toFixed(1)}s`);
+    const config = resolveConfig(benchConfig, params.apiKey);
+    const provider = createProvider(config);
+    const configDir = path.join(runDir, benchConfig.label);
+    fs.mkdirSync(configDir, { recursive: true });
+
+    // Save resolved config (redacted)
+    const sanitizedConfig = { ...config, anthropic: { ...config.anthropic, apiKey: '(redacted)' } };
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(sanitizedConfig, null, 2));
+
+    // ── Layer 1: Generate K completions per scenario ──
+    console.log('  Layer 1: Generating completions...');
+    const scenarioGenerations = new Map<string, GenerationResult[]>();
+    let successCount = 0;
+    let errorCount = 0;
+    const genStart = Date.now();
+
+    for (const scenario of ALL_SCENARIOS) {
+      const scenarioDir = path.join(configDir, scenario.id);
+      saveScenarioInput(scenarioDir, scenario);
+
+      console.log(`    ${scenario.id} (K=${params.K})...`);
+      const generations = await generateK(provider, scenario, params.K);
+      scenarioGenerations.set(scenario.id, generations);
+
+      for (const gen of generations) {
+        saveGeneration(scenarioDir, gen);
+        if (gen.error) errorCount++;
+        else if (gen.completion !== null) successCount++;
+      }
+    }
+
+    const genDuration = Date.now() - genStart;
+    console.log(`  Layer 1 done: ${successCount} success, ${errorCount} errors`);
+
+    // ── Layer 2: Evaluate with J judges ──
+    console.log('  Layer 2: Evaluating with automated judges...');
+    const evalInputs: EvaluationInput[] = [];
+
+    for (const scenario of ALL_SCENARIOS) {
+      const generations = scenarioGenerations.get(scenario.id) ?? [];
+      for (const gen of generations) {
+        for (let j = 0; j < params.J; j++) {
+          evalInputs.push({
+            scenario,
+            completion: gen.completion,
+            generationIndex: gen.index,
+            judgeIndex: j,
+          });
+        }
+      }
+    }
+
+    console.log(`    ${evalInputs.length} evaluations (${ALL_SCENARIOS.length} scenarios × ${params.K} generations × ${params.J} judges)...`);
+    const judgments = await evaluateBatch(evalInputs, judgeConfig);
+
+    // Save judgments and aggregate
+    const judgmentsByScenario = new Map<string, JudgmentFileResult[]>();
+    for (let i = 0; i < evalInputs.length; i++) {
+      const input = evalInputs[i];
+      // Find matching judgment — evaluateBatch returns results in arbitrary order
+      // due to concurrency, so match by generationIndex + judgeIndex
+      const judgment = judgments.find(
+        j => j.index === input.judgeIndex &&
+        judgments.indexOf(j) === i // use positional match since results align with inputs
+      ) ?? judgments[i]; // fallback to positional
+
+      const scenarioDir = path.join(configDir, input.scenario.id);
+      saveJudgment(scenarioDir, input.generationIndex, {
+        ...judgment,
+        index: input.judgeIndex,
+      });
+
+      if (!judgmentsByScenario.has(input.scenario.id)) {
+        judgmentsByScenario.set(input.scenario.id, []);
+      }
+      judgmentsByScenario.get(input.scenario.id)!.push(judgment);
+    }
+
+    // Aggregate per scenario
+    const aggregations: ScenarioAggregation[] = [];
+    for (const scenario of ALL_SCENARIOS) {
+      const scenJudgments = judgmentsByScenario.get(scenario.id) ?? [];
+      const agg = aggregateScenario(scenario.id, scenario.mode, scenJudgments);
+      aggregations.push(agg);
+
+      const scenarioDir = path.join(configDir, scenario.id);
+      saveAggregation(scenarioDir, agg);
+    }
+
+    // Aggregate config-level stats
+    const configStats = aggregateConfig(aggregations);
+
+    const scenarioScores: ScenarioScore[] = aggregations.map(a => ({
+      id: a.scenarioId,
+      score: a.meanScore,
+      pass: a.passRate >= 0.5,
+      accept: a.acceptRate >= 0.5,
+    }));
+
+    const entry: ConfigLedgerEntry = {
+      label: benchConfig.label,
+      model: getModelName(config),
+      backend: config.backend,
+      overrides: benchConfig.overrides,
+      scenarioCount: ALL_SCENARIOS.length,
+      successCount,
+      errorCount,
+      totalDurationMs: genDuration,
+      avgScore: configStats.avgScore,
+      passRate: configStats.passRate,
+      acceptRate: configStats.acceptRate,
+      scoreStdev: configStats.scoreStdev,
+      proseAvgScore: configStats.proseAvgScore,
+      codeAvgScore: configStats.codeAvgScore,
+      scenarioScores,
+      generationsPerScenario: params.K,
+      judgesPerGeneration: params.J,
+      scenarioAggregations: aggregations,
+    };
+
+    configEntries.push(entry);
+    console.log(`  Config done: avgScore=${configStats.avgScore.toFixed(1)}, acceptRate=${(configStats.acceptRate * 100).toFixed(0)}%, passRate=${(configStats.passRate * 100).toFixed(0)}%`);
   }
 
-  // Write run summary
-  const runSummary = {
-    runId,
-    timestamp: new Date().toISOString(),
-    judgeCount,
-    totalScenarios: ALL_SCENARIOS.length,
-    configs: configResults.map(r => ({
-      label: r.label,
-      model: getModelName(r.resolvedConfig),
-      backend: r.resolvedConfig.backend,
-      successCount: r.successCount,
-      errorCount: r.errorCount,
-      totalDurationMs: r.totalDurationMs,
-    })),
-  };
-  fs.writeFileSync(path.join(runDir, 'run-summary.json'), JSON.stringify(runSummary, null, 2));
-
-  // Append to ledger
+  // ── Write ledger entry ──
   const ledgerEntry: BenchmarkLedgerEntry = {
     runId,
     timestamp: new Date().toISOString(),
-    judgeCount,
+    judgeCount: params.J,
     totalScenarios: ALL_SCENARIOS.length,
-    configs: configResults.map(r => ({
-      label: r.label,
-      model: getModelName(r.resolvedConfig),
-      backend: r.resolvedConfig.backend,
-      overrides: configs.find(c => c.label === r.label)?.overrides ?? {},
-      scenarioCount: r.scenarioResults.length,
-      successCount: r.successCount,
-      errorCount: r.errorCount,
-      totalDurationMs: r.totalDurationMs,
-    })),
+    generationCount: params.K,
+    judgeModel: params.judgeModel,
+    automated: true,
+    configs: configEntries,
   };
-  appendToLedger(ledgerEntry);
+  appendFullRunToLedger(ledgerEntry);
 
-  // ── Layer 2 instructions ──────────────────────────────────────────
-  const totalGenerated = configResults.reduce((s, r) => s + r.successCount, 0);
-  const totalErrors = configResults.reduce((s, r) => s + r.errorCount, 0);
+  // ── Generate report ──
+  const reportPath = writeComparisonReport();
+  console.log(`\nComparison report: ${reportPath}`);
 
+  // ── Summary ──
   console.log('\n' + '='.repeat(70));
-  console.log('  LAYER 1 COMPLETE — LAYER 2 VALIDATION REQUIRED');
+  console.log('  BENCHMARK COMPLETE');
   console.log('='.repeat(70));
-  console.log(`\n  Run ID:     ${runId}`);
-  console.log(`  Output:     ${runDir}`);
-  console.log(`  Generated:  ${totalGenerated} completions (${totalErrors} errors)`);
-  console.log(`  Configs:    ${configs.map(c => c.label).join(', ')}`);
-  console.log(`  Judges:     ${judgeCount} per scenario`);
-  console.log('\n  PROCEED WITH LAYER 2 VALIDATION:');
-  console.log('  1. Read the validator prompt: src/test/quality/validator-prompt.md');
-  console.log(`  2. For each config directory in: ${runDir}/`);
-  console.log('     For each scenario subdirectory:');
-  console.log('       - Read input.json, completion.txt, requirements.json');
-  console.log('       - Evaluate against the validator prompt criteria');
-  if (judgeCount > 1) {
-    console.log(`       - Spin up ${judgeCount} sub-agents to independently score each scenario`);
-    console.log('       - Each judge writes a ValidationResult with a unique judgeId');
+  console.log(`  Run ID:       ${runId}`);
+  console.log(`  Output:       ${runDir}`);
+  console.log(`  Configs:      ${configs.map(c => c.label).join(', ')}`);
+  console.log(`  K (gens):     ${params.K}`);
+  console.log(`  J (judges):   ${params.J}`);
+  console.log(`  Judge model:  ${params.judgeModel}`);
+  console.log('');
+  for (const entry of configEntries) {
+    console.log(`  ${entry.label}: score=${entry.avgScore?.toFixed(1)} accept=${((entry.acceptRate ?? 0) * 100).toFixed(0)}% pass=${((entry.passRate ?? 0) * 100).toFixed(0)}%`);
   }
-  console.log('       - Write validation.json to the scenario directory');
-  console.log('  3. Update the ledger with scores:');
-  console.log('     Use updateLedgerScores(runId, configLabel, scores)');
-  console.log('  4. Generate comparison report:');
-  console.log('     npx tsx src/benchmark/reporter.ts');
   console.log('='.repeat(70) + '\n');
 }
 

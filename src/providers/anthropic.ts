@@ -4,6 +4,40 @@ import { Logger } from '../utils/logger';
 import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
 
+/**
+ * Minimum token counts required for prompt caching to take effect, per model family.
+ * Below these thresholds, cache_control is silently ignored by the API —
+ * we still pay the 1.25x write premium but get zero cache hits.
+ */
+const CACHE_MIN_TOKENS: Record<string, number> = {
+  'haiku-4-5': 4096,
+  'haiku-4.5': 4096,
+  'opus-4-5': 4096,
+  'opus-4.5': 4096,
+  'sonnet': 1024,
+  'opus-4': 1024,
+  'opus-4-1': 1024,
+  'opus-4.1': 1024,
+  'haiku-3': 2048,
+};
+
+/** Estimate token count from character length (~4 chars per token). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Look up the minimum cacheable token count for a model.
+ * Checks model string against known family fragments; defaults to 1024.
+ */
+function getMinCacheableTokens(model: string): number {
+  const lower = model.toLowerCase();
+  for (const [fragment, min] of Object.entries(CACHE_MIN_TOKENS)) {
+    if (lower.includes(fragment)) { return min; }
+  }
+  return 1024;
+}
+
 export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
   private promptBuilder: PromptBuilder;
@@ -58,10 +92,15 @@ export class AnthropicProvider implements CompletionProvider {
       // Abort errors — normal during typing, not worth logging
       if (err instanceof Anthropic.APIUserAbortError) { return null; }
       if (err instanceof Error && err.name === 'AbortError') { return null; }
-      // API errors (auth, rate limit, server errors, etc.) — log and return null
-      // per the architecture pattern: providers catch errors, return null
+      // API errors — differentiate rate limit / overload from other errors
       if (err instanceof Anthropic.APIError) {
-        this.logger.error(`Anthropic API error: ${err.status} ${err.message}`);
+        if (err.status === 429) {
+          this.logger.debug(`Anthropic rate limited: ${err.message}`);
+        } else if (err.status === 529) {
+          this.logger.debug('Anthropic server overloaded (529), transient');
+        } else {
+          this.logger.error(`Anthropic API error: ${err.status} ${err.message}`);
+        }
         return null;
       }
       throw err;
@@ -84,8 +123,18 @@ export class AnthropicProvider implements CompletionProvider {
       text: prompt.system,
     };
 
+    // Smart caching: only add cache_control when estimated tokens meet the model's
+    // minimum cacheable threshold. Below the minimum, the API silently ignores
+    // cache_control but we still pay the 1.25x write premium for nothing.
     if (this.config.anthropic.useCaching) {
-      (systemContent as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
+      const totalEstimatedTokens = estimateTokens(prompt.system + prompt.userMessage);
+      const minTokens = getMinCacheableTokens(this.config.anthropic.model);
+
+      if (totalEstimatedTokens >= minTokens) {
+        (systemContent as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
+      } else {
+        this.logger.debug(`Caching skipped: ~${totalEstimatedTokens} tokens < ${minTokens} minimum for ${this.config.anthropic.model}`);
+      }
     }
 
     const response = await this.client.messages.create(
@@ -105,7 +154,13 @@ export class AnthropicProvider implements CompletionProvider {
     if (response.usage) {
       const usage = response.usage;
       const usageAny = usage as unknown as Record<string, unknown>;
-      this.logger.debug(`Anthropic usage: input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} stop_reason=${response.stop_reason} cache_read=${usageAny.cache_read_input_tokens ?? 0} cache_creation=${usageAny.cache_creation_input_tokens ?? 0}`);
+      const cacheRead = (usageAny.cache_read_input_tokens as number) ?? 0;
+      const cacheWrite = (usageAny.cache_creation_input_tokens as number) ?? 0;
+      const uncached = usage.input_tokens;
+      const totalInput = cacheRead + cacheWrite + uncached;
+      const hitRate = totalInput > 0 ? (cacheRead / totalInput * 100).toFixed(1) : '0.0';
+
+      this.logger.debug(`Anthropic usage: input=${uncached} output=${usage.output_tokens} cache_read=${cacheRead} cache_write=${cacheWrite} hit_rate=${hitRate}% stop=${response.stop_reason}`);
     }
 
     const block = response.content[0];

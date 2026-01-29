@@ -39,8 +39,22 @@
       {
         "command": "bespoke-ai.showMenu",
         "title": "Bespoke AI: Show Menu"
+      },
+      {
+        "command": "bespoke-ai.generateCommitMessage",
+        "title": "Bespoke AI: Generate Commit Message",
+        "icon": "$(sparkle)"
       }
     ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "bespoke-ai.generateCommitMessage",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "bespoke-ai.trigger",
@@ -277,6 +291,11 @@
           "type": "string",
           "default": "",
           "description": "Name of the active profile (empty = use base settings)"
+        },
+        "bespokeAI.commitMessage.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "Custom system prompt for commit message generation. Leave empty for the built-in prompt."
         }
       }
     }

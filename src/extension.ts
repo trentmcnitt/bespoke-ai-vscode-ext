@@ -5,6 +5,7 @@ import { ProviderRouter } from './providers/provider-router';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
+import { generateCommitMessage } from './commit-message';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = typeof MODE_LABELS[number];
@@ -203,6 +204,12 @@ export function activate(context: vscode.ExtensionContext) {
         const handler = handlers.get(picked);
         if (handler) { await handler(); }
       }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
+      await generateCommitMessage(logger);
     })
   );
 

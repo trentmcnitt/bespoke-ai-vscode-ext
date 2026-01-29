@@ -7,7 +7,10 @@ const mockCreate = vi.fn();
 
 vi.mock('@anthropic-ai/sdk', () => {
   // Simulate SDK error classes
-  class APIError extends Error { constructor(m: string) { super(m); this.name = 'APIError'; } }
+  class APIError extends Error {
+    status: number;
+    constructor(m: string, status = 500) { super(m); this.name = 'APIError'; this.status = status; }
+  }
   class APIUserAbortError extends APIError { constructor() { super('Request aborted'); this.name = 'APIUserAbortError'; } }
   class RateLimitError extends APIError { constructor() { super('Rate limited'); this.name = 'RateLimitError'; } }
   class AuthenticationError extends APIError { constructor() { super('Auth failed'); this.name = 'AuthenticationError'; } }
@@ -172,14 +175,32 @@ describe('AnthropicProvider', () => {
   });
 
   describe('prompt caching', () => {
-    it('adds cache_control to system when caching enabled', async () => {
+    // To trigger caching, total estimated tokens must meet the model's minimum.
+    // Sonnet minimum is 1024 tokens (~4096 chars). Build a context large enough.
+    const largePrefixContext = makeProseContext({
+      prefix: 'The quick brown fox '.repeat(250), // ~5000 chars → ~1250 tokens
+    });
+
+    it('adds cache_control when caching enabled and tokens exceed minimum', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('text'));
-      const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'test', useCaching: true } });
+      // Sonnet has a 1024-token minimum — our ~1250 estimated tokens should exceed it
+      const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'claude-sonnet-4-20250514', useCaching: true } });
+      const provider = new AnthropicProvider(config, makeLogger());
+      await provider.getCompletion(largePrefixContext, new AbortController().signal);
+
+      const [params] = mockCreate.mock.calls[0];
+      expect(params.system[0].cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('skips cache_control when caching enabled but tokens below minimum', async () => {
+      mockCreate.mockResolvedValue(makeApiResponse('text'));
+      // Haiku 4.5 needs 4096 tokens — our short prose context (~50 chars) won't meet it
+      const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'claude-haiku-4-5-20251001', useCaching: true } });
       const provider = new AnthropicProvider(config, makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const [params] = mockCreate.mock.calls[0];
-      expect(params.system[0].cache_control).toEqual({ type: 'ephemeral' });
+      expect(params.system[0].cache_control).toBeUndefined();
     });
 
     it('does not add cache_control when caching disabled', async () => {
@@ -208,6 +229,36 @@ describe('AnthropicProvider', () => {
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
+    });
+
+    it('returns null on rate limit (429) without logging error', async () => {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
+      mockCreate.mockRejectedValue(new Anthropic.APIError('Rate limited', 429));
+      const logger = makeLogger();
+      const debugSpy = vi.fn();
+      const errorSpy = vi.fn();
+      logger.debug = debugSpy;
+      logger.error = errorSpy;
+      const provider = new AnthropicProvider(makeConfig(), logger);
+      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
+      expect(result).toBeNull();
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('rate limited'));
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns null on server overload (529) without logging error', async () => {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
+      mockCreate.mockRejectedValue(new Anthropic.APIError('Overloaded', 529));
+      const logger = makeLogger();
+      const debugSpy = vi.fn();
+      const errorSpy = vi.fn();
+      logger.debug = debugSpy;
+      logger.error = errorSpy;
+      const provider = new AnthropicProvider(makeConfig(), logger);
+      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
+      expect(result).toBeNull();
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('529'));
+      expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it('re-throws non-abort API errors', async () => {

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { BENCHMARKS_DIR, BenchmarkLedger, BenchmarkLedgerEntry, ScenarioScore } from './types';
 
 const LEDGER_PATH = path.join(BENCHMARKS_DIR, 'ledger.json');
+const LEDGER_VERSION = 2;
 
 /** Load the ledger from disk, creating an empty one if it doesn't exist. */
 export function loadLedger(): BenchmarkLedger {
@@ -11,7 +12,7 @@ export function loadLedger(): BenchmarkLedger {
     data = fs.readFileSync(LEDGER_PATH, 'utf-8');
   } catch (err: unknown) {
     if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { version: 1, runs: [] };
+      return { version: LEDGER_VERSION, runs: [] };
     }
     throw err;
   }
@@ -28,6 +29,18 @@ function saveLedger(ledger: BenchmarkLedger): void {
 /** Append a new run entry to the ledger (Layer 1 data only, no scores). */
 export function appendToLedger(entry: BenchmarkLedgerEntry): void {
   const ledger = loadLedger();
+  ledger.version = LEDGER_VERSION;
+  ledger.runs.push(entry);
+  saveLedger(ledger);
+}
+
+/**
+ * Append a complete run entry with scores already populated (automated pipeline).
+ * Writes the full entry in one shot — no two-step append-then-update needed.
+ */
+export function appendFullRunToLedger(entry: BenchmarkLedgerEntry): void {
+  const ledger = loadLedger();
+  ledger.version = LEDGER_VERSION;
   ledger.runs.push(entry);
   saveLedger(ledger);
 }
@@ -45,6 +58,8 @@ export function updateLedgerScores(
     proseAvgScore: number;
     codeAvgScore: number;
     scenarioScores: ScenarioScore[];
+    acceptRate?: number;
+    scoreStdev?: number;
   },
 ): void {
   const ledger = loadLedger();
@@ -59,7 +74,10 @@ export function updateLedgerScores(
   config.proseAvgScore = scores.proseAvgScore;
   config.codeAvgScore = scores.codeAvgScore;
   config.scenarioScores = scores.scenarioScores;
+  if (scores.acceptRate !== undefined) config.acceptRate = scores.acceptRate;
+  if (scores.scoreStdev !== undefined) config.scoreStdev = scores.scoreStdev;
 
+  ledger.version = LEDGER_VERSION;
   saveLedger(ledger);
 }
 
