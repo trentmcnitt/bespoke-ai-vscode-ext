@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   code: { maxTokens: 256, temperature: 0.2, stopSequences: ['\n\n'], contextChars: 4000, suffixChars: 500 },
   logLevel: 'info',
   activeProfile: '',
+  oracle: { enabled: false, debounceMs: 2000, briefTtlMs: 300000, model: 'sonnet', allowedTools: ['Read', 'Grep', 'Glob'] },
 };
 
 export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
@@ -26,6 +27,7 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     ollama: { ...DEFAULT_CONFIG.ollama, ...overrides.ollama },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
+    oracle: { ...DEFAULT_CONFIG.oracle, ...overrides.oracle },
   };
 }
 
@@ -48,6 +50,7 @@ export function makeProseContext(overrides: Partial<CompletionContext> = {}): Co
     suffix: '',
     languageId: 'markdown',
     fileName: 'story.md',
+    filePath: '/test/story.md',
     mode: 'prose',
     ...overrides,
   };
@@ -59,6 +62,7 @@ export function makeCodeContext(overrides: Partial<CompletionContext> = {}): Com
     suffix: '\n}',
     languageId: 'typescript',
     fileName: 'math.ts',
+    filePath: '/test/math.ts',
     mode: 'code',
     ...overrides,
   };

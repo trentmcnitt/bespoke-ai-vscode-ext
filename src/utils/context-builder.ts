@@ -6,6 +6,7 @@ export interface DocumentContext {
   suffix: string;
   languageId: string;
   fileName: string;
+  filePath: string;
 }
 
 export function buildDocumentContext(
@@ -28,5 +29,6 @@ export function buildDocumentContext(
     suffix,
     languageId: document.languageId,
     fileName: path.basename(document.fileName) || 'untitled',
+    filePath: document.fileName || 'untitled',
   };
 }

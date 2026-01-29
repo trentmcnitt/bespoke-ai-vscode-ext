@@ -107,8 +107,14 @@
         },
         "bespokeAI.anthropic.models": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-20250514"
+          ],
           "description": "Available Anthropic models. The active model is set in anthropic.model."
         },
         "bespokeAI.anthropic.useCaching": {
@@ -128,8 +134,15 @@
         },
         "bespokeAI.ollama.models": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["qwen2.5:3b", "qwen2.5-coder:3b", "llama3.2:3b", "deepseek-coder-v2:latest"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "qwen2.5:3b",
+            "qwen2.5-coder:3b",
+            "llama3.2:3b",
+            "deepseek-coder-v2:latest"
+          ],
           "description": "Available Ollama models. The active model is set in ollama.model."
         },
         "bespokeAI.ollama.raw": {
@@ -220,13 +233,66 @@
           "default": "info",
           "description": "Logging verbosity in the Output channel"
         },
+        "bespokeAI.oracle.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable context oracle for richer completions (requires claude CLI + Agent SDK)"
+        },
+        "bespokeAI.oracle.debounceMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "Delay after file events before triggering oracle analysis"
+        },
+        "bespokeAI.oracle.briefTtlMs": {
+          "type": "number",
+          "default": 300000,
+          "description": "Context brief expiry in milliseconds"
+        },
+        "bespokeAI.oracle.model": {
+          "type": "string",
+          "default": "sonnet",
+          "description": "Model for oracle analysis session"
+        },
+        "bespokeAI.oracle.allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "Read",
+            "Grep",
+            "Glob"
+          ],
+          "description": "Tools the oracle agent can use"
+        },
         "bespokeAI.profiles": {
           "type": "object",
           "default": {
             "haiku-fast": {
-              "anthropic": { "model": "claude-haiku-4-5-20251001", "useCaching": true },
-              "prose": { "maxTokens": 80, "temperature": 0.7, "stopSequences": ["\n\n", "---", "##"], "contextChars": 2000, "suffixChars": 500 },
-              "code": { "maxTokens": 200, "temperature": 0.2, "stopSequences": ["\n\n"], "contextChars": 4000, "suffixChars": 500 }
+              "anthropic": {
+                "model": "claude-haiku-4-5-20251001",
+                "useCaching": true
+              },
+              "prose": {
+                "maxTokens": 80,
+                "temperature": 0.7,
+                "stopSequences": [
+                  "\n\n",
+                  "---",
+                  "##"
+                ],
+                "contextChars": 2000,
+                "suffixChars": 500
+              },
+              "code": {
+                "maxTokens": 200,
+                "temperature": 0.2,
+                "stopSequences": [
+                  "\n\n"
+                ],
+                "contextChars": 4000,
+                "suffixChars": 500
+              }
             }
           },
           "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings. The default 'haiku-fast' profile is a template showing all overridable fields.",
@@ -235,53 +301,128 @@
             "properties": {
               "backend": {
                 "type": "string",
-                "enum": ["anthropic", "ollama"]
+                "enum": [
+                  "anthropic",
+                  "ollama"
+                ]
               },
               "mode": {
                 "type": "string",
-                "enum": ["auto", "prose", "code"]
+                "enum": [
+                  "auto",
+                  "prose",
+                  "code"
+                ]
               },
               "debounceMs": {
                 "type": "number"
               },
               "logLevel": {
                 "type": "string",
-                "enum": ["info", "debug", "trace"]
+                "enum": [
+                  "info",
+                  "debug",
+                  "trace"
+                ]
               },
               "anthropic": {
                 "type": "object",
                 "properties": {
-                  "model": { "type": "string" },
-                  "useCaching": { "type": "boolean" }
+                  "model": {
+                    "type": "string"
+                  },
+                  "useCaching": {
+                    "type": "boolean"
+                  }
                 }
               },
               "ollama": {
                 "type": "object",
                 "properties": {
-                  "endpoint": { "type": "string" },
-                  "model": { "type": "string" },
-                  "raw": { "type": "boolean" }
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "raw": {
+                    "type": "boolean"
+                  }
                 }
               },
               "prose": {
                 "type": "object",
                 "properties": {
-                  "maxTokens": { "type": "number" },
-                  "temperature": { "type": "number" },
-                  "stopSequences": { "type": "array", "items": { "type": "string" } },
-                  "contextChars": { "type": "number" },
-                  "suffixChars": { "type": "number" },
-                  "fileTypes": { "type": "array", "items": { "type": "string" } }
+                  "maxTokens": {
+                    "type": "number"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "stopSequences": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "contextChars": {
+                    "type": "number"
+                  },
+                  "suffixChars": {
+                    "type": "number"
+                  },
+                  "fileTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "code": {
                 "type": "object",
                 "properties": {
-                  "maxTokens": { "type": "number" },
-                  "temperature": { "type": "number" },
-                  "stopSequences": { "type": "array", "items": { "type": "string" } },
-                  "contextChars": { "type": "number" },
-                  "suffixChars": { "type": "number" }
+                  "maxTokens": {
+                    "type": "number"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "stopSequences": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "contextChars": {
+                    "type": "number"
+                  },
+                  "suffixChars": {
+                    "type": "number"
+                  }
+                }
+              },
+              "oracle": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "debounceMs": {
+                    "type": "number"
+                  },
+                  "briefTtlMs": {
+                    "type": "number"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "allowedTools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
                 }
               }
             }
@@ -320,11 +461,14 @@
     "@typescript-eslint/parser": "^8.54.0",
     "esbuild": "^0.24.0",
     "eslint": "^9.39.2",
-    "typescript": "^5.3.0",
     "tsx": "^4.0.0",
+    "typescript": "^5.3.0",
     "vitest": "^4.0.18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77"
   }
 }

@@ -6,6 +6,7 @@ import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
 import { generateCommitMessage } from './commit-message';
+import { ContextOracle } from './oracle/context-oracle';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = typeof MODE_LABELS[number];
@@ -22,6 +23,7 @@ let logger: Logger;
 let currentProfile = '';
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
+let oracle: ContextOracle;
 
 export function activate(context: vscode.ExtensionContext) {
   logger = new Logger('Bespoke AI');
@@ -32,7 +34,11 @@ export function activate(context: vscode.ExtensionContext) {
   currentProfile = config.activeProfile;
   lastConfig = config;
 
-  providerRouter = new ProviderRouter(config, logger);
+  oracle = new ContextOracle(config.oracle, logger);
+  oracle.activate(context);
+  context.subscriptions.push({ dispose: () => oracle.dispose() });
+
+  providerRouter = new ProviderRouter(config, logger, (filePath) => oracle.getBrief(filePath));
   completionProvider = new CompletionProvider(config, providerRouter, logger);
 
   completionProvider.setRequestCallbacks(
@@ -226,6 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         logger.setLevel(newConfig.logLevel);
+        oracle.updateConfig(newConfig.oracle);
         completionProvider.updateConfig(newConfig);
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
@@ -285,6 +292,13 @@ function loadConfig(): ExtensionConfig {
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
     activeProfile,
+    oracle: {
+      enabled: ws.get<boolean>('oracle.enabled', false)!,
+      debounceMs: ws.get<number>('oracle.debounceMs', 2000)!,
+      briefTtlMs: ws.get<number>('oracle.briefTtlMs', 300000)!,
+      model: ws.get<string>('oracle.model', 'sonnet')!,
+      allowedTools: ws.get<string[]>('oracle.allowedTools', ['Read', 'Grep', 'Glob'])!,
+    },
   };
 
   if (activeProfile) {

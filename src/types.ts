@@ -6,6 +6,7 @@ export interface CompletionContext {
   suffix: string;
   languageId: string;
   fileName: string;
+  filePath: string;
   mode: CompletionMode;
 }
 
@@ -59,6 +60,13 @@ export interface ExtensionConfig {
   };
   logLevel: 'info' | 'debug' | 'trace';
   activeProfile: string;
+  oracle: {
+    enabled: boolean;
+    debounceMs: number;
+    briefTtlMs: number;
+    model: string;
+    allowedTools: string[];
+  };
 }
 
 export interface ProfileOverrides {
@@ -70,4 +78,5 @@ export interface ProfileOverrides {
   ollama?: Partial<ExtensionConfig['ollama']>;
   prose?: Partial<ExtensionConfig['prose']>;
   code?: Partial<ExtensionConfig['code']>;
+  oracle?: Partial<ExtensionConfig['oracle']>;
 }

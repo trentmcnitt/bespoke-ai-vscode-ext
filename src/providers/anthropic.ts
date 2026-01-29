@@ -3,6 +3,8 @@ import { CompletionContext, CompletionProvider, BuiltPrompt, ExtensionConfig } f
 import { Logger } from '../utils/logger';
 import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
+import { ContextBrief } from '../oracle/types';
+import { formatBriefForPrompt } from '../oracle/brief-formatter';
 
 /**
  * Minimum token counts required for prompt caching to take effect, per model family.
@@ -41,9 +43,11 @@ function getMinCacheableTokens(model: string): number {
 export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
   private promptBuilder: PromptBuilder;
+  private getBrief: ((filePath: string) => ContextBrief | null) | null;
 
-  constructor(private config: ExtensionConfig, private logger: Logger) {
+  constructor(private config: ExtensionConfig, private logger: Logger, getBrief?: (filePath: string) => ContextBrief | null) {
     this.promptBuilder = new PromptBuilder();
+    this.getBrief = getBrief ?? null;
     this.initClient();
   }
 
@@ -81,7 +85,7 @@ export class AnthropicProvider implements CompletionProvider {
     }
 
     try {
-      const raw = await this.callApi(prompt, signal);
+      const raw = await this.callApi(prompt, signal, context.filePath);
 
       this.logger.debug(`Anthropic response: length=${raw?.length ?? 'null'}`);
 
@@ -107,7 +111,7 @@ export class AnthropicProvider implements CompletionProvider {
     }
   }
 
-  private async callApi(prompt: BuiltPrompt, signal: AbortSignal): Promise<string | null> {
+  private async callApi(prompt: BuiltPrompt, signal: AbortSignal, fileName?: string): Promise<string | null> {
     if (!this.client) { return null; }
 
     const messages: Anthropic.MessageParam[] = [
@@ -118,24 +122,48 @@ export class AnthropicProvider implements CompletionProvider {
       messages.push({ role: 'assistant', content: prompt.assistantPrefill });
     }
 
+    const systemBlocks: Anthropic.TextBlockParam[] = [];
+
+    // Smart caching: only add cache_control when estimated tokens meet the model's
+    // minimum cacheable threshold. Below the minimum, the API silently ignores
+    // cache_control but we still pay the 1.25x write premium for nothing.
+    const totalEstimatedTokens = estimateTokens(prompt.system + prompt.userMessage);
+    const minTokens = getMinCacheableTokens(this.config.anthropic.model);
+    const shouldCache = this.config.anthropic.useCaching && totalEstimatedTokens >= minTokens;
+
+    if (this.config.anthropic.useCaching && !shouldCache) {
+      this.logger.debug(`Caching skipped: ~${totalEstimatedTokens} tokens < ${minTokens} minimum for ${this.config.anthropic.model}`);
+    }
+
+    // Inject oracle brief as a separate cached system block (changes only on file events)
+    if (this.getBrief && fileName) {
+      const brief = this.getBrief(fileName);
+      if (brief) {
+        const briefText = formatBriefForPrompt(brief);
+        if (briefText) {
+          const briefBlock: Anthropic.TextBlockParam = {
+            type: 'text',
+            text: briefText,
+          };
+          if (shouldCache) {
+            (briefBlock as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
+          }
+          systemBlocks.push(briefBlock);
+          this.logger.debug(`Oracle brief injected for ${fileName} (${briefText.length} chars)`);
+        }
+      }
+    }
+
     const systemContent: Anthropic.TextBlockParam = {
       type: 'text',
       text: prompt.system,
     };
 
-    // Smart caching: only add cache_control when estimated tokens meet the model's
-    // minimum cacheable threshold. Below the minimum, the API silently ignores
-    // cache_control but we still pay the 1.25x write premium for nothing.
-    if (this.config.anthropic.useCaching) {
-      const totalEstimatedTokens = estimateTokens(prompt.system + prompt.userMessage);
-      const minTokens = getMinCacheableTokens(this.config.anthropic.model);
-
-      if (totalEstimatedTokens >= minTokens) {
-        (systemContent as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
-      } else {
-        this.logger.debug(`Caching skipped: ~${totalEstimatedTokens} tokens < ${minTokens} minimum for ${this.config.anthropic.model}`);
-      }
+    if (shouldCache) {
+      (systemContent as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
     }
+
+    systemBlocks.push(systemContent);
 
     const response = await this.client.messages.create(
       {
@@ -145,7 +173,7 @@ export class AnthropicProvider implements CompletionProvider {
         // Anthropic rejects stop sequences that are purely whitespace (e.g. "\n\n").
         // Filter them out — the system prompt + maxTokens constrain output length instead.
         stop_sequences: prompt.stopSequences.filter(s => /\S/.test(s)),
-        system: [systemContent],
+        system: systemBlocks,
         messages,
       },
       { signal },

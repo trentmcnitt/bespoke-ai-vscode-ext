@@ -15,5 +15,6 @@ export function applyProfile(base: ExtensionConfig, profile: ProfileOverrides): 
     ollama: { ...base.ollama, ...profile.ollama },
     prose: { ...base.prose, ...profile.prose },
     code: { ...base.code, ...profile.code },
+    oracle: { ...base.oracle, ...profile.oracle },
   };
 }
