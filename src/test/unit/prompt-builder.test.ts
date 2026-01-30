@@ -17,14 +17,14 @@ describe('PromptBuilder', () => {
 
     it('uses prose system prompt', () => {
       const result = builder.buildPrompt(proseContext, makeConfig());
-      expect(result.system).toContain('text continuation engine');
+      expect(result.system).toContain('Continue the text naturally');
     });
 
     it('sets prose-specific parameters', () => {
       const result = builder.buildPrompt(proseContext, makeConfig());
       expect(result.maxTokens).toBe(100);
       expect(result.temperature).toBe(0.7);
-      expect(result.stopSequences).toEqual(['\n\n', '---', '##']);
+      expect(result.stopSequences).toEqual(['---', '##']);
     });
 
     it('extracts last 4 words as assistant prefill', () => {
@@ -43,15 +43,15 @@ describe('PromptBuilder', () => {
         suffix: 'The end of the story was surprising.',
       };
       const result = builder.buildPrompt(ctx, makeConfig());
-      expect(result.userMessage).toContain('the text continues after the cursor with:');
+      expect(result.userMessage).toContain('The document continues after the cursor with:');
       expect(result.userMessage).toContain('The end of the story');
-      expect(result.userMessage).toContain('Do NOT include that text in your response');
+      expect(result.userMessage).toContain('Do not regenerate or overlap');
     });
 
     it('omits suffix hint when suffix is empty/whitespace', () => {
       const ctx: CompletionContext = { ...proseContext, suffix: '   ' };
       const result = builder.buildPrompt(ctx, makeConfig());
-      expect(result.userMessage).not.toContain('[The text continues with:');
+      expect(result.userMessage).not.toContain('The document continues after the cursor with:');
     });
 
     it('skips prefill for very short prefix (< 3 words)', () => {
@@ -94,7 +94,7 @@ describe('PromptBuilder', () => {
 
     it('uses code system prompt', () => {
       const result = builder.buildPrompt(codeContext, makeConfig());
-      expect(result.system).toContain('code completion engine');
+      expect(result.system).toContain('Complete the code at the cursor position');
     });
 
     it('includes filename and language in system prompt', () => {
@@ -107,7 +107,7 @@ describe('PromptBuilder', () => {
       const result = builder.buildPrompt(codeContext, makeConfig());
       expect(result.maxTokens).toBe(256);
       expect(result.temperature).toBe(0.2);
-      expect(result.stopSequences).toEqual(['\n\n']);
+      expect(result.stopSequences).toEqual([]);
     });
 
     it('does not set assistant prefill for code', () => {

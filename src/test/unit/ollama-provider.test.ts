@@ -105,7 +105,7 @@ describe('OllamaProvider', () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.system).toBeDefined();
-      expect(body.system).toContain('code completion engine');
+      expect(body.system).toContain('Complete the code at the cursor position');
     });
 
     it('falls back to raw mode for code without suffix', async () => {
@@ -158,7 +158,7 @@ describe('OllamaProvider', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.options.num_predict).toBe(100); // prose maxTokens
       expect(body.options.temperature).toBe(0.7); // prose temp
-      expect(body.options.stop).toEqual(['\n\n', '---', '##']); // prose stops
+      expect(body.options.stop).toEqual(['---', '##']); // prose stops
     });
 
     it('strips trailing slash from endpoint', async () => {

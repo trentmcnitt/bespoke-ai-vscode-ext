@@ -3,7 +3,58 @@ import { Logger } from '../utils/logger';
 import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
 
-const SYSTEM_PROMPT = `You are an inline completion engine for a text editor. You handle both prose and code completions. Output ONLY the text that comes next — no markdown fences, no explanation, no commentary. Do not repeat text already written. Your response is inserted directly into the document at the cursor position.`;
+const SYSTEM_PROMPT = `You are an inline text completion engine. Your entire response is inserted verbatim into a document at the cursor position. Output ONLY the raw continuation text. Never include markdown fences, explanations, meta-commentary, or formatting wrappers.`;
+
+
+/**
+ * Extract an anchor from the prefix for the Claude Code backend.
+ * The anchor is the current line (text after last newline), up to ~maxLength chars.
+ * The model is instructed to echo the anchor, and trimPrefixOverlap strips it.
+ */
+export function extractAnchor(prefix: string, maxLength = 120): { anchor: string; prefixBeforeAnchor: string } {
+  const lastNewline = prefix.lastIndexOf('\n');
+  const currentLine = lastNewline >= 0 ? prefix.slice(lastNewline + 1) : prefix;
+
+  if (!currentLine || !currentLine.trim()) {
+    return { anchor: '', prefixBeforeAnchor: prefix };
+  }
+
+  if (currentLine.length <= maxLength) {
+    const prefixBeforeAnchor = lastNewline >= 0 ? prefix.slice(0, lastNewline + 1) : '';
+    return { anchor: currentLine, prefixBeforeAnchor };
+  }
+
+  // Line exceeds maxLength — take last maxLength chars, then find a natural boundary
+  const slice = currentLine.slice(-maxLength);
+
+  // Try sentence break — scan backwards (lastIndexOf) to find the latest
+  // break, producing the shortest anchor starting at a natural boundary.
+  const sentenceBreaks = ['. ', '; ', '! ', '? '];
+  let bestBreak = -1;
+  for (const brk of sentenceBreaks) {
+    const idx = slice.lastIndexOf(brk);
+    if (idx >= 0 && idx > bestBreak) {
+      bestBreak = idx;
+    }
+  }
+
+  let anchor: string;
+  if (bestBreak >= 0) {
+    // Start after the sentence break (include the space)
+    anchor = slice.slice(bestBreak + 2);
+  } else {
+    // No sentence break — try word boundary (first space from the left)
+    const spaceIdx = slice.indexOf(' ');
+    if (spaceIdx >= 0) {
+      anchor = slice.slice(spaceIdx + 1);
+    } else {
+      anchor = slice;
+    }
+  }
+
+  const prefixBeforeAnchor = prefix.slice(0, prefix.length - anchor.length);
+  return { anchor, prefixBeforeAnchor };
+}
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
 
@@ -140,14 +191,17 @@ export class ClaudeCodeProvider implements CompletionProvider {
       // The SDK session has a generic system prompt. Prepend mode-specific
       // instructions (from PromptBuilder) into the user message so the model
       // gets prose/code guidance for each request.
-      // When the prompt includes an assistant prefill (prose mode), append it
-      // as an explicit continuation anchor. The Anthropic backend seeds the
-      // assistant turn with these words so the model continues naturally; the
-      // SDK lacks native prefill, so we express it as an instruction instead.
-      const anchor = prompt.assistantPrefill
-        ? `\n\n[The text to continue ends with: "${prompt.assistantPrefill}" — your response must start from exactly that point, do not skip ahead.]`
+      // Use the current line as an anchor — the model echoes it, and
+      // trimPrefixOverlap strips the echo. This provides a reliable
+      // continuation point without relying on assistant prefill.
+      const { anchor } = extractAnchor(context.prefix);
+      const anchorInstruction = anchor
+        ? `\n\n[CONTINUATION POINT: Your response must begin with the following text, then continue naturally from there. Do not assume any missing text exists between the document and your response.]\n${anchor}`
         : '';
-      const message = `[Instructions: ${prompt.system}]\n\n${prompt.userMessage}${anchor}`;
+      const message = `[Instructions: ${prompt.system}]\n\n${prompt.userMessage}${anchorInstruction}`;
+
+      this.logger.debug(`Claude Code anchor: "${anchor.slice(0, 60)}${anchor.length > 60 ? '...' : ''}"`);
+      this.logger.trace(`Claude Code full anchor: ${anchor}`);
 
       // Push the completion request into the slot's channel
       slot.channel!.push(message);

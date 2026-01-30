@@ -179,7 +179,7 @@ export class AnthropicProvider implements CompletionProvider {
         model: this.config.anthropic.model,
         max_tokens: prompt.maxTokens,
         temperature: prompt.temperature,
-        // Anthropic rejects stop sequences that are purely whitespace (e.g. "\n\n").
+        // Anthropic rejects stop sequences that are purely whitespace.
         // Filter them out — the system prompt + maxTokens constrain output length instead.
         stop_sequences: prompt.stopSequences.filter(s => /\S/.test(s)),
         system: systemBlocks,

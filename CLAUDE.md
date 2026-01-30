@@ -122,7 +122,7 @@ Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
-Context-builder tests (`context-builder.test.ts`) use a minimal mock `TextDocument` with `getText()`, `offsetAt()`, `languageId`, and `fileName`. Post-process tests (`post-process.test.ts`) test the shared post-processing pipeline (fence stripping, newline removal, stop boundary enforcement).
+Context-builder tests (`context-builder.test.ts`) use a minimal mock `TextDocument` with `getText()`, `offsetAt()`, `languageId`, and `fileName`. Post-process tests (`post-process.test.ts`) test the shared post-processing pipeline (prefix overlap trimming, suffix overlap trimming).
 
 ### API integration tests
 
@@ -287,7 +287,7 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 
 These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
 
-- The Anthropic API rejects stop sequences that are purely whitespace, so `src/utils/post-process.ts` enforces `\n\n` stop boundaries in post-processing instead.
+- The Anthropic API rejects stop sequences that are purely whitespace, so they are filtered out before sending. Output length is constrained by the system prompt and `maxTokens` instead.
 - Ollama discards the system prompt in raw mode — only `userMessage` is sent.
 - Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
 - The cache is auto-cleared on profile switch, but not on individual setting changes. It may serve completions generated with previous settings until they expire (5-minute TTL) or are evicted. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.

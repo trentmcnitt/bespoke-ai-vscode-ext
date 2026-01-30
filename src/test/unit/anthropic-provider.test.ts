@@ -93,13 +93,12 @@ describe('AnthropicProvider', () => {
       expect(messages[1].content).toBe('lazy dog and then');
     });
 
-    it('filters whitespace-only stop sequences', async () => {
+    it('sends stop sequences from config', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('some text'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
       const [params] = mockCreate.mock.calls[0];
-      // \n\n should be filtered out, --- and ## should remain
       expect(params.stop_sequences).toEqual(['---', '##']);
     });
 
@@ -164,11 +163,10 @@ describe('AnthropicProvider', () => {
       expect(result).toBe('\n\nactual text here');
     });
 
-    it('returns null when completion is only newlines and \\n\\n stop is active', async () => {
+    it('returns null when completion is only whitespace', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('\n\n\n'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      // \n\n stop boundary truncates at position 0, yielding empty string → null
       expect(result).toBeNull();
     });
 

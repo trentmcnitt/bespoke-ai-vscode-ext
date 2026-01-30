@@ -7,7 +7,7 @@ function makePrompt(overrides: Partial<BuiltPrompt> = {}): BuiltPrompt {
     userMessage: '',
     maxTokens: 100,
     temperature: 0.7,
-    stopSequences: ['\n\n'],
+    stopSequences: [],
     ...overrides,
   };
 }
@@ -80,8 +80,8 @@ describe('trimPrefixOverlap', () => {
     expect(result).toBe('- item');
   });
 
-  it('does not trim when fragment exceeds 100 chars', () => {
-    const longFragment = 'a'.repeat(101);
+  it('does not trim when fragment exceeds 150 chars', () => {
+    const longFragment = 'a'.repeat(151);
     const result = postProcessCompletion(longFragment + ' more', makePrompt(), longFragment);
     expect(result).toBe(longFragment + ' more');
   });

@@ -190,7 +190,6 @@
             "type": "string"
           },
           "default": [
-            "\n\n",
             "---",
             "##"
           ],
@@ -232,9 +231,7 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            "\n\n"
-          ],
+          "default": [],
           "description": "Stop sequences for code completions"
         },
         "bespokeAI.code.contextChars": {
@@ -301,7 +298,6 @@
                 "maxTokens": 80,
                 "temperature": 0.7,
                 "stopSequences": [
-                  "\n\n",
                   "---",
                   "##"
                 ],
@@ -311,9 +307,7 @@
               "code": {
                 "maxTokens": 200,
                 "temperature": 0.2,
-                "stopSequences": [
-                  "\n\n"
-                ],
+                "stopSequences": [],
                 "contextChars": 4000,
                 "suffixChars": 500
               }
@@ -485,7 +479,8 @@
     "test:unit:watch": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
     "test:quality": "vitest run --config vitest.quality.config.ts",
-    "benchmark": "tsx src/benchmark/runner.ts"
+    "benchmark": "tsx src/benchmark/runner.ts",
+    "dump-prompts": "tsx src/scripts/dump-prompts.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

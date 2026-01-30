@@ -314,7 +314,7 @@ function loadConfig(): ExtensionConfig {
     prose: {
       maxTokens: ws.get<number>('prose.maxTokens', 100)!,
       temperature: ws.get<number>('prose.temperature', 0.7)!,
-      stopSequences: ws.get<string[]>('prose.stopSequences', ['\n\n', '---', '##'])!,
+      stopSequences: ws.get<string[]>('prose.stopSequences', ['---', '##'])!,
       contextChars: ws.get<number>('prose.contextChars', 2000)!,
       suffixChars: ws.get<number>('prose.suffixChars', 500)!,
       fileTypes: ws.get<string[]>('prose.fileTypes', ['markdown', 'plaintext'])!,
@@ -322,7 +322,7 @@ function loadConfig(): ExtensionConfig {
     code: {
       maxTokens: ws.get<number>('code.maxTokens', 256)!,
       temperature: ws.get<number>('code.temperature', 0.2)!,
-      stopSequences: ws.get<string[]>('code.stopSequences', ['\n\n'])!,
+      stopSequences: ws.get<string[]>('code.stopSequences', [])!,
       contextChars: ws.get<number>('code.contextChars', 4000)!,
       suffixChars: ws.get<number>('code.suffixChars', 500)!,
     },

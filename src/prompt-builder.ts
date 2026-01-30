@@ -1,12 +1,10 @@
 import { CompletionContext, BuiltPrompt, ExtensionConfig } from './types';
 
-const PROSE_SYSTEM = `You are a text continuation engine. Output ONLY the natural continuation of the text — no commentary, explanations, or meta-text. Match the voice, tone, and style exactly.
+const PROSE_SYSTEM = `Continue the text naturally. Match the voice, tone, and style exactly. Output only the continuation — no commentary or meta-text.
 
-Length: use your judgment. If the text ends mid-word, just complete the word. If mid-sentence, finish the sentence. If a paragraph is clearly underway, complete the current thought — but stop after 1-3 sentences. Ghost text should feel like a natural next chunk the writer would accept. When in doubt, shorter is better.
+Length: finish the current sentence or thought, then stop. 1-3 sentences maximum. Shorter is better.`;
 
-Do NOT repeat any of the provided text.`;
-
-const CODE_SYSTEM_BASE = `You are a code completion engine. Complete the code at the cursor position. Output ONLY the raw code that should be inserted — no explanations, no comments about what the code does. NEVER wrap output in markdown code fences (\`\`\`). Your output is inserted directly into a source file, so it must be valid code with no formatting wrappers. Match the existing code style. When code exists after the cursor, your output must fit exactly between the before and after code — do not generate code that belongs outside that scope or duplicates the surrounding context.`;
+const CODE_SYSTEM_BASE = `Complete the code at the cursor position. Output ONLY the raw code to insert — no explanations, no comments about what the code does, no markdown code fences. Your output is inserted directly into a source file. Match the existing code style. When code exists after the cursor, your output must fit exactly between the before and after code — do not duplicate the surrounding context.`;
 
 export class PromptBuilder {
   buildPrompt(context: CompletionContext, config: ExtensionConfig): BuiltPrompt {
@@ -29,7 +27,7 @@ export class PromptBuilder {
     }
 
     if (context.suffix.trim()) {
-      userMessage += `\n\n[Context: the text continues after the cursor with: ${context.suffix.slice(0, 100)}]\n[Do NOT include that text in your response — only output what goes BEFORE it.]\n[Your output is inserted at the cursor position. Include any leading newlines needed for proper formatting.]`;
+      userMessage += `\n\n[SUFFIX: The document continues after the cursor with: ${context.suffix.slice(0, 100)}]\n[Your output fills the gap before this existing text. Do not regenerate or overlap with it.]\n[Include any leading newlines or whitespace needed for correct formatting at the insertion point.]`;
     }
 
     // Extract last few words for Anthropic prefill.
