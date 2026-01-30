@@ -27,6 +27,7 @@ import { CompletionContext, CompletionProvider, Backend } from '../../types';
 import { makeConfig, makeLogger, loadApiKey } from '../helpers';
 import { TestScenario } from './judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from './scenarios';
+import { regressionScenarios } from './regression-scenarios';
 
 // ─── Backend selection ───────────────────────────────────────────────
 
@@ -281,6 +282,17 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
 
   describe('edge cases', () => {
     it.each(edgeCaseScenarios.map(s => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateCompletion(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('regression cases', () => {
+    it.each(regressionScenarios.map(s => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
         const result = await generateCompletion(scenario);

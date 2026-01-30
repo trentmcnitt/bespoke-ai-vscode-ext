@@ -70,7 +70,7 @@ Key components, listed in request-flow order:
 
 - `src/providers/provider-router.ts` — Holds both provider instances, returns the active one based on `config.backend`. Accepts a `Logger` as 2nd param and passes it to both providers. "Backend" is the user-facing config choice; "provider" is the code abstraction that implements the `CompletionProvider` interface.
 
-- `src/utils/post-process.ts` — Applies a shared post-processing pipeline to all provider output before caching. Strips markdown code fences, leading newlines, and enforces `\n\n` stop boundaries (see Known Limitations for why).
+- `src/utils/post-process.ts` — Applies a shared post-processing pipeline to all provider output before caching. Trims prefix overlap (when the model echoes the current line fragment, e.g., doubled bullet markers), trims suffix overlap (when the completion's tail duplicates the document's suffix), and returns `null` for empty results.
 
 - `src/utils/debouncer.ts` — Promise-based debounce that responds to two cancellation layers: the VS Code `CancellationToken` cancels the debounce wait, and the `AbortSignal` aborts in-flight HTTP requests.
 
@@ -151,6 +151,21 @@ The model name is recorded in `summary.json` so results are traceable.
 - `test-results/` — Generated outputs (gitignored)
 
 To add a new scenario, add a `TestScenario` object to the prose, code, or edge-case scenario array in `scenarios.ts` (choose based on the completion mode being tested). To adjust judging criteria, edit `validator-prompt.md`.
+
+### Regression Scenarios
+
+Regression scenarios (`src/test/quality/regression-scenarios.ts`) capture real-world completion failures observed during use. They run alongside the standard quality scenarios via `npm run test:quality` and flow through the same Layer 1 + Layer 2 pipeline.
+
+Each `RegressionScenario` extends `TestScenario` with:
+- `observedModel` — which model/backend produced the failure
+- `observedDate` — when the issue was observed
+- `regression_notes` — what went wrong, guiding the Layer 2 judge on what to watch for
+
+**Adding a new regression case:**
+1. Copy the **exact** prefix and suffix from the trace log verbatim — no truncation, no paraphrasing, no edits. The `[TRACE]` lines show the full userMessage and suffix. The goal is to reproduce the exact conditions that caused the failure.
+2. Add a `RegressionScenario` to the array in `regression-scenarios.ts`
+3. Document the failure in `regression_notes` and set `quality_notes` to tell the judge what constitutes a fix
+4. Tag with the `observedModel` and `observedDate`
 
 ## Profiles
 
@@ -250,6 +265,23 @@ The ledger (`test-results/benchmarks/ledger.json`, version 2) is append-only. Mu
 - `src/benchmark/judge.ts` — Automated evaluator using Claude as judge (reads validator-prompt.md)
 - `src/benchmark/ledger.ts` — Ledger read/write/update utilities
 - `src/benchmark/reporter.ts` — Comparison report with accept rates, pairwise sign tests, failure modes
+
+## Fixing Autocomplete Issues
+
+When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwanted content):
+
+**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, prefill, stop sequences, or provider configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not a parallel option.
+
+**Why post-processing is risky:** Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing unpredictable ghost text the user didn't ask for. Edge cases compound — each post-processing step interacts with every other step and with every possible completion the model might produce. The result is brittle behavior that's hard to diagnose because the user sees ghost text that doesn't match what the model actually returned.
+
+**If post-processing seems necessary:**
+
+1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does. Do not add post-processing without explicit approval.
+2. **The transformation must be provably safe** — it should only activate when the input is *always* wrong (a true invariant violation), never when the input *might* be correct. If there's any ambiguity about whether the text is a duplicate vs. legitimate content, don't strip it.
+3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs. Broad pattern matching or fuzzy heuristics are not acceptable.
+4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected *and* tests that verify it leaves correct completions untouched across a range of realistic inputs.
+5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
+6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or provider level (e.g., adding prefill to a backend that lacked it), remove the corresponding post-processing step. Stale workarounds accumulate risk.
 
 ## Known Limitations
 

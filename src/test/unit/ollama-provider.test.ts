@@ -174,18 +174,19 @@ describe('OllamaProvider', () => {
   });
 
   describe('post-processing', () => {
-    it('strips markdown code fences from response', async () => {
+    it('passes through markdown code fences from response', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('```python\nreturn x + 1\n```'));
       const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeCodeContext(), new AbortController().signal);
-      expect(result).toBe('return x + 1');
+      expect(result).toBe('```python\nreturn x + 1\n```');
     });
 
-    it('strips leading newlines from response', async () => {
+    it('preserves leading \\n\\n as structural spacing', async () => {
       mockFetch.mockResolvedValue(makeOllamaResponse('\n\nhello world'));
       const provider = new OllamaProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBe('hello world');
+      // Leading \n\n is structural spacing, not a content boundary
+      expect(result).toBe('\n\nhello world');
     });
 
     it('returns null when response is only newlines', async () => {

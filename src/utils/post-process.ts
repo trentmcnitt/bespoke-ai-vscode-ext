@@ -1,11 +1,5 @@
 import { BuiltPrompt } from '../types';
 
-/** Strip markdown code fences (```lang\n...\n```) from a completion. */
-function stripMarkdownFences(text: string): string {
-  const fenced = text.match(/^```\w*\n([\s\S]*?)```\s*$/);
-  return fenced ? fenced[1].trimEnd() : text;
-}
-
 /**
  * Trim suffix overlap from a completion. If the completion's tail duplicates
  * the beginning of the suffix, return the completion truncated before the
@@ -67,46 +61,47 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
 }
 
 /**
- * Shared post-processing pipeline for completion text from any provider.
+ * Strip the current line fragment from the start of a completion when the
+ * model echoes it. This happens with backends that lack assistant prefill
+ * (e.g., Claude Code), producing doubled text like "- - item".
  *
- * 1. Strip markdown code fences the model may have wrapped around code.
- * 2. Strip leading newlines — ghost text should never start with blank lines.
- * 3. Enforce \n\n as a stop boundary (some backends ignore whitespace-only stops).
- * 4. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
- * 5. Return null for empty results so callers get a clean "no completion" signal.
+ * The current line fragment is the text after the last newline in the prefix.
+ * If the completion starts with that exact fragment, it's always a duplicate —
+ * no legitimate continuation would repeat the entire line fragment.
  */
-export function postProcessCompletion(text: string, prompt: BuiltPrompt, prefix?: string, suffix?: string): string | null {
-  let result = stripMarkdownFences(text);
+function trimPrefixOverlap(completion: string, prefix: string): string {
+  const lastNewline = prefix.lastIndexOf('\n');
+  const lineFragment = lastNewline >= 0 ? prefix.slice(lastNewline + 1) : prefix;
 
-  result = result.replace(/^\n+/, '');
-
-  // When the prefix ends with whitespace but the assistant prefill doesn't
-  // (Anthropic rejects trailing whitespace in prefills), the model re-generates
-  // the space. Strip it so the completion doesn't duplicate the trailing space.
-  if (prefix && /\s$/.test(prefix) && prompt.assistantPrefill && !/\s$/.test(prompt.assistantPrefill)) {
-    result = result.replace(/^\s+/, '');
+  // Skip if fragment is empty, whitespace-only, or too long
+  if (!lineFragment || !lineFragment.trim() || lineFragment.length > 100) {
+    return completion;
   }
 
-  // Strip leading character if it duplicates the last character of the prefix.
-  // This handles cases where the model echoes a boundary character (e.g., an
-  // opening quote mark) that is already present at the end of the prefix.
-  if (prefix && result.length > 0 && prefix.length > 0 && result[0] === prefix[prefix.length - 1]) {
-    // Only strip punctuation/quote characters to avoid false positives on letters
-    if (/["""''`([\-—]/.test(result[0])) {
-      result = result.slice(1);
-    }
+  if (completion.startsWith(lineFragment)) {
+    return completion.slice(lineFragment.length);
   }
 
-  if (prompt.stopSequences.includes('\n\n')) {
-    const doubleNewline = result.indexOf('\n\n');
-    if (doubleNewline >= 0) { result = result.slice(0, doubleNewline); }
+  return completion;
+}
+
+/**
+ * Post-processing pipeline for completion text from any provider.
+ *
+ * 1. Trim prefix overlap — if the completion's head duplicates the current line fragment.
+ * 2. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
+ * 3. Return null for empty results so callers get a clean "no completion" signal.
+ */
+export function postProcessCompletion(text: string, _prompt: BuiltPrompt, prefix?: string, suffix?: string): string | null {
+  let result = text;
+
+  if (prefix) {
+    result = trimPrefixOverlap(result, prefix);
   }
 
-  // Trim suffix overlap: if the completion ends with text that duplicates
-  // the beginning of the document's suffix, truncate to avoid duplication.
   if (suffix) {
     result = trimSuffixOverlap(result, suffix);
   }
 
-  return result || null;
+  return result.trim() ? result : null;
 }

@@ -4,6 +4,7 @@
   "description": "Inline ghost-text completions for prose and code using Anthropic Claude or Ollama",
   "version": "0.1.0",
   "publisher": "trenthm",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },

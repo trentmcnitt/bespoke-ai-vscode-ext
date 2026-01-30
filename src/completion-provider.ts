@@ -6,6 +6,7 @@ import { buildDocumentContext } from './utils/context-builder';
 import { LRUCache } from './utils/cache';
 import { Debouncer } from './utils/debouncer';
 import { Logger } from './utils/logger';
+import { UsageTracker } from './utils/usage-tracker';
 
 export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private modeDetector: ModeDetector;
@@ -14,16 +15,19 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private debouncer: Debouncer;
   private config: ExtensionConfig;
   private logger: Logger;
+  private tracker?: UsageTracker;
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
+  private lastErrorToastTime = 0;
 
-  constructor(config: ExtensionConfig, router: ProviderRouter, logger: Logger) {
+  constructor(config: ExtensionConfig, router: ProviderRouter, logger: Logger, tracker?: UsageTracker) {
     this.config = config;
     this.modeDetector = new ModeDetector();
     this.router = router;
     this.cache = new LRUCache();
     this.debouncer = new Debouncer(config.debounceMs);
     this.logger = logger;
+    this.tracker = tracker;
   }
 
   setRequestCallbacks(onStart: () => void, onEnd: () => void): void {
@@ -71,6 +75,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.logger.debug(`Cache hit for ${mode} completion`);
+      this.tracker?.recordCacheHit();
       return [new vscode.InlineCompletionItem(cached, new vscode.Range(position, position))];
     }
 
@@ -93,6 +98,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.trace(`Suffix (first 200): ${docContext.suffix.slice(0, 200)}`);
     }
 
+    this.tracker?.recordCacheMiss();
     this.onRequestStart?.();
     try {
       const result = await provider.getCompletion(completionContext, signal);
@@ -109,6 +115,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       return [new vscode.InlineCompletionItem(result, new vscode.Range(position, position))];
     } catch (err: unknown) {
       this.logger.error(`${this.config.backend} completion failed`, err);
+      this.tracker?.recordError();
+      const now = Date.now();
+      if (now - this.lastErrorToastTime > 60_000) {
+        this.lastErrorToastTime = now;
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Bespoke AI: ${this.config.backend} error — ${msg}`);
+      }
       return null;
     } finally {
       this.onRequestEnd?.();

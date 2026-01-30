@@ -100,15 +100,20 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
   async activate(workspaceRoot: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
+    this.logger.info(`Claude Code: activating (cwd=${workspaceRoot})`);
     await this.loadSdk();
-    if (!this.sdkAvailable) { return; }
+    if (!this.sdkAvailable) {
+      this.logger.error('Claude Code: SDK not available, skipping slot init');
+      return;
+    }
 
+    this.logger.info('Claude Code: initializing 2-slot pool...');
     await Promise.all([
       this.initSlot(0),
       this.initSlot(1),
     ]);
 
-    this.logger.info('Claude Code provider: 2-slot pool initialized');
+    this.logger.info(`Claude Code: pool initialized (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
   }
 
   isAvailable(): boolean {
@@ -144,10 +149,13 @@ export class ClaudeCodeProvider implements CompletionProvider {
       const raw = await raceAbort(slot.resultPromise!, signal);
 
       this.logger.debug(`Claude Code response: slot=${slotIndex} length=${raw?.length ?? 'null'}`);
+      this.logger.trace(`Claude Code raw response: ${raw}`);
 
       if (!raw) { return null; }
 
-      return postProcessCompletion(raw, prompt, context.prefix, context.suffix);
+      const result = postProcessCompletion(raw, prompt, context.prefix, context.suffix);
+      this.logger.trace(`Claude Code post-processed: ${result}`);
+      return result;
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') { return null; }
       throw err;
@@ -223,7 +231,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.logger.info('Claude Code: SDK loaded');
     } catch (err) {
       this.sdkAvailable = false;
-      this.logger.info(`Claude Code: Agent SDK not available — provider disabled (${err})`);
+      this.logger.error(`Claude Code: Agent SDK not available — provider disabled (${err instanceof Error ? err.stack ?? err.message : err})`);
     }
   }
 
@@ -238,7 +246,10 @@ export class ClaudeCodeProvider implements CompletionProvider {
       // Push warmup message before creating query — seeds the first turn
       channel.push('Ready.');
 
-      // Start streaming query — it consumes messages from the channel
+      // Start streaming query — it consumes messages from the channel.
+      // The SDK resolves cli.js via import.meta.url, which is undefined when
+      // loaded via require() in a CJS bundle. Pass the path explicitly.
+      const sdkCliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
       const stream = this.queryFn!({
         prompt: channel.iterable,
         options: {
@@ -253,6 +264,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
           maxThinkingTokens: 0,
           maxTurns: 50,
           persistSession: false,
+          pathToClaudeCodeExecutable: sdkCliPath,
         },
       });
 
@@ -271,7 +283,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.logger.debug(`Claude Code: slot ${index} ready`);
     } catch (err) {
       slot.state = 'dead';
-      this.logger.error(`Claude Code: slot ${index} init failed: ${err}`);
+      this.logger.error(`Claude Code: slot ${index} init failed: ${err instanceof Error ? err.stack ?? err.message : err}`);
     }
   }
 
@@ -313,7 +325,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
         }
       }
     } catch (err) {
-      this.logger.error(`Claude Code: stream error on slot ${slotIndex}: ${err}`);
+      this.logger.error(`Claude Code: stream error on slot ${slotIndex}: ${err instanceof Error ? err.stack ?? err.message : err}`);
       this.slots[slotIndex].deliverResult?.(null);
       // Also resolve warmup if still pending
       this._warmupResolvers[slotIndex]?.();

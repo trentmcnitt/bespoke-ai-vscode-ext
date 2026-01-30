@@ -104,4 +104,25 @@ describe('buildDocumentContext', () => {
     const ctx = buildDocumentContext(doc as any, pos(0, 2), 2000, 500);
     expect(ctx.languageId).toBe('python');
   });
+
+  it('snaps prefix start to line boundary when truncation cuts mid-line', () => {
+    // "line one\nline two\nline three" (offsets: 0-8, 9-16, 18-27)
+    // Cursor at end of "line three" (offset 28)
+    // prefixChars=15 → raw start at 13 → mid "line two"
+    // Snaps forward to offset 18 (start of "line three"), dropping partial line
+    const text = 'line one\nline two\nline three';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(2, 10), 15, 500);
+    expect(ctx.prefix).toBe('line three');
+  });
+
+  it('keeps full prefix when truncation lands on a line boundary', () => {
+    // "aaa\nbbb\nccc" (offsets: 0-2, 4-6, 8-10)
+    // Cursor at end (offset 11), prefixChars=7 → raw start at 4
+    // Offset 4 is preceded by \n (offset 3), so it IS a line boundary → no snap
+    const text = 'aaa\nbbb\nccc';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(2, 3), 7, 500);
+    expect(ctx.prefix).toBe('bbb\nccc');
+  });
 });

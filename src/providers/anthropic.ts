@@ -40,15 +40,22 @@ function getMinCacheableTokens(model: string): number {
   return 1024;
 }
 
+export type TokenUsageCallback = (model: string, input: number, output: number, cacheRead: number, cacheWrite: number) => void;
+
 export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
   private promptBuilder: PromptBuilder;
   private getBrief: ((filePath: string) => ContextBrief | null) | null;
+  private onTokenUsage: TokenUsageCallback | null = null;
 
   constructor(private config: ExtensionConfig, private logger: Logger, getBrief?: (filePath: string) => ContextBrief | null) {
     this.promptBuilder = new PromptBuilder();
     this.getBrief = getBrief ?? null;
     this.initClient();
+  }
+
+  setTokenUsageCallback(cb: TokenUsageCallback): void {
+    this.onTokenUsage = cb;
   }
 
   updateConfig(config: ExtensionConfig): void {
@@ -100,12 +107,14 @@ export class AnthropicProvider implements CompletionProvider {
       if (err instanceof Anthropic.APIError) {
         if (err.status === 429) {
           this.logger.debug(`Anthropic rate limited: ${err.message}`);
+          return null;
         } else if (err.status === 529) {
           this.logger.debug('Anthropic server overloaded (529), transient');
+          return null;
         } else {
           this.logger.error(`Anthropic API error: ${err.status} ${err.message}`);
+          throw err;
         }
-        return null;
       }
       throw err;
     }
@@ -189,6 +198,8 @@ export class AnthropicProvider implements CompletionProvider {
       const hitRate = totalInput > 0 ? (cacheRead / totalInput * 100).toFixed(1) : '0.0';
 
       this.logger.debug(`Anthropic usage: input=${uncached} output=${usage.output_tokens} cache_read=${cacheRead} cache_write=${cacheWrite} hit_rate=${hitRate}% stop=${response.stop_reason}`);
+
+      this.onTokenUsage?.(this.config.anthropic.model, uncached, usage.output_tokens, cacheRead, cacheWrite);
     }
 
     const block = response.content[0];

@@ -18,7 +18,16 @@ export function buildDocumentContext(
   const offset = document.offsetAt(position);
   const fullText = document.getText();
 
-  const prefixStart = Math.max(0, offset - prefixChars);
+  let prefixStart = Math.max(0, offset - prefixChars);
+  // Snap to line boundary: if we cut mid-line, move forward to the next
+  // newline so the model always sees complete lines. Skip if already at
+  // a line boundary (offset 0 or preceded by \n).
+  if (prefixStart > 0 && fullText[prefixStart - 1] !== '\n') {
+    const nextNewline = fullText.indexOf('\n', prefixStart);
+    if (nextNewline !== -1 && nextNewline < offset) {
+      prefixStart = nextNewline + 1;
+    }
+  }
   const prefix = fullText.slice(prefixStart, offset);
 
   const suffixEnd = Math.min(fullText.length, offset + suffixChars);

@@ -1,6 +1,6 @@
 import { Backend, CompletionProvider, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
-import { AnthropicProvider } from './anthropic';
+import { AnthropicProvider, TokenUsageCallback } from './anthropic';
 import { OllamaProvider } from './ollama';
 import { ClaudeCodeProvider } from './claude-code';
 import { ContextBrief } from '../oracle/types';
@@ -14,6 +14,10 @@ export class ProviderRouter {
     this.anthropic = new AnthropicProvider(config, logger, getBrief);
     this.ollama = new OllamaProvider(config, logger);
     this.claudeCode = new ClaudeCodeProvider(config, logger);
+  }
+
+  setTokenUsageCallback(cb: TokenUsageCallback): void {
+    this.anthropic.setTokenUsageCallback(cb);
   }
 
   updateConfig(config: ExtensionConfig): void {

@@ -103,11 +103,11 @@ describe('AnthropicProvider', () => {
       expect(params.stop_sequences).toEqual(['---', '##']);
     });
 
-    it('truncates result at \\n\\n when it was a configured stop sequence', async () => {
+    it('passes through text with \\n\\n without truncation', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('first paragraph\n\nsecond paragraph'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBe('first paragraph');
+      expect(result).toBe('first paragraph\n\nsecond paragraph');
     });
 
     it('does not truncate at \\n\\n when not in stop sequences', async () => {
@@ -138,52 +138,51 @@ describe('AnthropicProvider', () => {
       expect(params.messages[0].role).toBe('user');
     });
 
-    it('strips markdown code fences from response', async () => {
+    it('passes through markdown code fences from response', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('```typescript\nreturn a + b;\n```'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeCodeContext(), new AbortController().signal);
-      expect(result).toBe('return a + b;');
+      expect(result).toBe('```typescript\nreturn a + b;\n```');
     });
 
-    it('strips markdown fences with no language tag', async () => {
+    it('passes through markdown fences with no language tag', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('```\nreturn a + b;\n```'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeCodeContext(), new AbortController().signal);
-      expect(result).toBe('return a + b;');
+      expect(result).toBe('```\nreturn a + b;\n```');
     });
   });
 
   describe('post-processing', () => {
-    it('strips leading newlines from completions', async () => {
+    it('preserves leading newlines from completions', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('\n\nactual text here'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const config = makeConfig();
       config.prose.stopSequences = ['---']; // no \n\n stop sequence
       provider.updateConfig(config);
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBe('actual text here');
+      expect(result).toBe('\n\nactual text here');
     });
 
-    it('returns null when completion is only newlines', async () => {
+    it('returns null when completion is only newlines and \\n\\n stop is active', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('\n\n\n'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
+      // \n\n stop boundary truncates at position 0, yielding empty string → null
       expect(result).toBeNull();
     });
 
-    it('handles leading newlines before \\n\\n truncation', async () => {
-      // Previously this would truncate at position 0 and return ''
+    it('passes through text with leading and embedded \\n\\n', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('\n\nfirst paragraph\n\nsecond'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
-      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBe('first paragraph');
+      expect(await provider.getCompletion(makeProseContext(), new AbortController().signal)).toBe('\n\nfirst paragraph\n\nsecond');
     });
 
-    it('returns null for empty string after all post-processing', async () => {
+    it('passes through fenced block with empty content', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('```\n\n```'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
-      expect(result).toBeNull();
+      expect(result).toBe('```\n\n```');
     });
   });
 

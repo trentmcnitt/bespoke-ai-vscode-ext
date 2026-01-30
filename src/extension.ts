@@ -7,6 +7,7 @@ import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
 import { generateCommitMessage } from './commit-message';
 import { ContextOracle } from './oracle/context-oracle';
+import { UsageTracker } from './utils/usage-tracker';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = typeof MODE_LABELS[number];
@@ -28,6 +29,7 @@ let currentProfile = '';
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
 let oracle: ContextOracle;
+let usageTracker: UsageTracker;
 
 export function activate(context: vscode.ExtensionContext) {
   logger = new Logger('Bespoke AI');
@@ -38,6 +40,8 @@ export function activate(context: vscode.ExtensionContext) {
   currentProfile = config.activeProfile;
   lastConfig = config;
 
+  usageTracker = new UsageTracker();
+
   oracle = new ContextOracle(config.oracle, logger);
   oracle.activate(context);
   context.subscriptions.push({ dispose: () => oracle.dispose() });
@@ -45,13 +49,17 @@ export function activate(context: vscode.ExtensionContext) {
   providerRouter = new ProviderRouter(config, logger, (filePath) => oracle.getBrief(filePath));
   context.subscriptions.push({ dispose: () => providerRouter.dispose() });
 
+  providerRouter.setTokenUsageCallback((model, input, output, cacheRead, cacheWrite) => {
+    usageTracker.recordTokens(model, input, output, cacheRead, cacheWrite);
+  });
+
   // Activate Claude Code provider with workspace root (async, non-blocking)
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   providerRouter.activateClaudeCode(workspaceRoot).catch((err) => {
     logger.error(`Claude Code activation failed: ${err}`);
   });
 
-  completionProvider = new CompletionProvider(config, providerRouter, logger);
+  completionProvider = new CompletionProvider(config, providerRouter, logger, usageTracker);
 
   completionProvider.setRequestCallbacks(
     () => {
@@ -61,6 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
     () => {
       activeRequests = Math.max(0, activeRequests - 1);
       if (activeRequests === 0) { updateStatusBarSpinner(false); }
+      usageTracker.record(lastConfig.backend, getActiveModel(lastConfig));
     }
   );
 
@@ -213,6 +222,20 @@ export function activate(context: vscode.ExtensionContext) {
         logger.show();
       });
 
+      // --- Usage section ---
+      const snap = usageTracker.getSnapshot();
+      if (snap.totalToday > 0) {
+        items.push({ label: 'Usage', kind: vscode.QuickPickItemKind.Separator });
+
+        const icon = snap.isBurst ? '$(warning) $(pulse)' : '$(pulse)';
+        const usageItem: vscode.QuickPickItem = {
+          label: `${icon} ${snap.totalToday} requests today`,
+          description: `${snap.ratePerMinute}/min`,
+        };
+        items.push(usageItem);
+        handlers.set(usageItem, () => showUsageDetail());
+      }
+
       const picked = await vscode.window.showQuickPick(items, {
         title: 'Bespoke AI',
         placeHolder: 'Select an option',
@@ -356,6 +379,61 @@ function updateStatusBarSpinner(spinning: boolean) {
   } else {
     updateStatusBar(config);
   }
+}
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) { return `${hours}h ${minutes}m`; }
+  return `${minutes}m`;
+}
+
+function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) { return `${(count / 1_000_000).toFixed(1)}M`; }
+  if (count >= 1_000) { return `${(count / 1_000).toFixed(0)}K`; }
+  return String(count);
+}
+
+async function showUsageDetail(): Promise<void> {
+  const snap = usageTracker.getSnapshot();
+  const sessionDuration = formatDuration(Date.now() - snap.sessionStartTime);
+
+  const items: vscode.QuickPickItem[] = [];
+
+  // Session info
+  items.push({ label: 'Session Info', kind: vscode.QuickPickItemKind.Separator });
+  items.push({ label: `$(clock) Session: ${sessionDuration}` });
+  items.push({ label: `$(pulse) ${snap.totalToday} requests today`, description: `${snap.ratePerMinute}/min` });
+  items.push({ label: `$(check) Cache hit rate: ${snap.cacheHitRate}%`, description: `${snap.cacheHits} hits / ${snap.cacheMisses} misses` });
+  if (snap.errors > 0) {
+    items.push({ label: `$(error) ${snap.errors} errors` });
+  }
+
+  // Requests by model
+  const modelEntries = Object.entries(snap.byModel);
+  if (modelEntries.length > 0) {
+    items.push({ label: 'Requests by Model', kind: vscode.QuickPickItemKind.Separator });
+    for (const [model, count] of modelEntries.sort((a, b) => b[1] - a[1])) {
+      items.push({ label: `$(server) ${model}`, description: `${count}` });
+    }
+  }
+
+  // API cost
+  const totalTokens = snap.tokens.input + snap.tokens.output + snap.tokens.cacheRead + snap.tokens.cacheWrite;
+  if (totalTokens > 0) {
+    items.push({ label: 'API Cost (Anthropic)', kind: vscode.QuickPickItemKind.Separator });
+    items.push({ label: `$(credit-card) Tokens: ${formatTokenCount(snap.tokens.input)} in / ${formatTokenCount(snap.tokens.output)} out` });
+    if (snap.tokens.cacheRead > 0 || snap.tokens.cacheWrite > 0) {
+      items.push({ label: `$(credit-card) Cache: ${formatTokenCount(snap.tokens.cacheRead)} read / ${formatTokenCount(snap.tokens.cacheWrite)} write` });
+    }
+    items.push({ label: `$(credit-card) Estimated cost: $${snap.estimatedCostUsd.toFixed(2)}` });
+  }
+
+  await vscode.window.showQuickPick(items, {
+    title: 'Bespoke AI — Usage Details',
+    placeHolder: 'Session usage statistics',
+  });
 }
 
 export function deactivate() {
