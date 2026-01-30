@@ -140,7 +140,14 @@ export class ClaudeCodeProvider implements CompletionProvider {
       // The SDK session has a generic system prompt. Prepend mode-specific
       // instructions (from PromptBuilder) into the user message so the model
       // gets prose/code guidance for each request.
-      const message = `[Instructions: ${prompt.system}]\n\n${prompt.userMessage}`;
+      // When the prompt includes an assistant prefill (prose mode), append it
+      // as an explicit continuation anchor. The Anthropic backend seeds the
+      // assistant turn with these words so the model continues naturally; the
+      // SDK lacks native prefill, so we express it as an instruction instead.
+      const anchor = prompt.assistantPrefill
+        ? `\n\n[The text to continue ends with: "${prompt.assistantPrefill}" — your response must start from exactly that point, do not skip ahead.]`
+        : '';
+      const message = `[Instructions: ${prompt.system}]\n\n${prompt.userMessage}${anchor}`;
 
       // Push the completion request into the slot's channel
       slot.channel!.push(message);

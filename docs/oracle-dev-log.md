@@ -361,3 +361,62 @@ Build the simplest possible Claude Code completion provider:
 - Tuning: prompt wording, maxTokens cap, stop sequences
 - Prose mode support
 - Session lifecycle management (periodic restart for context accumulation)
+
+---
+
+## SDK Packaging Fix (2026-01-30)
+
+### Problem
+
+The `claude-code` backend failed at runtime in the installed extension:
+
+```
+[ERROR] Claude Code: Agent SDK not available — provider disabled
+(Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@anthropic-ai/claude-agent-sdk'
+  imported from .../dist/extension.js)
+```
+
+The SDK was correctly marked as `external` in `esbuild.js` (it can't be bundled — see below), but `.vscodeignore` used a strict allowlist that excluded all `node_modules`. The installed VSIX had no SDK on disk.
+
+### Why the SDK Can't Be Bundled
+
+Two lines in `src/providers/claude-code.ts` require the SDK to exist as physical files:
+
+1. **Line 221:** `import('@anthropic-ai/claude-agent-sdk')` — dynamic import for `query()`
+2. **Line 252:** `require.resolve('@anthropic-ai/claude-agent-sdk/cli.js')` — resolves the **file path** to the CLI executable, passed as `pathToClaudeCodeExecutable` to spawn a subprocess
+
+The CLI (`cli.js`, 11MB) is a standalone Node.js script that loads WASM files (`resvg.wasm`, `tree-sitter*.wasm`) and vendored ripgrep binaries at runtime. None of this can be inlined by esbuild.
+
+### Research: How Other Extensions Handle This
+
+Researched all VS Code extensions using the Agent SDK on GitHub (2026-01-30). Only two real-world implementations exist:
+
+| Extension | Approach | Size Impact |
+|-----------|----------|-------------|
+| **Damocles** (AizenvoltPrime/damocles) | esbuild `external` + `.vscodeignore` allowlist for `node_modules/@anthropic-ai/**` | 68MB+ (ships full SDK) |
+| **Claudix** (Haleclipse/Claudix) | Bundles SDK JS, copies `cli.js` + WASM + `vendor/` into `resources/` dir, uses `pathToClaudeCodeExecutable` | Manual asset copy, more control but fragile |
+
+No official Anthropic guidance exists for VS Code extension packaging. The Damocles pattern is the established approach.
+
+Relevant SDK issues: bundling breaks `import.meta.url` CLI discovery ([#150](https://github.com/anthropics/claude-agent-sdk-typescript/issues/150)), race condition with `endInput()` in Electron ([#148](https://github.com/anthropics/claude-agent-sdk-typescript/issues/148)), SDK/CLI version mismatches ([#156](https://github.com/anthropics/claude-agent-sdk-typescript/issues/156)).
+
+### Fix Applied
+
+Added the SDK and its peer dependency (`zod`) to `.vscodeignore`:
+
+```
+!node_modules/@anthropic-ai/claude-agent-sdk/**
+!node_modules/zod/**
+```
+
+The SDK has `"dependencies": {}` (no transitive deps), so these two entries are sufficient.
+
+### Size Impact
+
+| Component | Uncompressed | Notes |
+|-----------|-------------|-------|
+| SDK total | 68.35 MB | Includes vendored ripgrep (53MB) |
+| zod | 4.15 MB | Peer dependency |
+| **VSIX (compressed)** | **26.51 MB** | Down from 68MB uncompressed due to VSIX zip compression |
+
+The 53MB vendored ripgrep may not be needed since the provider uses `tools: []`, but excluding it risks breaking CLI startup. Included everything to ensure correctness first — can optimize later if needed.
