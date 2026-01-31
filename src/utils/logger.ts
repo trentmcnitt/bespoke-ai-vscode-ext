@@ -125,15 +125,11 @@ export class Logger {
    * Log a labeled block of trace content with indentation.
    * Content is truncated with ⋮ marker if too long.
    */
-  traceBlock(label: string, content: string, maxLen = 400): void {
+  traceBlock(label: string, content: string): void {
     if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) { return; }
 
-    const truncated = content.length > maxLen
-      ? `${content.slice(0, maxLen / 2)}\n⋮ (${content.length} chars total)\n${content.slice(-maxLen / 2)}`
-      : content;
-
     // Indent each line of content
-    const indented = truncated.split('\n').map(line => `          ${line}`).join('\n');
+    const indented = content.split('\n').map(line => `          ${line}`).join('\n');
     this.channel.appendLine(`[TRACE]   ${label}:`);
     this.channel.appendLine(indented);
   }

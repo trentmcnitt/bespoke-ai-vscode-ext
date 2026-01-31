@@ -1,6 +1,6 @@
 /**
- * TEXT_TO_FILL Adherence — verifies the Claude Code backend fills the
- * placeholder without echoing surrounding text from the prefix or suffix.
+ * Fill marker adherence — verifies the Claude Code backend fills the
+ * <fill/> placeholder without echoing surrounding text from the prefix or suffix.
  *
  * Requires: `claude` CLI installed + `@anthropic-ai/claude-agent-sdk`
  *
@@ -139,7 +139,7 @@ function truncate(s: string, max: number): string {
 
 // ── Test ────────────────────────────────────────────────────────────────
 
-describe.skipIf(!sdkAvailable)('TEXT_TO_FILL Adherence', () => {
+describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
   let provider: ClaudeCodeProvider;
 
   beforeAll(async () => {
@@ -219,7 +219,7 @@ describe.skipIf(!sdkAvailable)('TEXT_TO_FILL Adherence', () => {
     const suffixEchoCount = results.filter(r => r.echoesSuffix).length;
 
     console.log('\n' + '='.repeat(90));
-    console.log('TEXT_TO_FILL ADHERENCE SUMMARY');
+    console.log('FILL MARKER ADHERENCE SUMMARY');
     console.log('='.repeat(90));
     console.log(
       'Scenario'.padEnd(30) +

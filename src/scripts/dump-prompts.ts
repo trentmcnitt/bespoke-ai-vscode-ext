@@ -16,7 +16,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PromptBuilder } from '../prompt-builder';
-import { SYSTEM_PROMPT as CLAUDE_CODE_SYSTEM } from '../providers/claude-code';
+import { SYSTEM_PROMPT as CLAUDE_CODE_SYSTEM, buildFillMessage } from '../providers/claude-code';
 import { makeConfig, makeProseContext, makeCodeContext } from '../test/helpers';
 import { CompletionContext } from '../types';
 
@@ -182,9 +182,7 @@ function dumpOllama(ctx: CompletionContext): void {
 function dumpClaudeCode(ctx: CompletionContext): void {
   const modeConfig = ctx.mode === 'prose' ? config.prose : config.code;
 
-  const message = ctx.suffix.trim()
-    ? `<incomplete_text>${ctx.prefix}\${TEXT_TO_FILL}${ctx.suffix}</incomplete_text>`
-    : `<incomplete_text>${ctx.prefix}\${TEXT_TO_FILL}</incomplete_text>`;
+  const message = buildFillMessage(ctx.prefix, ctx.suffix);
 
   out(DIVIDER);
   out(`CLAUDE CODE — ${ctx.mode.toUpperCase()}`);

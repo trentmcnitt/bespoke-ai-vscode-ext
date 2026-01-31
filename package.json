@@ -212,7 +212,7 @@
         },
         "bespokeAI.prose.suffixChars": {
           "type": "number",
-          "default": 500,
+          "default": 2500,
           "description": "Number of suffix characters (after cursor) to include for prose context"
         },
         "bespokeAI.prose.fileTypes": {
@@ -251,7 +251,7 @@
         },
         "bespokeAI.code.suffixChars": {
           "type": "number",
-          "default": 500,
+          "default": 2500,
           "description": "Number of suffix characters (after cursor) to include for code context"
         },
         "bespokeAI.oracle.enabled": {
@@ -302,14 +302,14 @@
                   "##"
                 ],
                 "contextChars": 2000,
-                "suffixChars": 500
+                "suffixChars": 2500
               },
               "code": {
                 "maxTokens": 200,
                 "temperature": 0.2,
                 "stopSequences": [],
                 "contextChars": 4000,
-                "suffixChars": 500
+                "suffixChars": 2500
               }
             }
           },

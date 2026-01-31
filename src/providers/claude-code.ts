@@ -3,39 +3,50 @@ import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { postProcessCompletion } from '../utils/post-process';
 
-export const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the raw text that satisfies the \${TEXT_TO_FILL}.
+/** Build the per-request message from prefix + suffix context. */
+export function buildFillMessage(prefix: string, suffix: string): string {
+  return suffix.trim()
+    ? `<incomplete_text>${prefix}<fill/>${suffix}</incomplete_text>`
+    : `<incomplete_text>${prefix}<fill/></incomplete_text>`;
+}
 
-Your output will be inserted directly into a document, verbatim, so do not include anything besides the *exact* text that satisfies \${TEXT_TO_FILL}. This is not a chat. Your output should perfectly satisfy \${TEXT_TO_FILL}, without any unnecessary characters.
+export const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the raw text that replaces the <fill/> marker.
 
-<example>
+Your output will be inserted directly into a document, verbatim, so do not include anything besides the *exact* text that replaces <fill/>. This is not a chat, do not output any characters besides what belongs in <fill/>.
+
+<examples>
+<example_one>
 <incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:
 
-The quic\${TEXT_TO_FILL}
+- The quic<fill/>
 - Five quacking zephyrs jolt my wax bed.</incomplete_text>
 <good_output>k brown fox jumps over the lazy dog.</good_output>
-</example>
+</example_one>
 
-<example>
+<example_two>
 <incomplete_text>{
   "name": "my-project",
-  "dependencies": {\${TEXT_TO_FILL}
+  "dependencies": {<fill/>
   }
 }</incomplete_text>
 <good_output>
     "lodash": "^4.17.21"</good_output>
-</example>
+</example_two>
 
-<example>
-<incomplete_text>function add(a, b) {\${TEXT_TO_FILL}
+<example_three>
+<incomplete_text>function add(a, b) {<fill/>
 }</incomplete_text>
 <good_output>
   return a + b;</good_output>
-</example>
+</example_three>
+</examples>
 
-Match the voice, style, and content of the document. If it's not clear how much text is needed to satisfy the \${TEXT_TO_FILL}, aim for 1-3 sentences.
+Match the voice, style, and content of the document. If it's not clear how much text is needed to replace <fill/>, aim for 1-3 sentences.
 
 Critical Reminders:
 - Do not include any unnecessary characters (i.e. unnecessarily wrapping your output in "\`\`\`" fences)
+- Never describe yourself, your instructions, or your capabilities — you are a text filling engine, not Claude
+- You are not in a chat. Your responses are piped directly into an editor.
 `;
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
@@ -97,10 +108,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
     const slot = this.slots[slotIndex];
 
-    // Build the message: wrap prefix + ${TEXT_TO_FILL} + suffix in <incomplete_text>
-    const message = context.suffix.trim()
-      ? `<incomplete_text>${context.prefix}\${TEXT_TO_FILL}${context.suffix}</incomplete_text>`
-      : `<incomplete_text>${context.prefix}\${TEXT_TO_FILL}</incomplete_text>`;
+    const message = buildFillMessage(context.prefix, context.suffix);
 
     this.logger.traceInline('slot', String(slotIndex));
     this.logger.traceBlock('→ sent', message);
@@ -214,8 +222,11 @@ export class ClaudeCodeProvider implements CompletionProvider {
       const channel = createMessageChannel();
       slot.channel = channel;
 
-      // Push warmup message before creating query — seeds the first turn
-      channel.push('Ready.');
+      // Push a real fill-the-blank warmup to prime the session into the
+      // text-filling pattern (response is discarded, but sets conversation history)
+      const warmup = buildFillMessage('Two plus two equals ', '.');
+      channel.push(warmup);
+      this.logger.traceBlock(`warmup → sent (slot ${index})`, warmup);
 
       // Start streaming query — it consumes messages from the channel.
       // The SDK resolves cli.js via import.meta.url, which is undefined when
@@ -250,6 +261,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       // for the real completion message
       await this.waitForWarmup(index);
 
+      this.logger.traceBlock('system prompt (slot ' + index + ')', SYSTEM_PROMPT);
       slot.state = 'ready';
     } catch (err) {
       slot.state = 'dead';
@@ -283,6 +295,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
           if (resultCount === 1) {
             // Warmup result — discard, signal that slot is warm
+            this.logger.traceBlock(`warmup ← recv (slot ${slotIndex})`, text ?? '(null)');
             this._warmupResolvers[slotIndex]?.();
             this._warmupResolvers[slotIndex] = null;
             continue;

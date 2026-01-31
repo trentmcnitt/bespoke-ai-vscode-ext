@@ -315,7 +315,7 @@ function loadConfig(): ExtensionConfig {
       temperature: ws.get<number>('prose.temperature', 0.7)!,
       stopSequences: ws.get<string[]>('prose.stopSequences', ['---', '##'])!,
       contextChars: ws.get<number>('prose.contextChars', 2000)!,
-      suffixChars: ws.get<number>('prose.suffixChars', 500)!,
+      suffixChars: ws.get<number>('prose.suffixChars', 2500)!,
       fileTypes: ws.get<string[]>('prose.fileTypes', ['markdown', 'plaintext'])!,
     },
     code: {
@@ -323,7 +323,7 @@ function loadConfig(): ExtensionConfig {
       temperature: ws.get<number>('code.temperature', 0.2)!,
       stopSequences: ws.get<string[]>('code.stopSequences', [])!,
       contextChars: ws.get<number>('code.contextChars', 4000)!,
-      suffixChars: ws.get<number>('code.suffixChars', 500)!,
+      suffixChars: ws.get<number>('code.suffixChars', 2500)!,
     },
     claudeCode: {
       model: ws.get<string>('claudeCode.model', 'haiku')!,
