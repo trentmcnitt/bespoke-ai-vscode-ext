@@ -262,7 +262,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (newConfig.activeProfile !== currentProfile) {
           completionProvider.clearCache();
-          logger.info(`Profile: "${currentProfile || '(none)'}" → "${newConfig.activeProfile || '(none)'}"`);
+          logger.info(`Profile → ${newConfig.activeProfile || '(none)'} (cache cleared)`);
           currentProfile = newConfig.activeProfile;
         }
 
@@ -283,7 +283,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
   }
 
-  logger.info(`Activated (backend: ${config.backend}, profile: ${config.activeProfile || '(none)'}, logLevel: ${config.logLevel})`);
+  logger.info(`Activated | ${config.backend} | profile=${config.activeProfile || '(none)'} | logLevel=${config.logLevel}`);
 }
 
 function loadConfig(): ExtensionConfig {

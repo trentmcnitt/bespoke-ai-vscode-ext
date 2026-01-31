@@ -5,7 +5,7 @@ import { ProviderRouter } from './providers/provider-router';
 import { buildDocumentContext } from './utils/context-builder';
 import { LRUCache } from './utils/cache';
 import { Debouncer } from './utils/debouncer';
-import { Logger } from './utils/logger';
+import { Logger, generateRequestId } from './utils/logger';
 import { UsageTracker } from './utils/usage-tracker';
 
 export class CompletionProvider implements vscode.InlineCompletionItemProvider {
@@ -70,11 +70,14 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       mode,
     };
 
+    // Generate request ID for log correlation
+    const reqId = generateRequestId();
+
     // Check cache
     const cacheKey = LRUCache.makeKey(mode, docContext.prefix, docContext.suffix);
     const cached = this.cache.get(cacheKey);
     if (cached) {
-      this.logger.debug(`Cache hit for ${mode} completion`);
+      this.logger.cacheHit(reqId, cached.length);
       this.tracker?.recordCacheHit();
       return [new vscode.InlineCompletionItem(cached, new vscode.Range(position, position))];
     }
@@ -90,31 +93,48 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
     // Get completion from provider
     const provider = this.router.getProvider(this.config.backend);
+    const startTime = Date.now();
 
-    this.logger.debug(`Request: mode=${mode} backend=${this.config.backend} lang=${docContext.languageId} file=${docContext.fileName} prefix_chars=${docContext.prefix.length} suffix_chars=${docContext.suffix.length}`);
-    this.logger.trace(`Prefix (first 200): ${docContext.prefix.slice(0, 200)}`);
-    this.logger.trace(`Prefix (last 200): ${docContext.prefix.slice(-200)}`);
+    // Log request start with structured format
+    this.logger.requestStart(reqId, {
+      mode,
+      backend: this.config.backend,
+      file: docContext.fileName,
+      prefixLen: docContext.prefix.length,
+      suffixLen: docContext.suffix.length,
+    });
+
+    // Trace: input context
+    this.logger.traceBlock('prefix', docContext.prefix);
     if (docContext.suffix) {
-      this.logger.trace(`Suffix (first 200): ${docContext.suffix.slice(0, 200)}`);
+      this.logger.traceBlock('suffix', docContext.suffix);
     }
 
     this.tracker?.recordCacheMiss();
     this.onRequestStart?.();
     try {
       const result = await provider.getCompletion(completionContext, signal);
+      const durationMs = Date.now() - startTime;
 
       if (!result || token.isCancellationRequested) {
-        this.logger.debug(`Result: ${result === null ? 'null' : 'cancelled'}`);
+        this.logger.requestEnd(reqId, {
+          durationMs,
+          resultLen: null,
+          cancelled: token.isCancellationRequested,
+        });
         return null;
       }
 
-      this.logger.debug(`Result: length=${result.length}`);
+      this.logger.requestEnd(reqId, {
+        durationMs,
+        resultLen: result.length,
+      });
 
       // Cache and return
       this.cache.set(cacheKey, result);
       return [new vscode.InlineCompletionItem(result, new vscode.Range(position, position))];
     } catch (err: unknown) {
-      this.logger.error(`${this.config.backend} completion failed`, err);
+      this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);
       this.tracker?.recordError();
       const now = Date.now();
       if (now - this.lastErrorToastTime > 60_000) {

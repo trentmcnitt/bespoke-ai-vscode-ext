@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Anthropic Claude or Ollama",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "publisher": "trenthm",
   "icon": "images/icon.png",
   "engines": {
@@ -97,6 +97,16 @@
           "default": 300,
           "description": "Delay in milliseconds before triggering completion"
         },
+        "bespokeAI.logLevel": {
+          "type": "string",
+          "enum": [
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "description": "Logging verbosity in the Output channel"
+        },
         "bespokeAI.anthropic.apiKey": {
           "type": "string",
           "default": "",
@@ -127,7 +137,7 @@
         "bespokeAI.anthropic.apiCallsEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Safety switch to disable all direct Anthropic API calls"
+          "description": "Enable direct Anthropic API calls (uncheck to prevent billing)"
         },
         "bespokeAI.ollama.endpoint": {
           "type": "string",
@@ -243,16 +253,6 @@
           "type": "number",
           "default": 500,
           "description": "Number of suffix characters (after cursor) to include for code context"
-        },
-        "bespokeAI.logLevel": {
-          "type": "string",
-          "enum": [
-            "info",
-            "debug",
-            "trace"
-          ],
-          "default": "info",
-          "description": "Logging verbosity in the Output channel"
         },
         "bespokeAI.oracle.enabled": {
           "type": "boolean",

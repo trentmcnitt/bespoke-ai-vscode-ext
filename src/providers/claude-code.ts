@@ -1,60 +1,18 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
-import { PromptBuilder } from '../prompt-builder';
 import { postProcessCompletion } from '../utils/post-process';
 
-const SYSTEM_PROMPT = `You are an inline text completion engine. Your entire response is inserted verbatim into a document at the cursor position. Output ONLY the raw continuation text. Never include markdown fences, explanations, meta-commentary, or formatting wrappers.`;
+const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the text that satisfies the \${TEXT_TO_FILL}.
 
+<example>
+<incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:\\n\\nThe quic\${TEXT_TO_FILL}\\n- Five quacking zephyrs jolt my wax bed.\\n- All questions asked by five watched experts amaze the judge.</incomplete_text>
+<good_output>k brown fox jumps over the lazy dog.</good_output>
+</example>
 
-/**
- * Extract an anchor from the prefix for the Claude Code backend.
- * The anchor is the current line (text after last newline), up to ~maxLength chars.
- * The model is instructed to echo the anchor, and trimPrefixOverlap strips it.
- */
-export function extractAnchor(prefix: string, maxLength = 120): { anchor: string; prefixBeforeAnchor: string } {
-  const lastNewline = prefix.lastIndexOf('\n');
-  const currentLine = lastNewline >= 0 ? prefix.slice(lastNewline + 1) : prefix;
+Match the voice, style, and content of the document. If it's not clear how much text is needed to satisfy the \${TEXT_TO_FILL}, aim for 1-3 sentences.
 
-  if (!currentLine || !currentLine.trim()) {
-    return { anchor: '', prefixBeforeAnchor: prefix };
-  }
-
-  if (currentLine.length <= maxLength) {
-    const prefixBeforeAnchor = lastNewline >= 0 ? prefix.slice(0, lastNewline + 1) : '';
-    return { anchor: currentLine, prefixBeforeAnchor };
-  }
-
-  // Line exceeds maxLength — take last maxLength chars, then find a natural boundary
-  const slice = currentLine.slice(-maxLength);
-
-  // Try sentence break — scan backwards (lastIndexOf) to find the latest
-  // break, producing the shortest anchor starting at a natural boundary.
-  const sentenceBreaks = ['. ', '; ', '! ', '? '];
-  let bestBreak = -1;
-  for (const brk of sentenceBreaks) {
-    const idx = slice.lastIndexOf(brk);
-    if (idx >= 0 && idx > bestBreak) {
-      bestBreak = idx;
-    }
-  }
-
-  let anchor: string;
-  if (bestBreak >= 0) {
-    // Start after the sentence break (include the space)
-    anchor = slice.slice(bestBreak + 2);
-  } else {
-    // No sentence break — try word boundary (first space from the left)
-    const spaceIdx = slice.indexOf(' ');
-    if (spaceIdx >= 0) {
-      anchor = slice.slice(spaceIdx + 1);
-    } else {
-      anchor = slice;
-    }
-  }
-
-  const prefixBeforeAnchor = prefix.slice(0, prefix.length - anchor.length);
-  return { anchor, prefixBeforeAnchor };
-}
+CRITICAL REMINDER: Never output anything except the raw text that satisfies \${TEXT_TO_FILL}.
+`;
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
 
@@ -130,7 +88,6 @@ function createMessageChannel(): MessageChannel {
 }
 
 export class ClaudeCodeProvider implements CompletionProvider {
-  private promptBuilder: PromptBuilder;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private queryFn: ((...args: any[]) => any) | null = null;
   private sdkAvailable: boolean | null = null;
@@ -141,9 +98,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
   private nextSlot = 0;
   private workspaceRoot = '';
 
-  constructor(private config: ExtensionConfig, private logger: Logger) {
-    this.promptBuilder = new PromptBuilder();
-  }
+  constructor(private config: ExtensionConfig, private logger: Logger) {}
 
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
@@ -158,13 +113,13 @@ export class ClaudeCodeProvider implements CompletionProvider {
       return;
     }
 
-    this.logger.info('Claude Code: initializing 2-slot pool...');
+    this.logger.info('Claude Code: initializing pool...');
     await Promise.all([
       this.initSlot(0),
       this.initSlot(1),
     ]);
 
-    this.logger.info(`Claude Code: pool initialized (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
+    this.logger.info('Claude Code: pool ready (2 slots)');
   }
 
   isAvailable(): boolean {
@@ -179,43 +134,37 @@ export class ClaudeCodeProvider implements CompletionProvider {
     if (slotIndex === null) { return null; }
 
     const slot = this.slots[slotIndex];
-    const prompt = this.promptBuilder.buildPrompt(context, this.config);
+    const modeConfig = context.mode === 'prose' ? this.config.prose : this.config.code;
 
-    this.logger.debug(`Claude Code request: slot=${slotIndex} model=${this.config.claudeCode.model} mode=${context.mode} user_len=${prompt.userMessage.length}`);
-    this.logger.trace(`Claude Code system: ${prompt.system}`);
-    this.logger.trace(`Claude Code userMessage: ${prompt.userMessage}`);
+    // Build the message: wrap prefix + ${TEXT_TO_FILL} + suffix in <incomplete_text>
+    const message = context.suffix.trim()
+      ? `<incomplete_text>${context.prefix}\${TEXT_TO_FILL}${context.suffix}</incomplete_text>`
+      : `<incomplete_text>${context.prefix}\${TEXT_TO_FILL}</incomplete_text>`;
+
+    this.logger.traceInline('slot', String(slotIndex));
+    this.logger.traceBlock('→ sent', message);
 
     slot.state = 'busy';
 
     try {
-      // The SDK session has a generic system prompt. Prepend mode-specific
-      // instructions (from PromptBuilder) into the user message so the model
-      // gets prose/code guidance for each request.
-      // Use the current line as an anchor — the model echoes it, and
-      // trimPrefixOverlap strips the echo. This provides a reliable
-      // continuation point without relying on assistant prefill.
-      const { anchor } = extractAnchor(context.prefix);
-      const anchorInstruction = anchor
-        ? `\n\n[CONTINUATION POINT: Your response must begin with the following text, then continue naturally from there. Do not assume any missing text exists between the document and your response.]\n${anchor}`
-        : '';
-      const message = `[Instructions: ${prompt.system}]\n\n${prompt.userMessage}${anchorInstruction}`;
-
-      this.logger.debug(`Claude Code anchor: "${anchor.slice(0, 60)}${anchor.length > 60 ? '...' : ''}"`);
-      this.logger.trace(`Claude Code full anchor: ${anchor}`);
-
       // Push the completion request into the slot's channel
       slot.channel!.push(message);
 
       // Race the result against the abort signal
       const raw = await raceAbort(slot.resultPromise!, signal);
 
-      this.logger.debug(`Claude Code response: slot=${slotIndex} length=${raw?.length ?? 'null'}`);
-      this.logger.trace(`Claude Code raw response: ${raw}`);
+      this.logger.traceBlock('← raw', raw ?? '(null)');
 
       if (!raw) { return null; }
 
-      const result = postProcessCompletion(raw, prompt, context.prefix, context.suffix);
-      this.logger.trace(`Claude Code post-processed: ${result}`);
+      // Post-process: skip prefix overlap (no anchor echo to strip),
+      // keep suffix overlap trimming
+      const result = postProcessCompletion(raw, { system: '', userMessage: message, maxTokens: modeConfig.maxTokens, temperature: modeConfig.temperature, stopSequences: [] }, undefined, context.suffix);
+
+      if (result !== raw) {
+        this.logger.traceBlock('← processed', result ?? '(null)');
+      }
+
       return result;
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') { return null; }
@@ -243,7 +192,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
     if (this.slots[other].state === 'ready') { return other; }
 
     // Both busy/recycling — wait for one to become ready
-    this.logger.debug(`Claude Code: no ready slot, waiting (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
+    this.logger.trace(`waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
     const deadline = Date.now() + 15_000;
 
     while (Date.now() < deadline) {
@@ -256,7 +205,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       if ((this.slots[other].state as SlotState) === 'ready') { return other; }
     }
 
-    this.logger.debug('Claude Code: slot acquisition timed out after 15s');
+    this.logger.debug('Claude Code: slot acquisition timed out (15s)');
     return null;
   }
 
@@ -341,7 +290,6 @@ export class ClaudeCodeProvider implements CompletionProvider {
       await this.waitForWarmup(index);
 
       slot.state = 'ready';
-      this.logger.debug(`Claude Code: slot ${index} ready`);
     } catch (err) {
       slot.state = 'dead';
       this.logger.error(`Claude Code: slot ${index} init failed: ${err instanceof Error ? err.stack ?? err.message : err}`);
@@ -374,7 +322,6 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
           if (resultCount === 1) {
             // Warmup result — discard, signal that slot is warm
-            this.logger.debug(`Claude Code: slot ${slotIndex} warmup consumed`);
             this._warmupResolvers[slotIndex]?.();
             this._warmupResolvers[slotIndex] = null;
             continue;

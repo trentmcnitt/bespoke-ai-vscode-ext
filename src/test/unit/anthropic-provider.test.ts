@@ -245,14 +245,14 @@ describe('AnthropicProvider', () => {
       const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
       mockCreate.mockRejectedValue(new Anthropic.APIError('Rate limited', 429));
       const logger = makeLogger();
-      const debugSpy = vi.fn();
+      const traceInlineSpy = vi.fn();
       const errorSpy = vi.fn();
-      logger.debug = debugSpy;
+      logger.traceInline = traceInlineSpy;
       logger.error = errorSpy;
       const provider = new AnthropicProvider(makeConfig(), logger);
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
-      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('rate limited'));
+      expect(traceInlineSpy).toHaveBeenCalledWith('rate limited', expect.any(String));
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
@@ -260,14 +260,14 @@ describe('AnthropicProvider', () => {
       const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
       mockCreate.mockRejectedValue(new Anthropic.APIError('Overloaded', 529));
       const logger = makeLogger();
-      const debugSpy = vi.fn();
+      const traceInlineSpy = vi.fn();
       const errorSpy = vi.fn();
-      logger.debug = debugSpy;
+      logger.traceInline = traceInlineSpy;
       logger.error = errorSpy;
       const provider = new AnthropicProvider(makeConfig(), logger);
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
-      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('529'));
+      expect(traceInlineSpy).toHaveBeenCalledWith('server overloaded', expect.stringContaining('529'));
       expect(errorSpy).not.toHaveBeenCalled();
     });
 

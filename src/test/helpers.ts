@@ -41,6 +41,11 @@ export function makeLogger(): Logger {
     debug: () => {},
     trace: () => {},
     error: () => {},
+    requestStart: () => {},
+    requestEnd: () => {},
+    cacheHit: () => {},
+    traceBlock: () => {},
+    traceInline: () => {},
     show: () => {},
     dispose: () => {},
   } as unknown as Logger;

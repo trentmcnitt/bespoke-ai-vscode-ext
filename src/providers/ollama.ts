@@ -68,13 +68,14 @@ export class OllamaProvider implements CompletionProvider {
       }
     }
 
-    this.logger.debug(`Ollama request: model=${this.config.ollama.model} endpoint=${url} raw=${String(useRaw)} fim=${String(!!hasFimSuffix)} max_tokens=${prompt.maxTokens} temp=${prompt.temperature} prompt_len=${promptText.length}`);
-    this.logger.trace(`Ollama prompt: ${promptText}`);
+    // Trace: sent content
+    this.logger.traceInline('mode', useRaw ? 'raw' : (hasFimSuffix ? 'FIM' : 'template'));
+    this.logger.traceBlock('→ prompt', promptText);
     if (!useRaw && prompt.system) {
-      this.logger.trace(`Ollama system: ${prompt.system}`);
+      this.logger.traceBlock('→ system', prompt.system);
     }
     if (hasFimSuffix && prompt.suffix) {
-      this.logger.trace(`Ollama suffix: ${prompt.suffix}`);
+      this.logger.traceBlock('→ suffix', prompt.suffix);
     }
 
     try {
@@ -97,9 +98,15 @@ export class OllamaProvider implements CompletionProvider {
       const data = (await response.json()) as OllamaGenerateResponse;
       if (!data.response) { return null; }
 
-      this.logger.debug(`Ollama response: length=${data.response.length}`);
+      this.logger.traceBlock('← raw', data.response);
 
-      return postProcessCompletion(data.response, prompt, context.prefix, context.suffix);
+      const result = postProcessCompletion(data.response, prompt, context.prefix, context.suffix);
+
+      if (result !== data.response) {
+        this.logger.traceBlock('← processed', result ?? '(null)');
+      }
+
+      return result;
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') { return null; }
       throw err;

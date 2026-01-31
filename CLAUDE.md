@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Bespoke AI is a personal AI toolkit for VS Code, currently providing inline completions (ghost text) for prose and code. Two backends: Anthropic Claude (cloud) and Ollama (local). Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
+Bespoke AI is a personal AI toolkit for VS Code, currently providing inline completions (ghost text) for prose and code. Three backends: Anthropic Claude API (cloud), Claude Code CLI (cloud, subscription-based, default), and Ollama (local). Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
 
 ## Commands
 
@@ -19,19 +19,32 @@ npm run test:unit:watch  # Vitest watch mode
 npm run test:api       # API integration tests (src/test/api/, needs live backends)
 npm run test:quality   # LLM-as-judge completion quality tests (needs Anthropic key)
 npm run benchmark      # Parameter sweep benchmarking (needs Anthropic key)
+npm run dump-prompts   # Dump exact prompt strings per provider/mode to prompt-dump.txt
 ```
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
 
 Pressing F5 in VS Code launches the Extension Development Host using the `npm:watch` build task.
 
-esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). The build marks the `vscode` module as external because the VS Code host provides it at runtime. The only runtime dependency is `@anthropic-ai/sdk`.
+esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). The build marks the `vscode` module as external because the VS Code host provides it at runtime. Runtime dependencies: `@anthropic-ai/sdk` (Anthropic API) and `@anthropic-ai/claude-agent-sdk` (optional, Claude Code backend and context oracle).
+
+## Versioning and Installation
+
+The version in `package.json` should be incremented with each development iteration before installing. To package and install:
+
+```bash
+npm run compile
+vsce package --allow-missing-repository
+codium --install-extension bespoke-ai-{version}.vsix   # or: code --install-extension
+```
+
+Increment the patch version (third number) by default for each install. For larger changes (new features, prompt rewrites, architectural shifts), ask whether to bump the minor version instead.
 
 ## Architecture
 
 ### Request flow
 
-User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (300ms) → call provider (which builds the prompt internally and post-processes the result) → cache result → return `InlineCompletionItem`.
+User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (300ms) → call provider (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
 
 ### Error handling
 
@@ -39,16 +52,40 @@ Providers catch abort errors and return `null`; all other errors propagate to `C
 
 ### Logging
 
-The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). Created in `activate()` and injected into `CompletionProvider`, `ProviderRouter`, and both providers. The `bespokeAI.logLevel` setting controls verbosity:
+The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). The `activate()` function creates the Logger and injects it into `CompletionProvider`, `ProviderRouter`, and all three providers. The `bespokeAI.logLevel` setting controls verbosity:
 
 | Level | What gets logged |
 |-------|-----------------|
 | `info` (default) | Lifecycle: activation, config changes, profile switches |
-| `debug` | Per-request metadata: mode, backend, char counts, model params, token usage |
-| `trace` | Full payloads: complete prefix, suffix, system, user message, prefill |
+| `debug` | Per-request flow: start/end with timing, cache hits, request IDs |
+| `trace` | Full content: prefix, suffix, messages sent, responses received |
 | `error` | Failures (always logged regardless of level) |
 
-Use `logger.info()` for lifecycle events, `logger.debug()` for per-request metadata, `logger.trace()` for full payloads, and `logger.error()` for failures. The output channel is visible in the VS Code Output panel.
+**Structured request logging:** Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correlation. At debug level, requests show visual separators (`───`) and directional markers (`▶` start, `◀` end). At trace level, content blocks appear indented under the debug skeleton. Example:
+
+```
+───────────────────────────────────────────────────────────────────
+[DEBUG 00:51:11.539] ▶ #a7f3 | code | claude-code | main.ts | 645+69 chars
+[TRACE]   prefix:
+          const x = 1;
+          ⋮ (445 chars total)
+          function foo() {
+[TRACE]   → sent (764 chars):
+          <incomplete_text>...</incomplete_text>
+[DEBUG 00:51:12.374] ◀ #a7f3 | 835ms | 9 chars | slot=0
+[TRACE]   ← raw:
+          }
+```
+
+**Logger methods:**
+- `info()`, `debug()`, `trace()`, `error()` — basic level-gated logging
+- `requestStart(reqId, details)` — log request start with separator (debug+)
+- `requestEnd(reqId, details)` — log request end with timing (debug+)
+- `cacheHit(reqId, len)` — log cache hit (debug+)
+- `traceBlock(label, content)` — indented content block with truncation (trace only)
+- `traceInline(label, value)` — short inline trace value (trace only)
+
+The output channel is visible in the VS Code Output panel.
 
 ### Components
 
@@ -56,19 +93,21 @@ Key components, listed in request-flow order:
 
 - `src/extension.ts` — Activation entry point. Loads config from VS Code's `bespokeAI.*` settings. Creates the `Logger`, all components, and registers the inline completion provider, status bar, and seven commands: `trigger` (`Ctrl+L`), `toggleEnabled`, `cycleMode` (cycles auto → prose → code → auto), `clearCache`, `selectProfile` (QuickPick UI for switching profiles), `showMenu` (unified status bar menu), and `generateCommitMessage` (generates a commit message via Claude Code CLI). Watches for config changes and propagates via `updateConfig()`. On profile switch, auto-clears the completion cache. Manages a request spinner in the status bar while completions are in-flight.
 
-- `src/commit-message.ts` — Generates commit messages via the Claude Code CLI (`claude -p`). Accesses VS Code's built-in Git extension to read diffs, auto-detects staged vs unstaged changes (prompts if both exist), spawns `claude` as a child process with the diff piped to stdin, and writes the result into the SCM commit message input box. Standalone module — independent of the inline completion pipeline. Exports `buildCommitPrompt()` and `parseCommitMessage()` as pure functions for unit testing.
+- `src/commit-message.ts` — Generates commit messages via the Claude Code CLI (`claude -p`). Accesses VS Code's built-in Git extension to read diffs, auto-detects staged vs unstaged changes (prompts if both exist), spawns `claude` as a child process with the diff piped to stdin, and writes the result into the SCM commit message input box. Standalone module — independent of the inline completion pipeline. Pure helper functions (`buildCommitPrompt()`, `getSystemPrompt()`, `parseCommitMessage()`) live in `src/utils/commit-message-utils.ts` for unit testing.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` via its constructor for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → provider call → cache write. Accepts a `Logger` via its constructor for centralized logging. Exposes `clearCache()` for manual or profile-switch cache clearing and `setRequestCallbacks()` for status bar spinner integration. The debouncer manages `AbortSignal` lifecycle for cancelling in-flight requests.
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode` when set to `prose` or `code`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose because the primary use case is writing.
 
-- `src/prompt-builder.ts` — Constructs `BuiltPrompt` per mode. Each provider instantiates its own `PromptBuilder` and calls it internally. Prose uses continuation-style prompting with assistant prefill (seeding the assistant response with the last 4 words so the model continues naturally). Code uses FIM (Fill-in-the-Middle) with prefix/suffix and filename/language context.
+- `src/prompt-builder.ts` — Constructs `BuiltPrompt` per mode. Used by the Anthropic and Ollama providers (Claude Code builds its own prompt). Prose uses continuation-style prompting with assistant prefill (seeding the assistant response with the last 4 words so the model continues naturally). Code uses FIM (Fill-in-the-Middle) with prefix/suffix and filename/language context.
 
 - `src/providers/anthropic.ts` — Claude API via `@anthropic-ai/sdk`. Supports assistant prefill and Anthropic's prompt caching feature (marks prompt prefixes with `cache_control` so the API reuses them across requests, reducing cost). Accepts a `Logger` for debug/trace logging of requests and responses (model params, token usage, full payloads at trace level).
 
 - `src/providers/ollama.ts` — Calls Ollama's `/api/generate` endpoint using Node.js built-in `fetch()`. Uses raw mode (`raw: true`) to bypass Ollama's chat template for base/completion models, but automatically switches to non-raw mode for code completions with a suffix so Ollama can apply native FIM (Fill-in-the-Middle) tokens. Accepts a `Logger` for debug/trace logging.
 
-- `src/providers/provider-router.ts` — Holds both provider instances, returns the active one based on `config.backend`. Accepts a `Logger` as 2nd param and passes it to both providers. "Backend" is the user-facing config choice; "provider" is the code abstraction that implements the `CompletionProvider` interface.
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Uses a `${TEXT_TO_FILL}` placeholder approach: wraps the document prefix + `${TEXT_TO_FILL}` + suffix in `<incomplete_text>` tags, and the model fills the hole. Same prompt structure for prose and code — the model infers the content type. No PromptBuilder dependency — reads `maxTokens` and `temperature` directly from the mode-specific config. Manages a 2-slot session pool to reduce latency by keeping sessions warm and recycling them after each completion.
+
+- `src/providers/provider-router.ts` — Holds all three provider instances, returns the active one based on `config.backend`. Accepts a `Logger` and an optional `getBrief` callback (from the context oracle) and passes them to providers. Exposes `activateClaudeCode()` for initializing the Claude Code session pool. "Backend" is the user-facing config choice; "provider" is the code abstraction that implements the `CompletionProvider` interface.
 
 - `src/utils/post-process.ts` — Applies a shared post-processing pipeline to all provider output before caching. Trims prefix overlap (when the model echoes the current line fragment, e.g., doubled bullet markers), trims suffix overlap (when the completion's tail duplicates the document's suffix), and returns `null` for empty results.
 
@@ -84,9 +123,21 @@ Key components, listed in request-flow order:
 
 - `src/utils/profile.ts` — `applyProfile()` pure function. Deep-merges a `ProfileOverrides` object over a base `ExtensionConfig`. The API key always comes from the base config (security guard against profile injection).
 
+- `src/utils/usage-tracker.ts` — Tracks per-session completion counts and estimates Anthropic API costs using per-model pricing tables. Used by the status bar to show usage stats.
+
+- `src/utils/commit-message-utils.ts` — Pure helper functions for the commit message feature: `buildCommitPrompt()`, `getSystemPrompt()`, `parseCommitMessage()`. Separated from `src/commit-message.ts` for unit testing without VS Code dependencies.
+
+- `src/oracle/` — Context oracle subsystem for agent-powered file analysis. Uses the Claude Agent SDK to analyze the current file's imports, types, and patterns, then provides a `ContextBrief` to the Anthropic provider to improve completion quality. Key files:
+  - `context-oracle.ts` — Main oracle class. Spawns SDK sessions to analyze files, with debouncing and TTL-based caching.
+  - `context-brief-store.ts` — In-memory store for `ContextBrief` objects keyed by file path.
+  - `brief-formatter.ts` — Formats a `ContextBrief` into a concise text block for injection into the system prompt.
+  - `types.ts` — Oracle-specific types (`ContextBrief`, `OracleConfig`, `OracleStatus`).
+
+- `src/scripts/dump-prompts.ts` — Utility script (`npm run dump-prompts`) that renders the exact prompt strings each provider/mode combination sends to the model. Writes to `prompt-dump.txt`. Supports filtering by provider and/or mode via CLI args.
+
 ### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which both provider implementations (Anthropic and Ollama) conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled`, `apiKey`, and `activeProfile`). `ExtensionConfig` defines the same fields as the `bespokeAI.*` settings in `package.json` — when modifying either, update both to keep them in sync. Both `anthropic` and `ollama` sub-objects include a `models` array (informational catalog of available models) and a `model` string (the active model).
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which all three provider implementations conform to — see that file for the current shape. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled`, `apiKey`, and `activeProfile`). `ExtensionConfig` defines the same fields as the `bespokeAI.*` settings in `package.json` — when modifying either, update both to keep them in sync. The `anthropic`, `ollama`, and `claudeCode` sub-objects each include a `models` array (informational catalog of available models) and a `model` string (the active model).
 
 ## Adding a New Setting
 
@@ -108,7 +159,7 @@ If the setting should take effect without restarting VS Code, also propagate the
 
 ### Running all tests
 
-When asked to "run tests" (without further qualification), run the full test suite. API and quality tests require `ANTHROPIC_API_KEY` in the environment (source it from `~/.creds/api-keys.env` if not already set). Without it, those suites skip silently. After the run, report any skipped suites and why.
+When asked to "run tests" (without further qualification), run the full test suite. The Anthropic API tests and quality tests require `ANTHROPIC_API_KEY` in the environment (source it from `~/.creds/api-keys.env` if not already set). The Claude Code API test only requires the `@anthropic-ai/claude-agent-sdk` package and the `claude` CLI — no API key. Without required dependencies, suites skip silently. After the run, report any skipped suites and why.
 
 ```bash
 npm run check && npm run test:unit && npm run test:api && npm run test:quality
@@ -126,11 +177,17 @@ Context-builder tests (`context-builder.test.ts`) use a minimal mock `TextDocume
 
 ### API integration tests
 
-API integration tests (`src/test/api/`) make real HTTP calls. They use `describe.skipIf()` to skip when backends aren't available (no API key, Ollama not running). The Anthropic test reads `ANTHROPIC_API_KEY` from the environment (run with `ANTHROPIC_API_KEY=sk-ant-... npm run test:api`). The Ollama test checks for model availability via `/api/tags` before running. The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
+API integration tests (`src/test/api/`) make real HTTP calls. They use `describe.skipIf()` to skip when backends aren't available. Each test has different requirements:
+
+- **Anthropic** — needs `ANTHROPIC_API_KEY` in the environment (source from `~/.creds/api-keys.env`)
+- **Claude Code** (`anchor-echo.test.ts`) — needs `@anthropic-ai/claude-agent-sdk` and the `claude` CLI; no API key
+- **Ollama** — needs a running Ollama server; checks model availability via `/api/tags`
+
+The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
 
 ### Quality Tests (LLM-as-Judge)
 
-Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests always use the Anthropic backend; to test Ollama quality, use the benchmark system with an Ollama config. This uses a two-layer validation pattern:
+Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests always use the Anthropic backend; to test quality with other backends (Ollama, Claude Code), use the benchmark system with the corresponding config. This uses a two-layer validation pattern:
 
 **Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `requirements.json`, and `metadata.json`. Layer 1 only checks that the provider didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The `summary.json` file records which model was used.
 
@@ -270,6 +327,8 @@ The ledger (`test-results/benchmarks/ledger.json`, version 2) is append-only. Mu
 
 When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwanted content):
 
+**First, diagnose.** Set `bespokeAI.logLevel` to `trace` and reproduce the issue. The `[TRACE]` output shows the full prefix, suffix, system prompt, user message, and raw completion. Use this to determine whether the problem is in prompt construction, model output, or post-processing before attempting a fix.
+
 **Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, prefill, stop sequences, or provider configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not a parallel option.
 
 **Why post-processing is risky:** Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing unpredictable ghost text the user didn't ask for. Edge cases compound — each post-processing step interacts with every other step and with every possible completion the model might produce. The result is brittle behavior that's hard to diagnose because the user sees ghost text that doesn't match what the model actually returned.
@@ -296,6 +355,4 @@ These are accepted trade-offs. Do not attempt to fix them unless explicitly aske
 
 ## Future Direction
 
-Bespoke AI is evolving from a single-purpose inline completion extension into a broader personal AI toolkit. Planned capabilities beyond inline completions (do not implement unless explicitly asked):
-
-- **Autocomplete via Claude Code** — Explore using a Claude Code subscription as the completion backend (instead of direct Anthropic API calls), potentially via the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for richer integration. This would let users leverage their existing Claude Code subscription rather than managing a separate API key. See `docs/claude-code-latency-research.md` for feasibility analysis.
+Bespoke AI is evolving from a single-purpose inline completion extension into a broader personal AI toolkit. The Claude Code backend and context oracle are implemented but still being refined. Do not implement new capabilities beyond inline completions unless explicitly asked.

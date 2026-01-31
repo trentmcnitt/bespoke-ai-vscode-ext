@@ -84,21 +84,27 @@ export class AnthropicProvider implements CompletionProvider {
 
     const prompt = this.promptBuilder.buildPrompt(context, this.config);
 
-    this.logger.debug(`Anthropic request: model=${this.config.anthropic.model} max_tokens=${prompt.maxTokens} temp=${prompt.temperature} stop=${JSON.stringify(prompt.stopSequences.filter(s => /\S/.test(s)))} caching=${this.config.anthropic.useCaching} system_len=${prompt.system.length} user_len=${prompt.userMessage.length} prefill_len=${prompt.assistantPrefill?.length ?? 0}`);
-    this.logger.trace(`Anthropic system: ${prompt.system}`);
-    this.logger.trace(`Anthropic userMessage: ${prompt.userMessage}`);
+    // Trace: sent content
+    this.logger.traceBlock('→ system', prompt.system);
+    this.logger.traceBlock('→ user', prompt.userMessage);
     if (prompt.assistantPrefill) {
-      this.logger.trace(`Anthropic prefill: ${prompt.assistantPrefill}`);
+      this.logger.traceInline('→ prefill', prompt.assistantPrefill);
     }
 
     try {
       const raw = await this.callApi(prompt, signal, context.filePath);
 
-      this.logger.debug(`Anthropic response: length=${raw?.length ?? 'null'}`);
+      this.logger.traceBlock('← raw', raw ?? '(null)');
 
       if (!raw) { return null; }
 
-      return postProcessCompletion(raw, prompt, context.prefix, context.suffix);
+      const result = postProcessCompletion(raw, prompt, context.prefix, context.suffix);
+
+      if (result !== raw) {
+        this.logger.traceBlock('← processed', result ?? '(null)');
+      }
+
+      return result;
     } catch (err: unknown) {
       // Abort errors — normal during typing, not worth logging
       if (err instanceof Anthropic.APIUserAbortError) { return null; }
@@ -106,13 +112,13 @@ export class AnthropicProvider implements CompletionProvider {
       // API errors — differentiate rate limit / overload from other errors
       if (err instanceof Anthropic.APIError) {
         if (err.status === 429) {
-          this.logger.debug(`Anthropic rate limited: ${err.message}`);
+          this.logger.traceInline('rate limited', err.message);
           return null;
         } else if (err.status === 529) {
-          this.logger.debug('Anthropic server overloaded (529), transient');
+          this.logger.traceInline('server overloaded', '529 (transient)');
           return null;
         } else {
-          this.logger.error(`Anthropic API error: ${err.status} ${err.message}`);
+          this.logger.error(`Anthropic API error: ${err.status}`, err);
           throw err;
         }
       }
@@ -141,7 +147,7 @@ export class AnthropicProvider implements CompletionProvider {
     const shouldCache = this.config.anthropic.useCaching && totalEstimatedTokens >= minTokens;
 
     if (this.config.anthropic.useCaching && !shouldCache) {
-      this.logger.debug(`Caching skipped: ~${totalEstimatedTokens} tokens < ${minTokens} minimum for ${this.config.anthropic.model}`);
+      this.logger.traceInline('caching', `skipped (~${totalEstimatedTokens} tokens < ${minTokens} min)`);
     }
 
     // Inject oracle brief as a separate cached system block (changes only on file events)
@@ -158,7 +164,7 @@ export class AnthropicProvider implements CompletionProvider {
             (briefBlock as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
           }
           systemBlocks.push(briefBlock);
-          this.logger.debug(`Oracle brief injected for ${fileName} (${briefText.length} chars)`);
+          this.logger.traceInline('oracle brief', `${briefText.length} chars`);
         }
       }
     }
@@ -197,7 +203,7 @@ export class AnthropicProvider implements CompletionProvider {
       const totalInput = cacheRead + cacheWrite + uncached;
       const hitRate = totalInput > 0 ? (cacheRead / totalInput * 100).toFixed(1) : '0.0';
 
-      this.logger.debug(`Anthropic usage: input=${uncached} output=${usage.output_tokens} cache_read=${cacheRead} cache_write=${cacheWrite} hit_rate=${hitRate}% stop=${response.stop_reason}`);
+      this.logger.traceInline('tokens', `in=${uncached} out=${usage.output_tokens} cache=${cacheRead}r/${cacheWrite}w (${hitRate}% hit)`);
 
       this.onTokenUsage?.(this.config.anthropic.model, uncached, usage.output_tokens, cacheRead, cacheWrite);
     }

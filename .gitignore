@@ -3,4 +3,4 @@ dist/
 *.vsix
 .vscode-test/
 test-results/
-prompt-dump.txt
+prompt-dump*.txt

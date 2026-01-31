@@ -1,14 +1,6 @@
 /**
- * Anchor Echo Adherence — measures how reliably the Claude Code backend
- * echoes the anchor text at the start of its raw response.
- *
- * This is a measurement instrument, not a pass/fail gate. The Claude Code
- * provider uses extractAnchor + a [CONTINUATION POINT] instruction to tell
- * the model to echo the current line, then trimPrefixOverlap strips it.
- * This test gauges how well the model follows that instruction.
- *
- * (The Anthropic provider uses assistant prefill, which mechanically
- * guarantees the anchor — no adherence measurement needed.)
+ * TEXT_TO_FILL Adherence — verifies the Claude Code backend fills the
+ * placeholder without echoing surrounding text from the prefix or suffix.
  *
  * Requires: `claude` CLI installed + `@anthropic-ai/claude-agent-sdk`
  *
@@ -16,7 +8,7 @@
  *   npx vitest run --config vitest.api.config.ts src/test/api/anchor-echo.test.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { ClaudeCodeProvider, extractAnchor } from '../../providers/claude-code';
+import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionMode } from '../../types';
 import { makeConfig } from '../helpers';
 import { Logger } from '../../utils/logger';
@@ -34,66 +26,43 @@ try {
   sdkAvailable = false;
 }
 
-// ── Adherence measurement ───────────────────────────────────────────────
-
-interface AdherenceResult {
-  degree: 'full' | 'partial' | 'none';
-  percentage: number;
-  matchedText: string;
-}
+// ── Adherence checks ────────────────────────────────────────────────────
 
 /**
- * Measure how closely the raw response echoes the expected anchor text.
- *
- * The Claude Code provider instructs the model to begin its response with
- * the anchor (current line text). trimPrefixOverlap then strips the echo.
- * This function checks whether the raw response (before post-processing)
- * starts with the anchor.
+ * Check if the completion echoes text from the prefix or suffix.
+ * Returns details about any echo detected.
  */
-function measureAnchorAdherence(anchor: string, raw: string): AdherenceResult {
-  if (!anchor) {
-    return { degree: 'full', percentage: 100, matchedText: '' };
+function checkForEcho(completion: string, prefix: string, suffix: string): {
+  echoesPrefix: boolean;
+  echoesSuffix: boolean;
+  details: string;
+} {
+  const result = { echoesPrefix: false, echoesSuffix: false, details: '' };
+
+  // Check if completion starts with a significant chunk of the prefix tail
+  // (the last line or last 40+ chars)
+  const lastNewline = prefix.lastIndexOf('\n');
+  const prefixTail = lastNewline >= 0 ? prefix.slice(lastNewline + 1) : prefix;
+  if (prefixTail.length >= 5 && completion.startsWith(prefixTail)) {
+    result.echoesPrefix = true;
+    result.details += `Echoes prefix tail: "${prefixTail.slice(0, 40)}". `;
   }
 
-  // Exact startsWith
-  if (raw.startsWith(anchor)) {
-    return { degree: 'full', percentage: 100, matchedText: anchor };
-  }
-
-  // Whitespace-normalized startsWith
-  const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-  const normAnchor = normalize(anchor);
-  const normRaw = normalize(raw);
-
-  if (normRaw.startsWith(normAnchor)) {
-    return { degree: 'full', percentage: 100, matchedText: anchor };
-  }
-
-  // Partial: longest leading substring of normalized anchor in normalized raw
-  let matchLen = 0;
-  for (let i = 1; i <= normAnchor.length; i++) {
-    if (normRaw.startsWith(normAnchor.slice(0, i))) {
-      matchLen = i;
-    } else {
-      break;
+  // Check if completion ends with a significant chunk of the suffix head
+  if (suffix.trim()) {
+    const suffixHead = suffix.trim().slice(0, 60);
+    if (suffixHead.length >= 10 && completion.trimEnd().endsWith(suffixHead)) {
+      result.echoesSuffix = true;
+      result.details += `Echoes suffix head: "${suffixHead.slice(0, 40)}". `;
     }
   }
 
-  if (matchLen > 0) {
-    const percentage = Math.round((matchLen / normAnchor.length) * 100);
-    return {
-      degree: 'partial',
-      percentage,
-      matchedText: normAnchor.slice(0, matchLen),
-    };
-  }
-
-  return { degree: 'none', percentage: 0, matchedText: '' };
+  return result;
 }
 
 // ── Scenarios ───────────────────────────────────────────────────────────
 
-interface AnchorScenario {
+interface FillScenario {
   name: string;
   prefix: string;
   suffix: string;
@@ -102,7 +71,7 @@ interface AnchorScenario {
   fileName: string;
 }
 
-const scenarios: AnchorScenario[] = [
+const scenarios: FillScenario[] = [
   {
     name: 'prose-mid-sentence',
     prefix: 'Once upon a time, in a land far away, there lived a',
@@ -120,7 +89,7 @@ const scenarios: AnchorScenario[] = [
     fileName: 'list.md',
   },
   {
-    name: 'code-line',
+    name: 'code-fill-in-middle',
     prefix: 'function greet(name: string) {\n  const result = ',
     suffix: '\n  return result;\n}',
     mode: 'code',
@@ -128,7 +97,7 @@ const scenarios: AnchorScenario[] = [
     fileName: 'greet.ts',
   },
   {
-    name: 'heading-start',
+    name: 'heading-continuation',
     prefix: '# Introduction\n\nThis document covers the basics.\n\n## Getting Started',
     suffix: '',
     mode: 'prose',
@@ -136,7 +105,7 @@ const scenarios: AnchorScenario[] = [
     fileName: 'guide.md',
   },
   {
-    name: 'long-line-truncated',
+    name: 'long-sentence-continuation',
     prefix: 'The implementation of the distributed consensus algorithm requires careful consideration of network partitions, message ordering guarantees, and the fundamental trade-offs described by the CAP theorem, which states that',
     suffix: '',
     mode: 'prose',
@@ -170,18 +139,15 @@ function truncate(s: string, max: number): string {
 
 // ── Test ────────────────────────────────────────────────────────────────
 
-describe.skipIf(!sdkAvailable)('Anchor Echo Adherence', () => {
+describe.skipIf(!sdkAvailable)('TEXT_TO_FILL Adherence', () => {
   let provider: ClaudeCodeProvider;
-
-  // Capture raw responses and anchors from trace logs
-  const traceLogs: string[] = [];
 
   beforeAll(async () => {
     const logger: Logger = {
       setLevel: () => {},
       info: () => {},
       debug: () => {},
-      trace: (...args: unknown[]) => { traceLogs.push(String(args[0])); },
+      trace: () => {},
       error: (...args: unknown[]) => { console.error(String(args[0])); },
       show: () => {},
       dispose: () => {},
@@ -195,13 +161,13 @@ describe.skipIf(!sdkAvailable)('Anchor Echo Adherence', () => {
     provider?.dispose();
   });
 
-  it('measures anchor echo adherence across scenarios', async () => {
+  it('fills placeholder without echoing surrounding text', async () => {
     interface ScenarioResult {
       name: string;
-      anchor: string;
-      adherence: AdherenceResult;
-      rawSnippet: string;
-      postProcessed: string | null;
+      completion: string | null;
+      echoesPrefix: boolean;
+      echoesSuffix: boolean;
+      details: string;
     }
 
     const results: ScenarioResult[] = [];
@@ -216,36 +182,30 @@ describe.skipIf(!sdkAvailable)('Anchor Echo Adherence', () => {
         mode: scenario.mode,
       };
 
-      // Compute the anchor the provider will use
-      const { anchor } = extractAnchor(context.prefix);
-
-      traceLogs.length = 0;
       const ac = new AbortController();
-      const result = await provider.getCompletion(context, ac.signal);
+      const completion = await provider.getCompletion(context, ac.signal);
 
       // Health check: completion must be non-null
-      expect(result, `${scenario.name}: completion should be non-null`).not.toBeNull();
+      expect(completion, `${scenario.name}: completion should be non-null`).not.toBeNull();
 
-      // Extract raw response from trace logs (logged before post-processing)
-      const rawLine = traceLogs.find(l => l.startsWith('Claude Code raw response:'));
-      const raw = rawLine ? rawLine.replace('Claude Code raw response: ', '') : '';
-
-      const adherence = measureAnchorAdherence(anchor, raw);
+      const echo = checkForEcho(completion!, context.prefix, context.suffix);
 
       results.push({
         name: scenario.name,
-        anchor,
-        adherence,
-        rawSnippet: truncate(raw, 80),
-        postProcessed: result,
+        completion,
+        echoesPrefix: echo.echoesPrefix,
+        echoesSuffix: echo.echoesSuffix,
+        details: echo.details || 'Clean fill — no echo detected.',
       });
 
       // Per-scenario log
       console.log(`\n[${scenario.name}]`);
-      console.log(`  Anchor:  "${truncate(anchor, 60)}"`);
-      console.log(`  Echo:    ${adherence.degree} (${adherence.percentage}%)`);
-      console.log(`  Raw:     "${truncate(raw, 80)}"`);
-      console.log(`  Result:  "${truncate(result ?? '(null)', 80)}"`);
+      console.log(`  Prefix echo: ${echo.echoesPrefix ? 'YES' : 'no'}`);
+      console.log(`  Suffix echo: ${echo.echoesSuffix ? 'YES' : 'no'}`);
+      console.log(`  Completion:  "${truncate(completion ?? '(null)', 80)}"`);
+      if (echo.details) {
+        console.log(`  Details:     ${echo.details}`);
+      }
 
       // 3s recycling delay between scenarios
       if (scenarios.indexOf(scenario) < scenarios.length - 1) {
@@ -253,40 +213,37 @@ describe.skipIf(!sdkAvailable)('Anchor Echo Adherence', () => {
       }
     }
 
-    // ── Summary table ─────────────────────────────────────────────────
-    const fullCount = results.filter(r => r.adherence.degree === 'full').length;
-    const partialCount = results.filter(r => r.adherence.degree === 'partial').length;
-    const noneCount = results.filter(r => r.adherence.degree === 'none').length;
-    const avgPct = Math.round(
-      results.reduce((sum, r) => sum + r.adherence.percentage, 0) / results.length,
-    );
+    // ── Summary ──────────────────────────────────────────────────────
+    const cleanCount = results.filter(r => !r.echoesPrefix && !r.echoesSuffix).length;
+    const prefixEchoCount = results.filter(r => r.echoesPrefix).length;
+    const suffixEchoCount = results.filter(r => r.echoesSuffix).length;
 
     console.log('\n' + '='.repeat(90));
-    console.log('ANCHOR ECHO ADHERENCE SUMMARY');
+    console.log('TEXT_TO_FILL ADHERENCE SUMMARY');
     console.log('='.repeat(90));
     console.log(
-      'Scenario'.padEnd(25) +
-      'Anchor'.padEnd(35) +
-      'Degree'.padEnd(10) +
-      'Match %',
+      'Scenario'.padEnd(30) +
+      'Prefix Echo'.padEnd(15) +
+      'Suffix Echo'.padEnd(15) +
+      'Status',
     );
     console.log('-'.repeat(90));
 
     for (const r of results) {
+      const status = !r.echoesPrefix && !r.echoesSuffix ? 'CLEAN' : 'ECHO';
       console.log(
-        r.name.padEnd(25) +
-        `"${truncate(r.anchor, 30)}"`.padEnd(35) +
-        r.adherence.degree.padEnd(10) +
-        `${r.adherence.percentage}%`,
+        r.name.padEnd(30) +
+        (r.echoesPrefix ? 'YES' : 'no').padEnd(15) +
+        (r.echoesSuffix ? 'YES' : 'no').padEnd(15) +
+        status,
       );
     }
 
     console.log('-'.repeat(90));
     console.log(
-      `Full: ${fullCount}/${results.length}  ` +
-      `Partial: ${partialCount}/${results.length}  ` +
-      `None: ${noneCount}/${results.length}  ` +
-      `Avg: ${avgPct}%`,
+      `Clean: ${cleanCount}/${results.length}  ` +
+      `Prefix echo: ${prefixEchoCount}/${results.length}  ` +
+      `Suffix echo: ${suffixEchoCount}/${results.length}`,
     );
     console.log('='.repeat(90));
   }, 300_000);

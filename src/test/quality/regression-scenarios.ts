@@ -32,6 +32,41 @@ export interface RegressionScenario extends TestScenario {
 
 export const regressionScenarios: RegressionScenario[] = [
   {
+    id: 'regression-code-json-markdown-fencing',
+    description: 'Model wraps JSON completion in markdown code fences',
+    observedModel: 'claude-code/haiku',
+    observedDate: '2025-01-30',
+    regression_notes:
+      'When completing a .mcp.json file, the model wrapped its output in markdown code fences ' +
+      '(```...```), which got inserted verbatim into the document. The completion should be ' +
+      'raw JSON text only — no markdown formatting of any kind.',
+    mode: 'code',
+    languageId: 'json',
+    fileName: '.mcp.json',
+    prefix:
+      '{\n' +
+      '    "mcpServers": {\n' +
+      '        "playwright": {\n' +
+      '            "command": "npx",\n' +
+      '            "args": ["-y", "@playwright/mcp@latest"]\n' +
+      '        },\n' +
+      '        "chrome-devtools": {\n' +
+      '            "command": "npx",\n' +
+      '            "args": ["-y", "chrome-devtools-mcp@latest"]\n' +
+      '        },',
+    suffix:
+      '\n' +
+      '    }\n' +
+      '}\n',
+    requirements: {
+      must_not_include: ['```', '```json', '```\n'],
+      quality_notes:
+        'The completion MUST be raw JSON only — no markdown code fences or formatting. ' +
+        'Expected: something like a new server entry or closing the object. ' +
+        'The output should be directly insertable into the JSON file.',
+    },
+  },
+  {
     id: 'regression-prose-list-marker-echo',
     description: 'Model echoes "- " list marker that is already at end of prefix, producing "- - "',
     observedModel: 'claude-code/haiku',

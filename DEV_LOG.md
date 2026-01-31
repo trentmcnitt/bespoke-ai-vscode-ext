@@ -4,6 +4,24 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 01-30-26
+
+### Claude Code provider: TEXT_TO_FILL prompt rewrite
+
+Replaced the Claude Code provider's anchor echo strategy with a `${TEXT_TO_FILL}` placeholder approach. The old approach instructed the model to echo the current line as an anchor, then `trimPrefixOverlap` stripped the echo — fragile and indirect. The new approach wraps the document in `<incomplete_text>` tags with a `${TEXT_TO_FILL}` placeholder at the cursor position. The model fills the hole directly.
+
+**What changed:**
+
+- `src/providers/claude-code.ts` — New system prompt with `${TEXT_TO_FILL}` example. Removed `extractAnchor()` function. Removed `PromptBuilder` dependency (reads `maxTokens`/`temperature` directly from mode config). Message assembly now wraps `prefix + ${TEXT_TO_FILL} + suffix` in `<incomplete_text>` tags — same format for prose and code. Passes `undefined` for prefix in `postProcessCompletion()` to skip `trimPrefixOverlap`.
+- `src/scripts/dump-prompts.ts` — Updated to reflect new prompt format, removed `extractAnchor` import.
+- `src/test/unit/anchor.test.ts` — Deleted (tested the removed `extractAnchor` function).
+- `src/test/api/anchor-echo.test.ts` — Rewritten as TEXT_TO_FILL adherence test. Verifies the model fills the placeholder without echoing prefix or suffix text.
+- `CLAUDE.md` — Added Claude Code provider entry, updated prompt-builder description.
+
+**Test results:** 226 unit tests passing, lint + type-check clean. TEXT_TO_FILL adherence API test: 6/6 scenarios clean (no prefix echo, no suffix echo). Completions are contextually appropriate across prose continuation, bullet lists, code FIM, heading continuation, and short input scenarios.
+
+---
+
 ## 01-28-26 (late evening)
 
 ### API research and provider fixes
