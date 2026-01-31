@@ -86,13 +86,19 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.logger.cacheHit(reqId, cached.length);
+      this.logger.traceBlock('← cached value', cached);
       this.tracker?.recordCacheHit();
-      return [new vscode.InlineCompletionItem(cached, new vscode.Range(position, position))];
+      const item = new vscode.InlineCompletionItem(cached, new vscode.Range(position, position));
+      this.logger.trace(`returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`);
+      return [item];
     }
 
     // Debounce
     const signal = await this.debouncer.debounce(token);
-    if (!signal || token.isCancellationRequested) { return null; }
+    if (!signal || token.isCancellationRequested) {
+      this.logger.trace(`#${reqId} debounce cancelled`);
+      return null;
+    }
 
     // Check backend availability
     if (!this.router.isBackendAvailable(this.config.backend)) {
@@ -130,6 +136,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
           resultLen: null,
           cancelled: token.isCancellationRequested,
         });
+        this.logger.trace(`#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`);
         return null;
       }
 
@@ -143,7 +150,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
       // Cache and return
       this.cache.set(cacheKey, result);
-      return [new vscode.InlineCompletionItem(result, new vscode.Range(position, position))];
+      const item = new vscode.InlineCompletionItem(result, new vscode.Range(position, position));
+      this.logger.trace(`returning completion: insertText=${JSON.stringify(result.slice(0, 50))}... range=${position.line}:${position.character}`);
+      return [item];
     } catch (err: unknown) {
       this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);
       this.tracker?.recordError();

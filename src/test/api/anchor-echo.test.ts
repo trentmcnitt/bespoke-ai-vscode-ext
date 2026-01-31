@@ -1,6 +1,6 @@
 /**
  * Fill marker adherence — verifies the Claude Code backend fills the
- * >>>HOLE_TO_FILL<<< marker without echoing surrounding text from the prefix or suffix.
+ * >>>GAP_TO_FILL<<< marker without echoing surrounding text from the prefix or suffix.
  *
  * Requires: `claude` CLI installed + `@anthropic-ai/claude-agent-sdk`
  *

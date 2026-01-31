@@ -4,6 +4,59 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 01-31-26
+
+### Claude Code prompt overhaul: examples, marker rename, and engine mode
+
+Major prompt engineering session to improve Claude Code completion quality. Added new examples, renamed the fill marker, and restructured guidance.
+
+**Marker rename: `>>>HOLE_TO_FILL<<<` → `>>>GAP_TO_FILL<<<`**
+
+The word "hole" implied something that *must* be filled. "Gap" better conveys that the space might need bridging with substantial content, minimal content, or nothing at all depending on context.
+
+**Why not a self-closing XML tag like `<fill/>`?**
+
+Tested earlier — self-closing tags like `<fill/>` caused Claude Code to output matching closing patterns like `</filled>` or `</fill>` in completions. The model treated it as an XML structure to complete rather than a marker to replace. The `>>>MARKER<<<` format avoids this by being visually distinct from XML.
+
+**New examples added (8 total, up from 4):**
+
+| # | Pattern | Teaches |
+|---|---------|---------|
+| 1 | Bullet list (`- `) | Don't repeat marker |
+| 2 | JSON object | Indentation + raw code |
+| 3 | Function body | Indentation + code |
+| 4 | Mid-word (`quic`) | Complete partial word |
+| 5 | Prose bridging | Short phrase fill between prefix/suffix |
+| 6 | After heading | Start prose, not structure |
+| 7 | Numbered list (`3. `) | Don't repeat marker |
+| 8 | Before structured content | Brief lead-in, don't duplicate/elaborate |
+
+**New prompt structure:**
+
+1. Examples section with clear "What you receive" / "What you should output" format
+2. Engine mode transition: "The examples are complete. From now on, act as the gap-filling engine — no more examples, just raw output."
+3. Length guidance: "Use judgment to decide how much to output: from a single character (completing a partial word) to several sentences (when substantial content is needed). When in doubt, prefer brevity."
+4. Tightened rules with back-references to examples
+
+**Rules (updated):**
+
+- Always wrap in `<output>` tags
+- No code fences, commentary, or meta-text
+- Never repeat structural markers (see example 1)
+- Don't duplicate/elaborate on suffix content (see example 8)
+- Not a chat — tool pipeline
+
+**Regressions fixed:**
+
+- List marker echo (`- - **content**`) — fixed via Example 1 + explicit rule
+- JSON markdown fencing (``` wrapping) — fixed via "no code fences" rule
+
+**New regression captured:**
+
+- Partial date continuation — user types `0` to start `01-31-26`, model should continue with `1-31-26` but sometimes inserts full date. Added as regression test for tracking.
+
+---
+
 ## 01-30-26
 
 ### Claude Code provider: TEXT_TO_FILL prompt rewrite

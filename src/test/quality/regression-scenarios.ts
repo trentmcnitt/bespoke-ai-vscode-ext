@@ -120,4 +120,102 @@ export const regressionScenarios: RegressionScenario[] = [
         'Starting with "- " would produce a doubled marker "- - " in the document.',
     },
   },
+  {
+    id: 'regression-prose-partial-date-not-continued',
+    description: 'Model ignores partial date "0" and inserts full date instead of continuing',
+    observedModel: 'claude-code/haiku',
+    observedDate: '2026-01-31',
+    regression_notes:
+      'In a journal file with dated entries (01-30-26, 01-29-26, etc.), the user typed "0" to ' +
+      'start a new date entry "01-31-26". The model returned "\\n\\n01-31-26\\n\\n" instead of ' +
+      '"1-31-26" — it ignored that the user had already typed the leading "0" and inserted a ' +
+      'complete date with extra newlines. The completion should continue from where the user ' +
+      'left off, not restart the token.',
+    mode: 'prose',
+    languageId: 'markdown',
+    fileName: 'journal.md',
+    prefix:
+      '#journal\n\n' +
+      '#### *Notes about anything*\n\n' +
+      '0',
+    suffix:
+      '\n\n' +
+      '01-30-26\n\n' +
+      'Set `EDITOR` and `VISUAL` environment variables to `codium` in `~/.zshrc` so Claude Code\'s Ctrl+G opens VS Codium instead of VS Code.\n\n' +
+      '01-29-26\n\n' +
+      '**OpenTask — Vikunja rebrand and logo**\n\n' +
+      'Renamed my self-hosted Vikunja app to OpenTask. Created a text logo and favicon using the Honk font on Google Fonts — typed "OpenTask" for the main logo and "ot" for a second version, sized up to 300px. Took a screenshot, trimmed the whitespace, and that\'s how I generated the typographic logos.\n\n' +
+      '---\n\n' +
+      '**Met Phil at ice skating**\n\n' +
+      'Met a guy named Phil at ice skating lessons today. He has a son who\'s six years old, and also has a one-year-old that plays with a hockey stick at home. Phil grew up playing hockey, starting with pond hockey, then got more serious and still plays as an adult.\n\n' +
+      '01-28-26\n\n' +
+      '**Local LLM autocomplete — extension research**\n\n' +
+      'Frustrated with Llama VS Code\'s clunky interface and Continue.dev being just okay. Looking for better alternatives for local model autocomplete.\n\n' +
+      '---\n\n' +
+      '01-27-26\n\n' +
+      '**VS Code privacy deep dive — considering VSCodium**\n\n' +
+      'Did a thorough investigation into what Microsoft actually collects through VS Code, especially since I\'m storing sensitive personal stuff in the vault now. Key findings:\n\n' +
+      '- VS Code collects file paths (not just extensions) — reveals health concerns, financial situations, project names even without file contents\n' +
+      '- Telemetry is opt-out, not opt-in — data sent before you can disable it\n' +
+      '- Extensions have their own telemetry outside VS Code\'s controls\n' +
+      '- Microsoft\'s privacy statement uses "may" language giving them broad latitude\n' +
+      '- No disclosed retention period for telemetry data\n\n' +
+      'Researched alternatives:\n' +
+      '- **VSCodium** — VS Code\'s open-source build with telemetry removed. Works for most of my extensions (Python, markdown, etc.). GitHub Copilot is hard-blocked, but I\'d replace it with API-based autocomplete anyway.\n' +
+      '- **Belt and suspenders** — Keep VS Code but disable telemetry + block domains at firewall level\n\n' +
+      'For autocomplete replacement, compared AI providers:\n' +
+      '- **Anthropic API** (7-day retention, no training) — best privacy, already trust them via Claude Code\n' +
+      '- **xAI/Grok** — avoid entirely (de-identified data extraction, security incidents, DOGE conflicts)\n' +
+      '- **Gemini API** — cheaper alternative ($0.26 vs $1.00/MTok) with solid enterprise privacy\n\n' +
+      'Leaning toward: VSCodium + Continue.dev extension + Anthropic API. Would cost ~$3-10/month for autocomplete, down from $10/month Copilot, with better privacy guarantees.',
+    requirements: {
+      must_not_include: ['01-31-26', '01-30-26', '\n\n01'],
+      quality_notes:
+        'The prefix ends with "0" — the user has started typing a date like "01-31-26". ' +
+        'The completion MUST continue from "0", not insert a full date. ' +
+        'Expected output: "1-31-26" or similar continuation. ' +
+        'The suffix shows the date pattern (01-30-26, 01-29-26, 01-28-26) which the model ' +
+        'should recognize and use to infer the user wants "01-31-26" (the next date).',
+    },
+  },
+  {
+    id: 'regression-prose-partial-word-newline-suffix',
+    description: 'Model ignores partial word "This sol" and starts new paragraph instead of inline completion',
+    observedModel: 'claude-code/haiku',
+    observedDate: '2026-01-31',
+    regression_notes:
+      'The prefix ends with "This sol" (a partial phrase like "This solved..." or "This solution..."). ' +
+      'The suffix starts with blank lines before the next dated entry. The model returned ' +
+      '"\\nCodium feels snappier..." — it ignored the partial phrase entirely and started a new ' +
+      'paragraph with a leading newline. The completion should complete the word inline ' +
+      '(e.g., "ved the problem..." or "ution works..."), not start fresh on a new line.',
+    mode: 'prose',
+    languageId: 'markdown',
+    fileName: 'journal.jnl.md',
+    prefix:
+      '#journal\n\n' +
+      '#### *Notes about anything*\n\n\n\n' +
+      '01-30-26\n\n' +
+      'Set `EDITOR` and `VISUAL` environment variables to `codium` in `~/.zshrc` so Claude Code\'s Ctrl+G opens VS Codium instead of VS Code. This sol',
+    suffix:
+      '\n\n' +
+      '01-29-26\n\n' +
+      '**OpenTask — Vikunja rebrand and logo**\n\n' +
+      'Renamed my self-hosted Vikunja app to OpenTask. Created a text logo and favicon using the Honk font on Google Fonts — typed "OpenTask" for the main logo and "ot" for a second version, sized up to 300px. Took a screenshot, trimmed the whitespace, and that\'s how I generated the typographic logos.\n\n' +
+      '---\n\n' +
+      '**Met Phil at ice skating**\n\n' +
+      'Met a guy named Phil at ice skating lessons today. He has a son who\'s six years old, and also has a one-year-old that plays with a hockey stick at home. Phil grew up playing hockey, starting with pond hockey, then got more serious and still plays as an adult.\n\n' +
+      '01-28-26\n\n' +
+      '**Local LLM autocomplete — extension research**\n\n' +
+      'Frustrated with Llama VS Code\'s clunky interface and Continue.dev being just okay. Looking for better alternatives for local model autocomplete.',
+    requirements: {
+      must_not_include: ['```'],
+      quality_notes:
+        'The prefix ends with "This sol" — a partial word/phrase. ' +
+        'The completion MUST continue inline, completing the word (e.g., "ved", "ution"). ' +
+        'It must NOT start with a newline or ignore the partial phrase. ' +
+        'Even though the suffix starts with blank lines (before the next date entry), ' +
+        'the model should recognize "This sol" needs inline continuation first.',
+    },
+  },
 ];
