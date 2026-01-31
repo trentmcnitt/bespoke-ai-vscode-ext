@@ -3,7 +3,7 @@ import { Logger } from '../utils/logger';
 import { OracleConfig, OracleStatus, ContextBrief } from './types';
 import { ContextBriefStore } from './context-brief-store';
 
-const ORACLE_SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
+export const ORACLE_SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
 
 You have access to Read, Grep, and Glob tools to explore the project.
 
@@ -29,7 +29,7 @@ Rules:
 - ALL arrays must be present (use empty arrays if nothing found)
 - Output ONLY the JSON object, nothing else`;
 
-function buildAnalysisPrompt(filePath: string, fileContent: string, languageId: string): string {
+export function buildAnalysisPrompt(filePath: string, fileContent: string, languageId: string): string {
   return `Analyze this file for inline completion context. The file content is below — do NOT re-read it.
 Only use tools to look up imported modules' type signatures (Read the specific files referenced in imports). Do not explore broadly — be targeted.
 Limit yourself to at most 3 tool calls total.

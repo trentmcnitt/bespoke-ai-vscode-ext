@@ -480,7 +480,8 @@
     "test:api": "vitest run --config vitest.api.config.ts",
     "test:quality": "vitest run --config vitest.quality.config.ts",
     "benchmark": "tsx src/benchmark/runner.ts",
-    "dump-prompts": "tsx src/scripts/dump-prompts.ts"
+    "dump-prompts": "tsx src/scripts/dump-prompts.ts",
+    "install-ext": "npm run compile && vsce package --allow-missing-repository --skip-license -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

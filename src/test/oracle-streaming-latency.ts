@@ -10,27 +10,10 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { createMessageChannel } from '../utils/message-channel';
+import { ORACLE_SYSTEM_PROMPT, buildAnalysisPrompt } from '../oracle/context-oracle';
 
 const CWD = path.resolve(__dirname, '../..');
-
-const SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
-
-Your output MUST match this EXACT schema:
-
-{
-  "filePath": "<the file path given>",
-  "generatedAt": <Date.now() timestamp>,
-  "language": "<language ID>",
-  "imports": [{ "module": "<import path>", "provides": "<what it provides>" }],
-  "typeContext": [{ "name": "<type name>", "signature": "<type signature>" }],
-  "patterns": ["<observed coding pattern>"],
-  "relatedSymbols": [{ "name": "<symbol name>", "description": "<what it does>", "signature": "<type signature>" }],
-  "projectSummary": "<one-sentence project description>"
-}
-
-Rules:
-- ALL arrays must be present (use empty arrays if nothing found)
-- Output ONLY the JSON object, nothing else`;
 
 const ALLOWED_TOOLS = ['Read', 'Grep', 'Glob'];
 
@@ -41,84 +24,6 @@ interface Timing {
   toolCalls: string[];
   chars: number;
   validJson: boolean;
-}
-
-function buildAnalysisPrompt(filePath: string, fileContent: string): string {
-  return `Analyze this file for inline completion context. The file content is below — do NOT re-read it.
-Only use tools to look up imported modules' type signatures (Read the specific files referenced in imports). Do not explore broadly — be targeted.
-Limit yourself to at most 3 tool calls total.
-
-File: ${filePath}
-Language: typescript
-
-\`\`\`typescript
-${fileContent}
-\`\`\`
-
-Now output ONLY the ContextBrief JSON. No other text.`;
-}
-
-/**
- * Creates a controllable async iterable that yields SDKUserMessages
- * on demand. Call push() to send a message, close() to end the stream.
- */
-function createMessageChannel() {
-  let resolve: ((value: IteratorResult<any>) => void) | null = null;
-  let done = false;
-  const pending: any[] = [];
-
-  const iterable: AsyncIterable<any> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<any>> {
-          if (pending.length > 0) {
-            return Promise.resolve({ value: pending.shift()!, done: false });
-          }
-          if (done) {
-            return Promise.resolve({ value: undefined, done: true });
-          }
-          return new Promise((r) => { resolve = r; });
-        },
-        return(): Promise<IteratorResult<any>> {
-          done = true;
-          if (resolve) {
-            resolve({ value: undefined, done: true });
-            resolve = null;
-          }
-          return Promise.resolve({ value: undefined, done: true });
-        },
-      };
-    },
-  };
-
-  return {
-    iterable,
-    push(message: string) {
-      const msg = {
-        type: 'user' as const,
-        message: {
-          role: 'user' as const,
-          content: message,
-        },
-        parent_tool_use_id: null,
-        session_id: '',
-      };
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r({ value: msg, done: false });
-      } else {
-        pending.push(msg);
-      }
-    },
-    close() {
-      done = true;
-      if (resolve) {
-        resolve({ value: undefined, done: true });
-        resolve = null;
-      }
-    },
-  };
 }
 
 async function main() {
@@ -151,7 +56,7 @@ async function main() {
       allowedTools: ALLOWED_TOOLS,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: ORACLE_SYSTEM_PROMPT,
       cwd: CWD,
       settingSources: [],
       maxThinkingTokens: 1024,
@@ -270,7 +175,7 @@ async function main() {
 
     const start = Date.now();
     const resultPromise = waitForResult();
-    channel.push(buildAnalysisPrompt(file, content));
+    channel.push(buildAnalysisPrompt(file, content, 'typescript'));
     const result = await resultPromise;
     const wallMs = Date.now() - start;
 

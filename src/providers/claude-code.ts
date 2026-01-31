@@ -1,26 +1,44 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
+import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { postProcessCompletion } from '../utils/post-process';
 
-const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the text that satisfies the \${TEXT_TO_FILL}.
+export const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the raw text that satisfies the \${TEXT_TO_FILL}.
+
+Your output will be inserted directly into a document, verbatim, so do not include anything besides the *exact* text that satisfies \${TEXT_TO_FILL}. This is not a chat. Your output should perfectly satisfy \${TEXT_TO_FILL}, without any unnecessary characters.
 
 <example>
-<incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:\\n\\nThe quic\${TEXT_TO_FILL}\\n- Five quacking zephyrs jolt my wax bed.\\n- All questions asked by five watched experts amaze the judge.</incomplete_text>
+<incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:
+
+The quic\${TEXT_TO_FILL}
+- Five quacking zephyrs jolt my wax bed.</incomplete_text>
 <good_output>k brown fox jumps over the lazy dog.</good_output>
+</example>
+
+<example>
+<incomplete_text>{
+  "name": "my-project",
+  "dependencies": {\${TEXT_TO_FILL}
+  }
+}</incomplete_text>
+<good_output>
+    "lodash": "^4.17.21"</good_output>
+</example>
+
+<example>
+<incomplete_text>function add(a, b) {\${TEXT_TO_FILL}
+}</incomplete_text>
+<good_output>
+  return a + b;</good_output>
 </example>
 
 Match the voice, style, and content of the document. If it's not clear how much text is needed to satisfy the \${TEXT_TO_FILL}, aim for 1-3 sentences.
 
-CRITICAL REMINDER: Never output anything except the raw text that satisfies \${TEXT_TO_FILL}.
+Critical Reminders:
+- Do not include any unnecessary characters (i.e. unnecessarily wrapping your output in "\`\`\`" fences)
 `;
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
-
-interface MessageChannel {
-  iterable: AsyncIterable<unknown>;
-  push(message: string): void;
-  close(): void;
-}
 
 interface Slot {
   state: SlotState;
@@ -29,62 +47,6 @@ interface Slot {
   resultPromise: Promise<string | null> | null;
   /** Call to deliver a result from the background consumer. */
   deliverResult: ((value: string | null) => void) | null;
-}
-
-function createMessageChannel(): MessageChannel {
-  let resolve: ((value: IteratorResult<unknown>) => void) | null = null;
-  let done = false;
-  const pending: unknown[] = [];
-
-  const iterable: AsyncIterable<unknown> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<unknown>> {
-          if (pending.length > 0) {
-            return Promise.resolve({ value: pending.shift()!, done: false });
-          }
-          if (done) {
-            return Promise.resolve({ value: undefined, done: true });
-          }
-          return new Promise((r) => { resolve = r; });
-        },
-        return(): Promise<IteratorResult<unknown>> {
-          done = true;
-          if (resolve) {
-            resolve({ value: undefined, done: true });
-            resolve = null;
-          }
-          return Promise.resolve({ value: undefined, done: true });
-        },
-      };
-    },
-  };
-
-  return {
-    iterable,
-    push(message: string) {
-      const msg = {
-        type: 'user' as const,
-        message: { role: 'user' as const, content: message },
-        parent_tool_use_id: null,
-        session_id: '',
-      };
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r({ value: msg, done: false });
-      } else {
-        pending.push(msg);
-      }
-    },
-    close() {
-      done = true;
-      if (resolve) {
-        resolve({ value: undefined, done: true });
-        resolve = null;
-      }
-    },
-  };
 }
 
 export class ClaudeCodeProvider implements CompletionProvider {

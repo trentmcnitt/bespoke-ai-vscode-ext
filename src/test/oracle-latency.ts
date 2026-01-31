@@ -9,27 +9,9 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { ORACLE_SYSTEM_PROMPT, buildAnalysisPrompt } from '../oracle/context-oracle';
 
 const CWD = path.resolve(__dirname, '../..');
-
-const SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
-
-Your output MUST match this EXACT schema:
-
-{
-  "filePath": "<the file path given>",
-  "generatedAt": <Date.now() timestamp>,
-  "language": "<language ID>",
-  "imports": [{ "module": "<import path>", "provides": "<what it provides>" }],
-  "typeContext": [{ "name": "<type name>", "signature": "<type signature>" }],
-  "patterns": ["<observed coding pattern>"],
-  "relatedSymbols": [{ "name": "<symbol name>", "description": "<what it does>", "signature": "<type signature>" }],
-  "projectSummary": "<one-sentence project description>"
-}
-
-Rules:
-- ALL arrays must be present (use empty arrays if nothing found)
-- Output ONLY the JSON object, nothing else`;
 
 const ALLOWED_TOOLS = ['Read', 'Grep', 'Glob'];
 
@@ -42,21 +24,6 @@ interface Timing {
   tools: number;
   cost: number;
   chars: number;
-}
-
-function buildPrompt(filePath: string, fileContent: string): string {
-  return `Analyze this file for inline completion context. The file content is below — do NOT re-read it.
-Only use tools to look up imported modules' type signatures (Read the specific files referenced in imports). Do not explore broadly — be targeted.
-Limit yourself to at most 3 tool calls total.
-
-File: ${filePath}
-Language: typescript
-
-\`\`\`typescript
-${fileContent}
-\`\`\`
-
-Now output ONLY the ContextBrief JSON. No other text.`;
 }
 
 async function main() {
@@ -87,7 +54,7 @@ async function main() {
     const label = `independent-${i + 1} (${file})`;
     console.log(`  ${label}...`);
 
-    const t = await timedQuery(queryFn, buildPrompt(file, content), {
+    const t = await timedQuery(queryFn, buildAnalysisPrompt(file, content, 'typescript'), {
       model,
       tools: ALLOWED_TOOLS,
     });
@@ -102,7 +69,7 @@ async function main() {
   const file0 = files[0];
   const content0 = fs.readFileSync(path.join(CWD, file0), 'utf-8');
   console.log(`  initial: ${file0}...`);
-  const initial = await timedQueryWithSessionId(queryFn, buildPrompt(file0, content0), {
+  const initial = await timedQueryWithSessionId(queryFn, buildAnalysisPrompt(file0, content0, 'typescript'), {
     model,
     tools: ALLOWED_TOOLS,
   });
@@ -116,7 +83,7 @@ async function main() {
       const label = `resume-${i + 1} (${file})`;
       console.log(`  ${label}...`);
 
-      const t = await timedQuery(queryFn, buildPrompt(file, content), {
+      const t = await timedQuery(queryFn, buildAnalysisPrompt(file, content, 'typescript'), {
         model,
         tools: ALLOWED_TOOLS,
         resume: initial.sessionId,
@@ -188,7 +155,7 @@ async function timedQueryWithSessionId(
     allowedTools: opts.tools,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: ORACLE_SYSTEM_PROMPT,
     cwd: CWD,
     settingSources: [],
     maxThinkingTokens: 1024,

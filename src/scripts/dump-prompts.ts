@@ -16,6 +16,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PromptBuilder } from '../prompt-builder';
+import { SYSTEM_PROMPT as CLAUDE_CODE_SYSTEM } from '../providers/claude-code';
 import { makeConfig, makeProseContext, makeCodeContext } from '../test/helpers';
 import { CompletionContext } from '../types';
 
@@ -177,17 +178,6 @@ function dumpOllama(ctx: CompletionContext): void {
 // ---------------------------------------------------------------------------
 // Claude Code
 // ---------------------------------------------------------------------------
-
-// Duplicated from claude-code.ts SYSTEM_PROMPT (not exported).
-// If that constant changes, update this copy.
-const CLAUDE_CODE_SYSTEM = `You are a text filling engine. Output ONLY the text that satisfies the \${TEXT_TO_FILL}.
-
-<example>
-<incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:\\n\\nThe quic\${TEXT_TO_FILL}\\n- Five quacking zephyrs jolt my wax bed.\\n- All questions asked by five watched experts amaze the judge.</incomplete_text>
-<good_output>k brown fox jumps over the lazy dog.</good_output>
-</example>
-
-Match the voice, style, and content of the document. If it's not clear how much text is needed to satisfy the \${TEXT_TO_FILL}, aim for 1-3 sentences.`;
 
 function dumpClaudeCode(ctx: CompletionContext): void {
   const modeConfig = ctx.mode === 'prose' ? config.prose : config.code;

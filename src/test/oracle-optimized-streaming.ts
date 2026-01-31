@@ -13,6 +13,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { createMessageChannel } from '../utils/message-channel';
 
 const CWD = path.resolve(__dirname, '../..');
 
@@ -33,62 +34,6 @@ ${content}
 \`\`\`
 
 JSON only.`;
-}
-
-function createMessageChannel() {
-  let resolve: ((value: IteratorResult<any>) => void) | null = null;
-  let done = false;
-  const pending: any[] = [];
-
-  const iterable: AsyncIterable<any> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<any>> {
-          if (pending.length > 0) {
-            return Promise.resolve({ value: pending.shift()!, done: false });
-          }
-          if (done) {
-            return Promise.resolve({ value: undefined, done: true });
-          }
-          return new Promise((r) => { resolve = r; });
-        },
-        return(): Promise<IteratorResult<any>> {
-          done = true;
-          if (resolve) {
-            resolve({ value: undefined, done: true });
-            resolve = null;
-          }
-          return Promise.resolve({ value: undefined, done: true });
-        },
-      };
-    },
-  };
-
-  return {
-    iterable,
-    push(message: string) {
-      const msg = {
-        type: 'user' as const,
-        message: { role: 'user' as const, content: message },
-        parent_tool_use_id: null,
-        session_id: '',
-      };
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r({ value: msg, done: false });
-      } else {
-        pending.push(msg);
-      }
-    },
-    close() {
-      done = true;
-      if (resolve) {
-        resolve({ value: undefined, done: true });
-        resolve = null;
-      }
-    },
-  };
 }
 
 async function main() {

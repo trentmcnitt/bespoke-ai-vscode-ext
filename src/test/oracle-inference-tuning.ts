@@ -14,29 +14,11 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { ORACLE_SYSTEM_PROMPT } from '../oracle/context-oracle';
 
 const CWD = path.resolve(__dirname, '../..');
 const TARGET_FILE = 'src/utils/cache.ts';
 const TARGET_CONTENT = fs.readFileSync(path.join(CWD, TARGET_FILE), 'utf-8');
-
-const FULL_SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
-
-Your output MUST match this EXACT schema:
-
-{
-  "filePath": "<the file path given>",
-  "generatedAt": <Date.now() timestamp>,
-  "language": "<language ID>",
-  "imports": [{ "module": "<import path>", "provides": "<what it provides>" }],
-  "typeContext": [{ "name": "<type name>", "signature": "<type signature>" }],
-  "patterns": ["<observed coding pattern>"],
-  "relatedSymbols": [{ "name": "<symbol name>", "description": "<what it does>", "signature": "<type signature>" }],
-  "projectSummary": "<one-sentence project description>"
-}
-
-Rules:
-- ALL arrays must be present (use empty arrays if nothing found)
-- Output ONLY the JSON object, nothing else`;
 
 const MINIMAL_SYSTEM_PROMPT = `Output ONLY valid JSON. No other text.
 
@@ -137,21 +119,21 @@ async function main() {
   const configs: TestConfig[] = [
     {
       label: 'A: Baseline (thinking=1024, tools, full prompt)',
-      systemPrompt: FULL_SYSTEM_PROMPT,
+      systemPrompt: ORACLE_SYSTEM_PROMPT,
       prompt: buildPrompt(TARGET_FILE, TARGET_CONTENT),
       tools: ['Read', 'Grep', 'Glob'],
       maxThinkingTokens: 1024,
     },
     {
       label: 'B: No thinking (maxThinkingTokens=0)',
-      systemPrompt: FULL_SYSTEM_PROMPT,
+      systemPrompt: ORACLE_SYSTEM_PROMPT,
       prompt: buildPrompt(TARGET_FILE, TARGET_CONTENT),
       tools: ['Read', 'Grep', 'Glob'],
       maxThinkingTokens: 0,
     },
     {
       label: 'C: No tools + no thinking',
-      systemPrompt: FULL_SYSTEM_PROMPT,
+      systemPrompt: ORACLE_SYSTEM_PROMPT,
       prompt: buildPrompt(TARGET_FILE, TARGET_CONTENT),
       tools: [],
       maxThinkingTokens: 0,

@@ -14,34 +14,9 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { ORACLE_SYSTEM_PROMPT, buildAnalysisPrompt } from '../oracle/context-oracle';
 
 const CWD = path.resolve(__dirname, '../..');
-
-const SYSTEM_PROMPT = `You are a code analysis assistant that outputs structured JSON. You MUST output ONLY valid JSON with no other text, no markdown fences, no explanation.
-
-You have access to Read, Grep, and Glob tools to explore the project.
-
-Your output MUST match this EXACT schema — use these EXACT field names:
-
-{
-  "filePath": "<the file path given>",
-  "generatedAt": <Date.now() timestamp>,
-  "language": "<language ID>",
-  "imports": [{ "module": "<import path>", "provides": "<what it provides>" }],
-  "typeContext": [{ "name": "<type name>", "signature": "<type signature>" }],
-  "patterns": ["<observed coding pattern>"],
-  "relatedSymbols": [{ "name": "<symbol name>", "description": "<what it does>", "signature": "<type signature>" }],
-  "projectSummary": "<one-sentence project description>"
-}
-
-Rules:
-- imports: List each import/require with the module path and a brief description of what it provides
-- typeContext: List type/interface signatures that are used or referenced in this file
-- patterns: Note naming conventions, error handling patterns, architectural patterns
-- relatedSymbols: List exported functions/classes from imported modules that this file uses
-- projectSummary: One sentence describing the project based on what you can see
-- ALL arrays must be present (use empty arrays if nothing found)
-- Output ONLY the JSON object, nothing else`;
 
 const ALLOWED_TOOLS = ['Read', 'Grep', 'Glob'];
 
@@ -52,21 +27,6 @@ interface QueryResult {
   toolCalls: string[];
   cost: number;
   sdkDurationMs: number;
-}
-
-function buildAnalysisPrompt(filePath: string, fileContent: string): string {
-  return `Analyze this file for inline completion context. The file content is below — do NOT re-read it.
-Only use tools to look up imported modules' type signatures (Read the specific files referenced in imports). Do not explore broadly — be targeted.
-Limit yourself to at most 3 tool calls total.
-
-File: ${filePath}
-Language: typescript
-
-\`\`\`typescript
-${fileContent}
-\`\`\`
-
-Now output ONLY the ContextBrief JSON. No other text.`;
 }
 
 async function main() {
@@ -106,7 +66,7 @@ async function main() {
     const label = i === 0 ? 'First analysis (post-warmup)' : `Analysis #${i + 1}`;
 
     console.log(`${i + 3}. ${label}: ${file}...`);
-    const result = await runQuery(queryFn, buildAnalysisPrompt(file, content), { model });
+    const result = await runQuery(queryFn, buildAnalysisPrompt(file, content, 'typescript'), { model });
     results.push({ file, result });
 
     // Validate JSON
@@ -172,7 +132,7 @@ async function runQuery(
       allowedTools: tools,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: ORACLE_SYSTEM_PROMPT,
       cwd: CWD,
       settingSources: [],
       maxThinkingTokens: 1024,
