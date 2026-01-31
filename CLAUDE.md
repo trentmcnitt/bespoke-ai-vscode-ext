@@ -20,6 +20,7 @@ npm run test:api       # API integration tests (src/test/api/, needs live backen
 npm run test:quality   # LLM-as-judge completion quality tests (needs Anthropic key)
 npm run benchmark      # Parameter sweep benchmarking (needs Anthropic key)
 npm run dump-prompts   # Dump exact prompt strings per provider/mode to prompt-dump.txt
+npm run install-ext    # Compile, package VSIX, and install into VSCodium (all-in-one)
 ```
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
@@ -59,7 +60,7 @@ The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bes
 | `info` (default) | Lifecycle: activation, config changes, profile switches |
 | `debug` | Per-request flow: start/end with timing, cache hits, request IDs |
 | `trace` | Full content: prefix, suffix, messages sent, responses received |
-| `error` | Failures (always logged regardless of level) |
+| (errors) | Failures are always logged regardless of the selected level — `error` is not a selectable log level |
 
 **Structured request logging:** Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correlation. At debug level, requests show visual separators (`───`) and directional markers (`▶` start, `◀` end). At trace level, content blocks appear indented under the debug skeleton. Example:
 
@@ -187,7 +188,7 @@ The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
 
 ### Quality Tests (LLM-as-Judge)
 
-Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests always use the Anthropic backend; to test quality with other backends (Ollama, Claude Code), use the benchmark system with the corresponding config. This uses a two-layer validation pattern:
+Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests default to the `claude-code` backend (via `QUALITY_TEST_BACKEND` env var); set `QUALITY_TEST_BACKEND=anthropic` for direct API testing (requires `ANTHROPIC_API_KEY`). To test quality with Ollama, use the benchmark system with the corresponding config. This uses a two-layer validation pattern:
 
 **Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `requirements.json`, and `metadata.json`. Layer 1 only checks that the provider didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The `summary.json` file records which model was used.
 

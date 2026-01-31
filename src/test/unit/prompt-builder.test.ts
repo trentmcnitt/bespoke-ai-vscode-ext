@@ -12,6 +12,7 @@ describe('PromptBuilder', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'essay.md',
+      filePath: '/test/essay.md',
       mode: 'prose',
     };
 
@@ -89,6 +90,7 @@ describe('PromptBuilder', () => {
       suffix: '\n}',
       languageId: 'typescript',
       fileName: 'index.ts',
+      filePath: '/test/index.ts',
       mode: 'code',
     };
 
@@ -152,7 +154,7 @@ describe('PromptBuilder', () => {
       const config = makeConfig();
       config.prose.maxTokens = 50;
       const ctx: CompletionContext = {
-        prefix: 'test', suffix: '', languageId: 'markdown', fileName: 'test.md', mode: 'prose',
+        prefix: 'test', suffix: '', languageId: 'markdown', fileName: 'test.md', filePath: '/test/test.md', mode: 'prose',
       };
       expect(builder.buildPrompt(ctx, config).maxTokens).toBe(50);
     });
@@ -161,7 +163,7 @@ describe('PromptBuilder', () => {
       const config = makeConfig();
       config.code.temperature = 0.5;
       const ctx: CompletionContext = {
-        prefix: 'test', suffix: '', languageId: 'typescript', fileName: 'test.ts', mode: 'code',
+        prefix: 'test', suffix: '', languageId: 'typescript', fileName: 'test.ts', filePath: '/test/test.ts', mode: 'code',
       };
       expect(builder.buildPrompt(ctx, config).temperature).toBe(0.5);
     });

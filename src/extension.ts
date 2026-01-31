@@ -69,7 +69,6 @@ export function activate(context: vscode.ExtensionContext) {
     () => {
       activeRequests = Math.max(0, activeRequests - 1);
       if (activeRequests === 0) { updateStatusBarSpinner(false); }
-      usageTracker.record(lastConfig.backend, getActiveModel(lastConfig));
     }
   );
 

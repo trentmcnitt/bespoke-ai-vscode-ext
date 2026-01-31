@@ -20,6 +20,7 @@ import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types
 import { makeConfig, makeLogger } from '../test/helpers';
 import { TestScenario } from '../test/quality/judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from '../test/quality/scenarios';
+import { regressionScenarios } from '../test/quality/regression-scenarios';
 import { getConfigsToRun } from './configs';
 import { appendFullRunToLedger } from './ledger';
 import { evaluateBatch, EvaluationInput, JudgeConfig, DEFAULT_JUDGE_MODEL } from './judge';
@@ -36,7 +37,7 @@ import {
 } from './types';
 
 // ─── Constants ───────────────────────────────────────────────────────
-const ALL_SCENARIOS: TestScenario[] = [...proseScenarios, ...codeScenarios, ...edgeCaseScenarios];
+const ALL_SCENARIOS: TestScenario[] = [...proseScenarios, ...codeScenarios, ...edgeCaseScenarios, ...regressionScenarios];
 
 // ─── Env config ──────────────────────────────────────────────────────
 
@@ -72,7 +73,11 @@ function resolveConfig(benchConfig: BenchmarkConfig, apiKey: string): ExtensionC
 }
 
 function getModelName(config: ExtensionConfig): string {
-  return config.backend === 'ollama' ? config.ollama.model : config.anthropic.model;
+  switch (config.backend) {
+    case 'anthropic': return config.anthropic.model;
+    case 'ollama': return config.ollama.model;
+    case 'claude-code': return config.claudeCode.model;
+  }
 }
 
 function createProvider(config: ExtensionConfig): CompletionProvider {
@@ -101,6 +106,7 @@ async function generateCompletion(
     suffix: scenario.suffix,
     languageId: scenario.languageId,
     fileName: scenario.fileName,
+    filePath: `/${scenario.fileName}`,
     mode: scenario.mode,
   };
 
@@ -323,16 +329,11 @@ async function main() {
     console.log(`    ${evalInputs.length} evaluations (${ALL_SCENARIOS.length} scenarios × ${params.K} generations × ${params.J} judges)...`);
     const judgments = await evaluateBatch(evalInputs, judgeConfig);
 
-    // Save judgments and aggregate
+    // Save judgments and aggregate (evaluateBatch returns results in input order)
     const judgmentsByScenario = new Map<string, JudgmentFileResult[]>();
     for (let i = 0; i < evalInputs.length; i++) {
       const input = evalInputs[i];
-      // Find matching judgment — evaluateBatch returns results in arbitrary order
-      // due to concurrency, so match by generationIndex + judgeIndex
-      const judgment = judgments.find(
-        j => j.index === input.judgeIndex &&
-        judgments.indexOf(j) === i // use positional match since results align with inputs
-      ) ?? judgments[i]; // fallback to positional
+      const judgment = judgments[i];
 
       const scenarioDir = path.join(configDir, input.scenario.id);
       saveJudgment(scenarioDir, input.generationIndex, {

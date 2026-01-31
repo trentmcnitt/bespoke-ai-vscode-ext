@@ -191,7 +191,7 @@ describe('AnthropicProvider', () => {
       prefix: 'The quick brown fox '.repeat(250), // ~5000 chars → ~1250 tokens
     });
 
-    it('adds cache_control when caching enabled and tokens exceed minimum', async () => {
+    it('does not add cache_control to static system block (cached as prefix automatically)', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('text'));
       // Sonnet has a 1024-token minimum — our ~1250 estimated tokens should exceed it
       const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'claude-sonnet-4-20250514', useCaching: true } });
@@ -199,7 +199,8 @@ describe('AnthropicProvider', () => {
       await provider.getCompletion(largePrefixContext, new AbortController().signal);
 
       const [params] = mockCreate.mock.calls[0];
-      expect(params.system[0].cache_control).toEqual({ type: 'ephemeral' });
+      // Static system prompt (index 0) should NOT have cache_control — it's cached as a prefix automatically
+      expect(params.system[0].cache_control).toBeUndefined();
     });
 
     it('skips cache_control when caching enabled but tokens below minimum', async () => {

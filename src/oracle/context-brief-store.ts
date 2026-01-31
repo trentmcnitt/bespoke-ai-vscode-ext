@@ -7,8 +7,11 @@ interface StoredBrief {
 
 export class ContextBriefStore {
   private store = new Map<string, StoredBrief>();
+  private maxSize: number;
 
-  constructor(private ttlMs: number) {}
+  constructor(private ttlMs: number, maxSize = 100) {
+    this.maxSize = maxSize;
+  }
 
   get(filePath: string): ContextBrief | null {
     const entry = this.store.get(filePath);
@@ -25,6 +28,19 @@ export class ContextBriefStore {
       brief,
       expiresAt: Date.now() + this.ttlMs,
     });
+
+    // Evict oldest entry by generatedAt if over capacity
+    if (this.store.size > this.maxSize) {
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      for (const [key, entry] of this.store) {
+        if (entry.brief.generatedAt < oldestTime) {
+          oldestTime = entry.brief.generatedAt;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey) { this.store.delete(oldestKey); }
+    }
   }
 
   delete(filePath: string): void {

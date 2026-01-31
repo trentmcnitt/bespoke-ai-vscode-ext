@@ -100,7 +100,7 @@ export class OllamaProvider implements CompletionProvider {
 
       this.logger.traceBlock('← raw', data.response);
 
-      const result = postProcessCompletion(data.response, prompt, context.prefix, context.suffix);
+      const result = postProcessCompletion(data.response, context.prefix, context.suffix);
 
       if (result !== data.response) {
         this.logger.traceBlock('← processed', result ?? '(null)');

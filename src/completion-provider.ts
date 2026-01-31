@@ -41,6 +41,14 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.router.updateConfig(config);
   }
 
+  private getActiveModel(): string {
+    switch (this.config.backend) {
+      case 'anthropic': return this.config.anthropic.model;
+      case 'ollama': return this.config.ollama.model;
+      case 'claude-code': return this.config.claudeCode.model;
+    }
+  }
+
   clearCache(): void {
     this.cache.clear();
     this.logger.info('Cache cleared');
@@ -129,6 +137,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
         durationMs,
         resultLen: result.length,
       });
+
+      // Record successful completion in usage tracker
+      this.tracker?.record(this.config.backend, this.getActiveModel());
 
       // Cache and return
       this.cache.set(cacheKey, result);

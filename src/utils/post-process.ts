@@ -1,5 +1,3 @@
-import { BuiltPrompt } from '../types';
-
 /**
  * Trim suffix overlap from a completion. If the completion's tail duplicates
  * the beginning of the suffix, return the completion truncated before the
@@ -94,7 +92,7 @@ function trimPrefixOverlap(completion: string, prefix: string): string {
  * 2. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
  * 3. Return null for empty results so callers get a clean "no completion" signal.
  */
-export function postProcessCompletion(text: string, _prompt: BuiltPrompt, prefix?: string, suffix?: string): string | null {
+export function postProcessCompletion(text: string, prefix?: string, suffix?: string): string | null {
   let result = text;
 
   if (prefix) {

@@ -1,7 +1,7 @@
 {
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
-  "description": "Inline ghost-text completions for prose and code using Anthropic Claude or Ollama",
+  "description": "Inline ghost-text completions for prose and code using Claude or Ollama",
   "version": "0.2.2",
   "publisher": "trenthm",
   "icon": "images/icon.png",
@@ -351,6 +351,9 @@
                     "type": "string"
                   },
                   "useCaching": {
+                    "type": "boolean"
+                  },
+                  "apiCallsEnabled": {
                     "type": "boolean"
                   }
                 }

@@ -59,8 +59,9 @@ export class AnthropicProvider implements CompletionProvider {
   }
 
   updateConfig(config: ExtensionConfig): void {
+    const keyChanged = config.anthropic.apiKey !== this.config.anthropic.apiKey;
     this.config = config;
-    this.initClient();
+    if (keyChanged) { this.initClient(); }
   }
 
   private initClient(): void {
@@ -98,7 +99,7 @@ export class AnthropicProvider implements CompletionProvider {
 
       if (!raw) { return null; }
 
-      const result = postProcessCompletion(raw, prompt, context.prefix, context.suffix);
+      const result = postProcessCompletion(raw, context.prefix, context.suffix);
 
       if (result !== raw) {
         this.logger.traceBlock('← processed', result ?? '(null)');
@@ -126,7 +127,7 @@ export class AnthropicProvider implements CompletionProvider {
     }
   }
 
-  private async callApi(prompt: BuiltPrompt, signal: AbortSignal, fileName?: string): Promise<string | null> {
+  private async callApi(prompt: BuiltPrompt, signal: AbortSignal, filePath?: string): Promise<string | null> {
     if (!this.client) { return null; }
 
     const messages: Anthropic.MessageParam[] = [
@@ -150,9 +151,15 @@ export class AnthropicProvider implements CompletionProvider {
       this.logger.traceInline('caching', `skipped (~${totalEstimatedTokens} tokens < ${minTokens} min)`);
     }
 
-    // Inject oracle brief as a separate cached system block (changes only on file events)
-    if (this.getBrief && fileName) {
-      const brief = this.getBrief(fileName);
+    // Static system prompt first — stable across requests, cached as a prefix automatically
+    systemBlocks.push({
+      type: 'text',
+      text: prompt.system,
+    });
+
+    // Oracle brief second — volatile (changes per file), marked ephemeral for caching
+    if (this.getBrief && filePath) {
+      const brief = this.getBrief(filePath);
       if (brief) {
         const briefText = formatBriefForPrompt(brief);
         if (briefText) {
@@ -168,17 +175,6 @@ export class AnthropicProvider implements CompletionProvider {
         }
       }
     }
-
-    const systemContent: Anthropic.TextBlockParam = {
-      type: 'text',
-      text: prompt.system,
-    };
-
-    if (shouldCache) {
-      (systemContent as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
-    }
-
-    systemBlocks.push(systemContent);
 
     const response = await this.client.messages.create(
       {

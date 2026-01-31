@@ -7,7 +7,7 @@ export function loadApiKey(): string {
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
-  backend: 'anthropic',
+  backend: 'claude-code',
   mode: 'auto',
   debounceMs: 300,
   anthropic: { apiKey: 'test-key', model: 'claude-haiku-4-5-20251001', models: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'], useCaching: false, apiCallsEnabled: true },

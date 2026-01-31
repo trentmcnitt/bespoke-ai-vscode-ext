@@ -35,6 +35,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       suffix: '',
       languageId: 'plaintext',
       fileName: 'thoughts.txt',
+      filePath: '/test/thoughts.txt',
       mode: 'prose',
     };
 
@@ -55,6 +56,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       suffix: '',
       languageId: 'python',
       fileName: 'math.py',
+      filePath: '/test/math.py',
       mode: 'code',
     };
 
@@ -74,6 +76,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'test.md',
+      filePath: '/test/test.md',
       mode: 'prose',
     };
 
@@ -93,6 +96,7 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'test.md',
+      filePath: '/test/test.md',
       mode: 'prose',
     };
 

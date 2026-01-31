@@ -25,6 +25,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'story.md',
+      filePath: '/test/story.md',
       mode: 'prose',
     };
 
@@ -45,6 +46,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       suffix: '\n}',
       languageId: 'typescript',
       fileName: 'math.ts',
+      filePath: '/test/math.ts',
       mode: 'code',
     };
 
@@ -64,6 +66,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'test.md',
+      filePath: '/test/test.md',
       mode: 'prose',
     };
 
@@ -83,6 +86,7 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       suffix: '',
       languageId: 'markdown',
       fileName: 'test.md',
+      filePath: '/test/test.md',
       mode: 'prose',
     };
 

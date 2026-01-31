@@ -96,7 +96,6 @@ export class ClaudeCodeProvider implements CompletionProvider {
     if (slotIndex === null) { return null; }
 
     const slot = this.slots[slotIndex];
-    const modeConfig = context.mode === 'prose' ? this.config.prose : this.config.code;
 
     // Build the message: wrap prefix + ${TEXT_TO_FILL} + suffix in <incomplete_text>
     const message = context.suffix.trim()
@@ -121,7 +120,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
       // Post-process: skip prefix overlap (no anchor echo to strip),
       // keep suffix overlap trimming
-      const result = postProcessCompletion(raw, { system: '', userMessage: message, maxTokens: modeConfig.maxTokens, temperature: modeConfig.temperature, stopSequences: [] }, undefined, context.suffix);
+      const result = postProcessCompletion(raw, undefined, context.suffix);
 
       if (result !== raw) {
         this.logger.traceBlock('← processed', result ?? '(null)');

@@ -352,18 +352,24 @@ export class ContextOracle {
       const prompt = buildAnalysisPrompt(filePath, fileContent, languageId);
 
       // Race the analysis against a 30s timeout
+      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new Error('Oracle analysis timeout')), 30000);
+        timeoutTimer = setTimeout(() => reject(new Error('Oracle analysis timeout')), 30000);
         signal.addEventListener('abort', () => {
-          clearTimeout(timer);
+          if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
           reject(new Error('Aborted'));
         });
       });
 
-      const responseText = await Promise.race([
-        this.runQuery(prompt, signal),
-        timeoutPromise,
-      ]);
+      let responseText: string;
+      try {
+        responseText = await Promise.race([
+          this.runQuery(prompt, signal),
+          timeoutPromise,
+        ]);
+      } finally {
+        if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+      }
 
       if (signal.aborted) { return; }
 

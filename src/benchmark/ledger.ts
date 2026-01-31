@@ -26,14 +26,6 @@ function saveLedger(ledger: BenchmarkLedger): void {
   fs.writeFileSync(LEDGER_PATH, JSON.stringify(ledger, null, 2));
 }
 
-/** Append a new run entry to the ledger (Layer 1 data only, no scores). */
-export function appendToLedger(entry: BenchmarkLedgerEntry): void {
-  const ledger = loadLedger();
-  ledger.version = LEDGER_VERSION;
-  ledger.runs.push(entry);
-  saveLedger(ledger);
-}
-
 /**
  * Append a complete run entry with scores already populated (automated pipeline).
  * Writes the full entry in one shot — no two-step append-then-update needed.

@@ -215,31 +215,24 @@ export async function evaluateCompletion(
   throw new Error('Exhausted retries without returning');
 }
 
-/** Evaluate a batch of inputs with a concurrency limit. */
+/** Evaluate a batch of inputs with a concurrency limit. Returns results in input order. */
 export async function evaluateBatch(
   inputs: EvaluationInput[],
   config: JudgeConfig,
 ): Promise<JudgmentFileResult[]> {
-  const results: JudgmentFileResult[] = [];
-  const queue = [...inputs];
+  const results: JudgmentFileResult[] = new Array(inputs.length);
   const inFlight: Promise<void>[] = [];
 
-  for (const input of queue) {
-    const promise = evaluateCompletion(input, config).then(result => {
-      results.push(result);
+  for (let idx = 0; idx < inputs.length; idx++) {
+    const i = idx; // capture for closure
+    const promise = evaluateCompletion(inputs[i], config).then(result => {
+      results[i] = result;
+      inFlight.splice(inFlight.indexOf(promise), 1);
     });
     inFlight.push(promise);
 
     if (inFlight.length >= config.concurrency) {
       await Promise.race(inFlight);
-      // Remove settled promises
-      for (let i = inFlight.length - 1; i >= 0; i--) {
-        const settled = await Promise.race([
-          inFlight[i].then(() => true),
-          Promise.resolve(false),
-        ]);
-        if (settled) inFlight.splice(i, 1);
-      }
     }
   }
 

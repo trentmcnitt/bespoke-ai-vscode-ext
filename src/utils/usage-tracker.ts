@@ -120,6 +120,9 @@ export class UsageTracker {
       ? Math.round((this._cacheHits / totalCacheLookups) * 100)
       : 0;
 
+    // Prune entries older than midnight to bound memory
+    this.entries = this.entries.filter(e => e.time >= midnightMs);
+
     return {
       totalToday: todayEntries.length,
       ratePerMinute: Math.round(ratePerMinute * 10) / 10,
