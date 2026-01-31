@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { AnthropicProvider } from '../../providers/anthropic';
 import { CompletionContext } from '../../types';
 import { makeConfig, makeLogger, loadApiKey } from '../helpers';
+import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
 
 const apiKey = loadApiKey();
 const hasApiKey = apiKey.length > 0;
@@ -16,6 +17,20 @@ function makeRealConfig() {
 }
 
 describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
+  const runDir = getApiRunDir();
+  const results: ApiResult[] = [];
+
+  afterAll(() => {
+    if (results.length > 0) {
+      saveApiSummary(runDir, 'anthropic', {
+        backend: 'anthropic',
+        model: makeRealConfig().anthropic.model,
+        totalTests: results.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   it('returns a prose completion', async () => {
     const provider = new AnthropicProvider(makeRealConfig(), makeLogger());
     expect(provider.isAvailable()).toBe(true);
@@ -29,13 +44,19 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       mode: 'prose',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     expect(result!.length).toBeGreaterThan(0);
     console.log('[Anthropic prose]:', result);
+
+    const data = buildApiResult('prose', 'anthropic', ctx, result, durationMs);
+    saveApiResult(runDir, 'anthropic', 'prose', data);
+    results.push(data);
   });
 
   it('returns a code completion', async () => {
@@ -50,12 +71,18 @@ describe.skipIf(!hasApiKey)('Anthropic API Integration', () => {
       mode: 'code',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     console.log('[Anthropic code]:', result);
+
+    const data = buildApiResult('code', 'anthropic', ctx, result, durationMs);
+    saveApiResult(runDir, 'anthropic', 'code', data);
+    results.push(data);
   });
 
   it('returns null when signal is pre-aborted', async () => {

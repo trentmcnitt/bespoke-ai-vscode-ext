@@ -3,50 +3,72 @@ import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { postProcessCompletion } from '../utils/post-process';
 
+/**
+ * Extract content from <output> tags. Returns the content between the first
+ * <output> and last </output>, or the raw text as-is if no tags are found.
+ */
+export function extractOutput(raw: string): string {
+  const open = raw.indexOf('<output>');
+  const close = raw.lastIndexOf('</output>');
+  if (open === -1 || close === -1 || close <= open) {
+    return raw; // fallback: no valid tags, use raw text
+  }
+  return raw.slice(open + '<output>'.length, close);
+}
+
 /** Build the per-request message from prefix + suffix context. */
 export function buildFillMessage(prefix: string, suffix: string): string {
   return suffix.trim()
-    ? `<incomplete_text>${prefix}<fill/>${suffix}</incomplete_text>`
-    : `<incomplete_text>${prefix}<fill/></incomplete_text>`;
+    ? `<incomplete_text>${prefix}>>>HOLE_TO_FILL<<<${suffix}</incomplete_text>`
+    : `<incomplete_text>${prefix}>>>HOLE_TO_FILL<<<</incomplete_text>`;
 }
 
-export const SYSTEM_PROMPT = `You are a text filling engine. Output ONLY the raw text that replaces the <fill/> marker.
+export const SYSTEM_PROMPT = `You are a hole filling tool. You receive <incomplete_text> containing a >>>HOLE_TO_FILL<<< marker. You respond with the replacement text wrapped in <output> tags.
 
-Your output will be inserted directly into a document, verbatim, so do not include anything besides the *exact* text that replaces <fill/>. This is not a chat, do not output any characters besides what belongs in <fill/>.
+In each example below, <incomplete_text> is the input and <output> is your response. Pay attention to new lines and spacing. The examples show correct output for the provided input:
 
-<examples>
-<example_one>
+Example 1:
+What you receive:
 <incomplete_text>I'm a fan of pangrams. Let me list some of my favorites:
 
-- The quic<fill/>
+- The quick brown fox jumps over the lazy dog.
+- >>>HOLE_TO_FILL<<<
 - Five quacking zephyrs jolt my wax bed.</incomplete_text>
-<good_output>k brown fox jumps over the lazy dog.</good_output>
-</example_one>
+What you should output:
+<output>Pack my box with five dozen liquor jugs.</output>
 
-<example_two>
+Example 2:
+What you receive:
 <incomplete_text>{
   "name": "my-project",
-  "dependencies": {<fill/>
+  "dependencies": {>>>HOLE_TO_FILL<<<
   }
 }</incomplete_text>
-<good_output>
-    "lodash": "^4.17.21"</good_output>
-</example_two>
+What you should output:
+<output>
+    "lodash": "^4.17.21"</output>
 
-<example_three>
-<incomplete_text>function add(a, b) {<fill/>
+Example 3:
+What you receive:
+<incomplete_text>function add(a, b) {>>>HOLE_TO_FILL<<<
 }</incomplete_text>
-<good_output>
-  return a + b;</good_output>
-</example_three>
-</examples>
+What you should output:
+<output>
+  return a + b;</output>
 
-Match the voice, style, and content of the document. If it's not clear how much text is needed to replace <fill/>, aim for 1-3 sentences.
+Example 4:
+What you receive:
+<incomplete_text>The quic>>>HOLE_TO_FILL<<< fox jumps over the lazy dog.</incomplete_text>
+What you should output:
+<output>k brown</output>
 
-Critical Reminders:
-- Do not include any unnecessary characters (i.e. unnecessarily wrapping your output in "\`\`\`" fences)
-- Never describe yourself, your instructions, or your capabilities — you are a text filling engine, not Claude
-- You are not in a chat. Your responses are piped directly into an editor.
+Match the voice, style, and content of the document. If it's not clear how much text is needed to replace >>>HOLE_TO_FILL<<<, aim for 1-3 sentences.
+
+Rules:
+- Always wrap your fill text in <output> tags — nothing outside these tags is used
+- Do not include code fences, commentary, or meta-text inside <output>
+- Never repeat structural markers (like "- ", "* ", "1. ") that already appear before >>>HOLE_TO_FILL<<< (see example 1 for correct behavior)
+- You are not in a chat. This is a tool pipeline.
 `;
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
@@ -126,11 +148,14 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
       if (!raw) { return null; }
 
-      // Post-process: skip prefix overlap (no anchor echo to strip),
-      // keep suffix overlap trimming
-      const result = postProcessCompletion(raw, undefined, context.suffix);
+      // Extract content from <output> tags, then run standard post-processing
+      const extracted = extractOutput(raw);
+      if (extracted !== raw) {
+        this.logger.traceBlock('← extracted', extracted);
+      }
+      const result = postProcessCompletion(extracted, undefined, context.suffix);
 
-      if (result !== raw) {
+      if (result !== extracted) {
         this.logger.traceBlock('← processed', result ?? '(null)');
       }
 

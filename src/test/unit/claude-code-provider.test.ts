@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ClaudeCodeProvider } from '../../providers/claude-code';
+import { ClaudeCodeProvider, extractOutput } from '../../providers/claude-code';
 import { makeConfig, makeProseContext, makeCodeContext, makeLogger } from '../helpers';
 
 // Mock the SDK dynamic import
@@ -135,6 +135,40 @@ describe('ClaudeCodeProvider', () => {
       provider.dispose();
       expect(provider.isAvailable()).toBe(false);
     });
+  });
+});
+
+describe('extractOutput', () => {
+  it('extracts content between <output> tags', () => {
+    expect(extractOutput('<output>hello</output>')).toBe('hello');
+  });
+
+  it('preserves leading whitespace inside tags', () => {
+    expect(extractOutput('<output>\n  return a + b;</output>')).toBe('\n  return a + b;');
+  });
+
+  it('falls back to raw text when no tags found', () => {
+    expect(extractOutput('just raw text')).toBe('just raw text');
+  });
+
+  it('falls back when only opening tag present', () => {
+    expect(extractOutput('<output>hello')).toBe('<output>hello');
+  });
+
+  it('falls back when only closing tag present', () => {
+    expect(extractOutput('hello</output>')).toBe('hello</output>');
+  });
+
+  it('falls back when close appears before open', () => {
+    expect(extractOutput('</output>text<output>')).toBe('</output>text<output>');
+  });
+
+  it('returns empty string for empty output tags', () => {
+    expect(extractOutput('<output></output>')).toBe('');
+  });
+
+  it('ignores text outside output tags', () => {
+    expect(extractOutput('thinking... <output>result</output> done')).toBe('result');
   });
 });
 

@@ -1,6 +1,6 @@
 /**
  * Fill marker adherence — verifies the Claude Code backend fills the
- * <fill/> placeholder without echoing surrounding text from the prefix or suffix.
+ * >>>HOLE_TO_FILL<<< marker without echoing surrounding text from the prefix or suffix.
  *
  * Requires: `claude` CLI installed + `@anthropic-ai/claude-agent-sdk`
  *
@@ -12,6 +12,8 @@ import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionMode } from '../../types';
 import { makeConfig } from '../helpers';
 import { Logger } from '../../utils/logger';
+import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
+import * as fs from 'fs';
 import * as path from 'path';
 
 const CWD = path.resolve(__dirname, '../../..');
@@ -141,6 +143,8 @@ function truncate(s: string, max: number): string {
 
 describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
   let provider: ClaudeCodeProvider;
+  const runDir = getApiRunDir();
+  const results: ApiResult[] = [];
 
   beforeAll(async () => {
     const logger: Logger = {
@@ -151,6 +155,8 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
       error: (...args: unknown[]) => { console.error(String(args[0])); },
       show: () => {},
       dispose: () => {},
+      traceBlock: () => {},
+      traceInline: () => {},
     } as unknown as Logger;
 
     provider = new ClaudeCodeProvider(makeRealConfig(), logger);
@@ -159,6 +165,15 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
 
   afterAll(() => {
     provider?.dispose();
+
+    if (results.length > 0) {
+      saveApiSummary(runDir, 'anchor-echo', {
+        backend: 'claude-code',
+        model: makeRealConfig().claudeCode.model,
+        totalTests: results.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   it('fills placeholder without echoing surrounding text', async () => {
@@ -170,7 +185,7 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
       details: string;
     }
 
-    const results: ScenarioResult[] = [];
+    const scenarioResults: ScenarioResult[] = [];
 
     for (const scenario of scenarios) {
       const context: CompletionContext = {
@@ -182,21 +197,28 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
         mode: scenario.mode,
       };
 
+      const start = Date.now();
       const ac = new AbortController();
       const completion = await provider.getCompletion(context, ac.signal);
+      const durationMs = Date.now() - start;
 
       // Health check: completion must be non-null
       expect(completion, `${scenario.name}: completion should be non-null`).not.toBeNull();
 
       const echo = checkForEcho(completion!, context.prefix, context.suffix);
 
-      results.push({
+      scenarioResults.push({
         name: scenario.name,
         completion,
         echoesPrefix: echo.echoesPrefix,
         echoesSuffix: echo.echoesSuffix,
         details: echo.details || 'Clean fill — no echo detected.',
       });
+
+      // Save individual result
+      const data = buildApiResult(scenario.name, 'claude-code', context, completion, durationMs);
+      saveApiResult(runDir, 'anchor-echo', scenario.name, data);
+      results.push(data);
 
       // Per-scenario log
       console.log(`\n[${scenario.name}]`);
@@ -214,9 +236,9 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
     }
 
     // ── Summary ──────────────────────────────────────────────────────
-    const cleanCount = results.filter(r => !r.echoesPrefix && !r.echoesSuffix).length;
-    const prefixEchoCount = results.filter(r => r.echoesPrefix).length;
-    const suffixEchoCount = results.filter(r => r.echoesSuffix).length;
+    const cleanCount = scenarioResults.filter(r => !r.echoesPrefix && !r.echoesSuffix).length;
+    const prefixEchoCount = scenarioResults.filter(r => r.echoesPrefix).length;
+    const suffixEchoCount = scenarioResults.filter(r => r.echoesSuffix).length;
 
     console.log('\n' + '='.repeat(90));
     console.log('FILL MARKER ADHERENCE SUMMARY');
@@ -229,7 +251,7 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
     );
     console.log('-'.repeat(90));
 
-    for (const r of results) {
+    for (const r of scenarioResults) {
       const status = !r.echoesPrefix && !r.echoesSuffix ? 'CLEAN' : 'ECHO';
       console.log(
         r.name.padEnd(30) +
@@ -241,10 +263,29 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
 
     console.log('-'.repeat(90));
     console.log(
-      `Clean: ${cleanCount}/${results.length}  ` +
-      `Prefix echo: ${prefixEchoCount}/${results.length}  ` +
-      `Suffix echo: ${suffixEchoCount}/${results.length}`,
+      `Clean: ${cleanCount}/${scenarioResults.length}  ` +
+      `Prefix echo: ${prefixEchoCount}/${scenarioResults.length}  ` +
+      `Suffix echo: ${suffixEchoCount}/${scenarioResults.length}`,
     );
     console.log('='.repeat(90));
+
+    // Write the echo adherence table as a separate summary file
+    const echoSummary = {
+      totalScenarios: scenarioResults.length,
+      clean: cleanCount,
+      prefixEcho: prefixEchoCount,
+      suffixEcho: suffixEchoCount,
+      scenarios: scenarioResults.map(r => ({
+        name: r.name,
+        echoesPrefix: r.echoesPrefix,
+        echoesSuffix: r.echoesSuffix,
+        status: !r.echoesPrefix && !r.echoesSuffix ? 'CLEAN' : 'ECHO',
+        details: r.details,
+        completionPreview: truncate(r.completion ?? '(null)', 120),
+      })),
+    };
+    const echoDir = path.join(runDir, 'anchor-echo');
+    fs.mkdirSync(echoDir, { recursive: true });
+    fs.writeFileSync(path.join(echoDir, 'echo-adherence.json'), JSON.stringify(echoSummary, null, 2));
   }, 300_000);
 });

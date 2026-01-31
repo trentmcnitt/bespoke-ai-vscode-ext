@@ -6,10 +6,11 @@
  *
  * Run: npm run test:api
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
 import { makeConfig, makeLogger } from '../helpers';
+import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
 import * as path from 'path';
 
 const CWD = path.resolve(__dirname, '../../..');
@@ -35,10 +36,23 @@ function makeRealConfig() {
 
 describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
   let provider: ClaudeCodeProvider | null = null;
+  const runDir = getApiRunDir();
+  const results: ApiResult[] = [];
 
   afterEach(() => {
     provider?.dispose();
     provider = null;
+  });
+
+  afterAll(() => {
+    if (results.length > 0) {
+      saveApiSummary(runDir, 'claude-code', {
+        backend: 'claude-code',
+        model: makeRealConfig().claudeCode.model,
+        totalTests: results.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   it('activates and reports available', async () => {
@@ -60,13 +74,19 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'prose',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     console.log('[Claude Code prose]:', result);
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     expect(result!.length).toBeGreaterThan(0);
+
+    const data = buildApiResult('prose', 'claude-code', ctx, result, durationMs);
+    saveApiResult(runDir, 'claude-code', 'prose', data);
+    results.push(data);
   }, 60_000);
 
   it('returns a code completion', async () => {
@@ -82,19 +102,24 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'code',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     console.log('[Claude Code code]:', result);
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
+
+    const data = buildApiResult('code', 'claude-code', ctx, result, durationMs);
+    saveApiResult(runDir, 'claude-code', 'code', data);
+    results.push(data);
   }, 60_000);
 
   it('slot rotation: second request uses the other slot', async () => {
-    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
     const logger = makeLogger();
-    const debugLogs: string[] = [];
-    logger.debug = (msg: string) => { debugLogs.push(msg); };
+    const slotLogs: string[] = [];
+    logger.traceInline = (label: string, value: string) => { slotLogs.push(`${label}=${value}`); };
     provider = new ClaudeCodeProvider(makeRealConfig(), logger);
     await provider.activate(CWD);
 
@@ -108,12 +133,14 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'prose',
     };
 
+    const start1 = Date.now();
     const result1 = await provider.getCompletion(ctx1, new AbortController().signal);
+    const duration1 = Date.now() - start1;
     console.log('[Slot rotation result1]:', result1);
 
     // Check log for slot 0
-    const slot0Log = debugLogs.find(m => m.includes('slot=0'));
-    expect(slot0Log).toBeTruthy();
+    const slot0Log = slotLogs.find(m => m === 'slot=0');
+    expect(slot0Log, 'expected traceInline to log slot=0').toBeTruthy();
 
     // Wait a bit for slot 0 to recycle
     await new Promise(r => setTimeout(r, 2000));
@@ -128,15 +155,25 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'code',
     };
 
+    const start2 = Date.now();
     const result2 = await provider.getCompletion(ctx2, new AbortController().signal);
+    const duration2 = Date.now() - start2;
     console.log('[Slot rotation result2]:', result2);
 
-    const slot1Log = debugLogs.find(m => m.includes('slot=1'));
-    expect(slot1Log).toBeTruthy();
+    const slot1Log = slotLogs.find(m => m === 'slot=1');
+    expect(slot1Log, 'expected traceInline to log slot=1').toBeTruthy();
 
     // Both should have produced completions
     expect(result1).toBeTruthy();
     expect(result2).toBeTruthy();
+
+    const data1 = buildApiResult('slot-rotation-1', 'claude-code', ctx1, result1, duration1);
+    saveApiResult(runDir, 'claude-code', 'slot-rotation-1', data1);
+    results.push(data1);
+
+    const data2 = buildApiResult('slot-rotation-2', 'claude-code', ctx2, result2, duration2);
+    saveApiResult(runDir, 'claude-code', 'slot-rotation-2', data2);
+    results.push(data2);
   }, 120_000);
 
   it('returns null when signal is pre-aborted', async () => {
@@ -171,13 +208,19 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'code',
     };
 
+    const start = Date.now();
     const result = await provider.getCompletion(ctx, new AbortController().signal);
+    const durationMs = Date.now() - start;
     console.log('[No fences test]:', result);
 
     if (result) {
       expect(result).not.toMatch(/^```/);
       expect(result).not.toMatch(/```$/);
     }
+
+    const data = buildApiResult('no-fences', 'claude-code', ctx, result, durationMs);
+    saveApiResult(runDir, 'claude-code', 'no-fences', data);
+    results.push(data);
   }, 60_000);
 
   it('completion does not start with newlines', async () => {
@@ -193,12 +236,18 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'prose',
     };
 
+    const start = Date.now();
     const result = await provider.getCompletion(ctx, new AbortController().signal);
+    const durationMs = Date.now() - start;
     console.log('[No leading newlines]:', result);
 
     if (result) {
       expect(result).not.toMatch(/^\n/);
     }
+
+    const data = buildApiResult('no-leading-newlines', 'claude-code', ctx, result, durationMs);
+    saveApiResult(runDir, 'claude-code', 'no-leading-newlines', data);
+    results.push(data);
   }, 60_000);
 
   it('dispose cleans up without errors', async () => {

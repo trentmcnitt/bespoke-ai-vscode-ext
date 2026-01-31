@@ -106,7 +106,7 @@ Key components, listed in request-flow order:
 
 - `src/providers/ollama.ts` — Calls Ollama's `/api/generate` endpoint using Node.js built-in `fetch()`. Uses raw mode (`raw: true`) to bypass Ollama's chat template for base/completion models, but automatically switches to non-raw mode for code completions with a suffix so Ollama can apply native FIM (Fill-in-the-Middle) tokens. Accepts a `Logger` for debug/trace logging.
 
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Uses a `<fill/>` placeholder approach: wraps the document prefix + `<fill/>` + suffix in `<incomplete_text>` tags, and the model fills the hole. The exported `buildFillMessage()` function is the single source of truth for message construction. Same prompt structure for prose and code — the model infers the content type. No PromptBuilder dependency — reads `maxTokens` and `temperature` directly from the mode-specific config. Manages a 2-slot session pool to reduce latency by keeping sessions warm and recycling them after each completion.
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Uses a `>>>HOLE_TO_FILL<<<` marker approach: wraps the document prefix + marker + suffix in `<incomplete_text>` tags, and the model fills the hole, wrapping its response in `<output>` tags (extracted by `extractOutput()`). The exported `buildFillMessage()` function is the single source of truth for message construction. Same prompt structure for prose and code — the model infers the content type. No PromptBuilder dependency — reads `maxTokens` and `temperature` directly from the mode-specific config. Manages a 2-slot session pool to reduce latency by keeping sessions warm and recycling them after each completion.
 
 - `src/providers/provider-router.ts` — Holds all three provider instances, returns the active one based on `config.backend`. Accepts a `Logger` and an optional `getBrief` callback (from the context oracle) and passes them to providers. Exposes `activateClaudeCode()` for initializing the Claude Code session pool. "Backend" is the user-facing config choice; "provider" is the code abstraction that implements the `CompletionProvider` interface.
 
@@ -181,10 +181,12 @@ Context-builder tests (`context-builder.test.ts`) use a minimal mock `TextDocume
 API integration tests (`src/test/api/`) make real HTTP calls. They use `describe.skipIf()` to skip when backends aren't available. Each test has different requirements:
 
 - **Anthropic** — needs `ANTHROPIC_API_KEY` in the environment (source from `~/.creds/api-keys.env`)
-- **Claude Code** (`anchor-echo.test.ts`) — needs `@anthropic-ai/claude-agent-sdk` and the `claude` CLI; no API key
+- **Claude Code** (`claude-code.test.ts`, `anchor-echo.test.ts`) — needs `@anthropic-ai/claude-agent-sdk` and the `claude` CLI; no API key
 - **Ollama** — needs a running Ollama server; checks model availability via `/api/tags`
 
 The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
+
+**Result output:** Tests that generate real completions persist their results to `test-results/api-{timestamp}/`, organized by suite (e.g., `anthropic/prose.json`, `claude-code/code.json`, `anchor-echo/prose-mid-sentence.json`). Each JSON file records the input context, completion text, duration, and timestamp. Per-suite summaries are written as `{suite}-summary.json`, and `test-results/latest-api` symlinks to the most recent run. All test files in a single `npm run test:api` invocation share one timestamped directory. Error-handling tests (pre-aborted signal, invalid key, invalid endpoint) do not write results since they verify `null` returns.
 
 ### Quality Tests (LLM-as-Judge)
 

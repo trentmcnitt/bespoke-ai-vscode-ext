@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { OllamaProvider } from '../../providers/ollama';
 import { CompletionContext } from '../../types';
 import { makeConfig, makeLogger } from '../helpers';
+import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
 
 async function isOllamaReady(endpoint: string, model: string): Promise<boolean> {
   try {
@@ -27,6 +28,20 @@ function makeOllamaConfig() {
 const ollamaAvailable = await isOllamaReady('http://localhost:11434', 'qwen2.5:3b');
 
 describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
+  const runDir = getApiRunDir();
+  const results: ApiResult[] = [];
+
+  afterAll(() => {
+    if (results.length > 0) {
+      saveApiSummary(runDir, 'ollama', {
+        backend: 'ollama',
+        model: makeOllamaConfig().ollama.model,
+        totalTests: results.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   it('returns a prose completion in raw mode', async () => {
     const provider = new OllamaProvider(makeOllamaConfig(), makeLogger());
 
@@ -39,13 +54,19 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       mode: 'prose',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     expect(result!.length).toBeGreaterThan(0);
     console.log('[Ollama prose]:', result);
+
+    const data = buildApiResult('prose', 'ollama', ctx, result, durationMs);
+    saveApiResult(runDir, 'ollama', 'prose', data);
+    results.push(data);
   });
 
   it('returns a code completion in raw mode', async () => {
@@ -60,12 +81,18 @@ describe.skipIf(!ollamaAvailable)('Ollama API Integration', () => {
       mode: 'code',
     };
 
+    const start = Date.now();
     const ac = new AbortController();
     const result = await provider.getCompletion(ctx, ac.signal);
+    const durationMs = Date.now() - start;
 
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     console.log('[Ollama code]:', result);
+
+    const data = buildApiResult('code', 'ollama', ctx, result, durationMs);
+    saveApiResult(runDir, 'ollama', 'code', data);
+    results.push(data);
   });
 
   it('returns null when signal is pre-aborted', async () => {
