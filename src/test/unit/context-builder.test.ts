@@ -138,11 +138,9 @@ describe('buildDocumentContext', () => {
   });
 
   it('keeps full suffix when truncation lands on a word boundary', () => {
-    // "Hello world testing here" — cursor at start, suffixChars=12
-    // Raw cut: "Hello world " (ends with space)
-    // Next char after cut is 't' but we ended on whitespace, so no mid-word cut
-    // Actually, we need to check if next char is whitespace — it's 't', so mid-word
-    // Let's use suffixChars=11 to end on 'd', next char is ' ' (whitespace) → no snap
+    // "Hello world testing here" — cursor at start, suffixChars=11
+    // Raw cut: "Hello world" (11 chars, ends on 'd')
+    // Next char at index 11 is ' ' (whitespace) → not mid-word, no snap needed
     const text = 'Hello world testing here';
     const doc = makeDocument(text);
     const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 11);
@@ -166,5 +164,16 @@ describe('buildDocumentContext', () => {
     const doc = makeDocument(text);
     const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 20);
     expect(ctx.suffix).toBe('line one\nline two\n');
+  });
+
+  it('keeps truncated suffix when no whitespace exists to snap back to', () => {
+    // Suffix is a single word fragment with no whitespace — can't snap anywhere
+    // This is expected: we return what we have rather than returning empty
+    const text = 'abc testingword';
+    const doc = makeDocument(text);
+    // Cursor after "abc ", suffixChars=4 gives "test", next char is 'i' (mid-word)
+    // But "test" has no whitespace to snap to, so we keep it
+    const ctx = buildDocumentContext(doc as any, pos(0, 4), 100, 4);
+    expect(ctx.suffix).toBe('test');
   });
 });

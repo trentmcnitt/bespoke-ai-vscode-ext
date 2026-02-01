@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Dev Log:** `DEV_LOG.md` contains a reverse-chronological record of development decisions, design rationale, and lessons learned. Update it when making significant changes or discovering important behaviors (e.g., why certain approaches don't work).
 
+**Interpreting pasted content:** When the user pastes log files, error output, or other unusual text without explicit instructions, assume they want you to investigate what's wrong. Diagnose the issue, identify the root cause, and propose a fix.
+
 ## Overview
 
 Bespoke AI is a personal AI toolkit for VS Code, currently providing inline completions (ghost text) for prose and code. Three backends: Anthropic Claude API (cloud), Claude Code CLI (cloud, subscription-based, default), and Ollama (local). Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
