@@ -24,7 +24,7 @@ import * as path from 'path';
 import { AnthropicProvider } from '../../providers/anthropic';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionProvider, Backend } from '../../types';
-import { makeConfig, makeLogger, loadApiKey } from '../helpers';
+import { makeConfig, makeCapturingLogger, loadApiKey } from '../helpers';
 import { TestScenario } from './judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from './scenarios';
 import { regressionScenarios } from './regression-scenarios';
@@ -89,6 +89,7 @@ const RUN_DIR = path.join(RESULTS_DIR, `quality-${timestamp}`);
 interface GenerationResult {
   scenario: TestScenario;
   completion: string | null;
+  rawResponse?: string;
   durationMs: number;
   error?: string;
 }
@@ -123,6 +124,14 @@ function saveScenarioOutput(result: GenerationResult): void {
     result.completion ?? '(null — provider returned no completion)',
   );
 
+  // Save raw model output (before post-processing) when available
+  if (result.rawResponse !== undefined) {
+    fs.writeFileSync(
+      path.join(scenarioDir, 'raw-response.txt'),
+      result.rawResponse,
+    );
+  }
+
   // Save metadata
   fs.writeFileSync(
     path.join(scenarioDir, 'metadata.json'),
@@ -144,20 +153,22 @@ function saveScenarioOutput(result: GenerationResult): void {
 describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () => {
   let provider: CompletionProvider;
   let claudeCodeInstance: ClaudeCodeProvider | null = null;
+  let getTrace: (label: string) => string | undefined;
 
   beforeAll(async () => {
     fs.mkdirSync(RUN_DIR, { recursive: true });
     const config = makeCompletionConfig();
-    const logger = makeLogger();
+    const capturing = makeCapturingLogger();
+    getTrace = capturing.getTrace;
 
     if (backend === 'claude-code') {
-      const cc = new ClaudeCodeProvider(config, logger);
+      const cc = new ClaudeCodeProvider(config, capturing.logger);
       const cwd = path.resolve(__dirname, '..', '..', '..');
       await cc.activate(cwd);
       claudeCodeInstance = cc;
       provider = cc;
     } else {
-      provider = new AnthropicProvider(config, logger);
+      provider = new AnthropicProvider(config, capturing.logger);
     }
   });
 
@@ -240,6 +251,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
       const result: GenerationResult = {
         scenario,
         completion,
+        rawResponse: getTrace('← raw'),
         durationMs: Date.now() - start,
       };
       saveScenarioOutput(result);

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ClaudeCodeProvider, extractOutput } from '../../providers/claude-code';
+import {
+  ClaudeCodeProvider,
+  extractOutput,
+  extractCompletionStart,
+  stripCompletionStart,
+  buildFillMessage,
+} from '../../providers/claude-code';
 import { makeConfig, makeProseContext, makeCodeContext, makeLogger } from '../helpers';
 
 // Mock the SDK dynamic import
@@ -169,6 +175,149 @@ describe('extractOutput', () => {
 
   it('ignores text outside output tags', () => {
     expect(extractOutput('thinking... <output>result</output> done')).toBe('result');
+  });
+});
+
+describe('extractCompletionStart', () => {
+  it('extracts last N characters from long prefix', () => {
+    const prefix = 'The quick brown fox jumps over the lazy dog.';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // Default COMPLETION_START_LENGTH is 25, so cut at position 44-25=19
+    expect(completionStart).toBe(' jumps over the lazy dog.');
+    expect(truncatedPrefix).toBe('The quick brown fox');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('uses entire prefix when shorter than threshold', () => {
+    const prefix = 'Short text';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    expect(completionStart).toBe('Short text');
+    expect(truncatedPrefix).toBe('');
+  });
+
+  it('handles empty prefix', () => {
+    const { truncatedPrefix, completionStart } = extractCompletionStart('');
+    expect(completionStart).toBe('');
+    expect(truncatedPrefix).toBe('');
+  });
+
+  it('handles prefix exactly at threshold length', () => {
+    const prefix = 'a'.repeat(25);
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    expect(completionStart).toBe(prefix);
+    expect(truncatedPrefix).toBe('');
+  });
+
+  it('preserves partial words in completion start', () => {
+    const prefix = 'Hello world, this is a partial wo';
+    const { completionStart } = extractCompletionStart(prefix);
+    // Should include the partial word "wo"
+    expect(completionStart).toContain('wo');
+  });
+});
+
+describe('stripCompletionStart', () => {
+  it('strips matching completion start from output', () => {
+    const output = 'The quick brown fox';
+    const completionStart = 'The quick ';
+    expect(stripCompletionStart(output, completionStart)).toBe('brown fox');
+  });
+
+  it('returns full output when completion start is empty', () => {
+    expect(stripCompletionStart('hello world', '')).toBe('hello world');
+  });
+
+  it('returns null when output does not start with completion start', () => {
+    const output = 'Different text';
+    const completionStart = 'The quick';
+    expect(stripCompletionStart(output, completionStart)).toBeNull();
+  });
+
+  it('handles exact match (output equals completion start)', () => {
+    const text = 'exact match';
+    expect(stripCompletionStart(text, text)).toBe('');
+  });
+
+  it('preserves whitespace correctly', () => {
+    const output = '  indented text continues';
+    const completionStart = '  indented ';
+    expect(stripCompletionStart(output, completionStart)).toBe('text continues');
+  });
+
+  it('handles newlines in completion start', () => {
+    const output = 'line1\nline2 continues';
+    const completionStart = 'line1\nline2 ';
+    expect(stripCompletionStart(output, completionStart)).toBe('continues');
+  });
+
+  it('handles whitespace-only completion start', () => {
+    const output = '\n\nSome content here';
+    const completionStart = '\n\n';
+    expect(stripCompletionStart(output, completionStart)).toBe('Some content here');
+  });
+
+  it('returns null when whitespace-only completion start is normalized by model', () => {
+    // Model returns one newline instead of two — mismatch
+    const output = '\nSome content here';
+    const completionStart = '\n\n';
+    expect(stripCompletionStart(output, completionStart)).toBeNull();
+  });
+});
+
+describe('buildFillMessage', () => {
+  it('builds message with completion_start tag', () => {
+    const prefix = 'Hello world, this is some text';
+    const suffix = ' and more content.';
+    const { message, completionStart } = buildFillMessage(prefix, suffix);
+
+    expect(message).toContain('<current_text>');
+    expect(message).toContain('>>>CURSOR<<<');
+    expect(message).toContain('</current_text>');
+    expect(message).toContain('<completion_start>');
+    expect(message).toContain('</completion_start>');
+    expect(message).toContain(completionStart);
+  });
+
+  it('includes suffix after cursor', () => {
+    const prefix = 'The quick brown fox jumps over';
+    const suffix = ' the lazy dog.';
+    const { message } = buildFillMessage(prefix, suffix);
+
+    expect(message).toContain('>>>CURSOR<<<' + suffix);
+  });
+
+  it('handles empty suffix', () => {
+    const prefix = 'Some text here';
+    const { message } = buildFillMessage(prefix, '');
+
+    expect(message).toContain('>>>CURSOR<<<</current_text>');
+  });
+
+  it('handles whitespace-only suffix', () => {
+    const prefix = 'Some text here';
+    const { message } = buildFillMessage(prefix, '   ');
+
+    // Whitespace-only suffix is trimmed, so treated as no suffix
+    expect(message).toContain('>>>CURSOR<<<</current_text>');
+  });
+
+  it('returns completion start that matches end of prefix', () => {
+    const prefix = 'The quick brown fox jumps over the lazy dog.';
+    const { completionStart } = buildFillMessage(prefix, '');
+
+    expect(prefix.endsWith(completionStart)).toBe(true);
+  });
+
+  it('truncated prefix + completion start equals original prefix', () => {
+    const prefix = 'The quick brown fox jumps over the lazy dog.';
+    const suffix = ' More text here.';
+    const { message, completionStart } = buildFillMessage(prefix, suffix);
+
+    // Extract truncated prefix from message
+    const match = message.match(/<current_text>([\s\S]*?)>>>CURSOR<<</);
+    const truncatedPrefix = match?.[1] ?? '';
+
+    expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 });
 

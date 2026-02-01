@@ -17,6 +17,8 @@ You will receive:
 
 ### For ALL completions:
 
+**Fabricated content is expected.** Inline completions are predictions of the most likely next text. The model will invent names, dates, events, code logic, etc. This is correct behavior. Evaluate whether the fabricated content is *plausible and contextually appropriate*, not whether it's factually true. A journal completion that invents a plausible entry is good; one that inserts unrelated nonsense is bad.
+
 1. **Seamless continuation** — The completion must read as a natural continuation of the prefix. No awkward transitions, no repeating what the prefix already says, no meta-commentary ("Here is a completion...").
 
 2. **No repetition** — The completion must not echo back any of the prefix text. Partial overlap of a few words at the boundary is acceptable (natural continuation), but restating sentences or phrases from the prefix is a failure.

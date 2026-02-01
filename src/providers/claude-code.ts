@@ -3,6 +3,9 @@ import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { postProcessCompletion } from '../utils/post-process';
 
+/** How many characters to extract from the end of the prefix as the completion start. */
+const COMPLETION_START_LENGTH = 25;
+
 /**
  * Extract content from <output> tags. Returns the content between the first
  * <output> and last </output>, or the raw text as-is if no tags are found.
@@ -16,147 +19,199 @@ export function extractOutput(raw: string): string {
   return raw.slice(open + '<output>'.length, close);
 }
 
+/**
+ * Extract the completion start from the end of the prefix.
+ * Returns the truncated prefix (for display) and the completion start text.
+ */
+export function extractCompletionStart(prefix: string): { truncatedPrefix: string; completionStart: string } {
+  if (prefix.length <= COMPLETION_START_LENGTH) {
+    return { truncatedPrefix: '', completionStart: prefix };
+  }
+  const cutPoint = prefix.length - COMPLETION_START_LENGTH;
+  return {
+    truncatedPrefix: prefix.slice(0, cutPoint),
+    completionStart: prefix.slice(cutPoint),
+  };
+}
+
+/**
+ * Strip the completion start from the model's output.
+ * The model is instructed to begin its output with the completion start text.
+ * We remove it to get the actual text to insert at the cursor.
+ */
+export function stripCompletionStart(output: string, completionStart: string): string | null {
+  if (!completionStart) {
+    return output;
+  }
+  if (output.startsWith(completionStart)) {
+    return output.slice(completionStart.length);
+  }
+  // Model didn't follow instruction - return null to indicate failure
+  return null;
+}
+
 /** Build the per-request message from prefix + suffix context. */
-export function buildFillMessage(prefix: string, suffix: string): string {
-  return suffix.trim()
-    ? `<current_text>${prefix}>>>CURSOR<<<${suffix}</current_text>`
-    : `<current_text>${prefix}>>>CURSOR<<<</current_text>`;
+export function buildFillMessage(prefix: string, suffix: string): { message: string; completionStart: string } {
+  const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+
+  const currentText = suffix.trim()
+    ? `<current_text>${truncatedPrefix}>>>CURSOR<<<${suffix}</current_text>`
+    : `<current_text>${truncatedPrefix}>>>CURSOR<<<</current_text>`;
+
+  const message = `${currentText}\n<completion_start>${completionStart}</completion_start>`;
+
+  return { message, completionStart };
 }
 
 export const SYSTEM_PROMPT = `You are an autocomplete tool.
 
-You receive <current_text> with a >>>CURSOR<<< marker showing where the user's cursor is. This marker is not actual text — it just indicates the insertion point. Respond with text to insert there, wrapped in <output> tags.
+You receive:
+1. <current_text> with a >>>CURSOR<<< marker showing the insertion point
+2. <completion_start> containing text that your output MUST begin with
 
-Key Principles:
-- ONLY output the text that belongs at the cursor, NOT anything else (see examples).
-- The content inside your <output> tags is inserted directly into the user's editor. Don't output ANY duplicate content, and be careful with newlines and whitespace.
-- You generate the autocompleted text starting from the cursor marker.
-- You are NOT a chat interface. This is NOT interactive. Your SOLE job is to output autocomplete text.
+Your task: Generate <output> containing text that:
+- Starts EXACTLY with the text in <completion_start> (character-for-character)
+- Continues naturally from there
+- Fits the context and style of the document
 
 Rules:
-- If the <current_text> looks complete, you are not required to output anything. In that case, just output nothing: <output></output>
-- Pay attention to the format and content of the existing text, so that your autocompleted text is injected.
-- Match the voice, style, and content of the <current_text>.
-- Your job is to insert text at the cursor — not to edit, fix, or improve other parts of the document. Ignore typos, incomplete sentences, or awkward phrasing elsewhere in <current_text>.
-- The <current_text> may be much longer than these examples. Distant content provides background context — focus your output on what naturally continues from the text just before >>>CURSOR<<<.
+- Your <output> MUST begin with the exact <completion_start> text
+- Continue naturally based on surrounding context
+- If no continuation makes sense, output just the <completion_start> text unchanged
+- Match voice, style, and format of the existing text
+- Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere
 
 Output Requirements:
-- Do not respond like you are responding to a user — never break from the autocomplete role or indicate that you are Claude.
-- Do not include code fences (\`\`\`), commentary, or meta-text inside <output>
-- Never repeat structural markers (like "- ", "* ", "1. ", "> ", "| ") that already appear before >>>CURSOR<<<
-- Do not output text that is already in <current_text> — duplicates will corrupt the document
-- If the prefix ends mid-word, complete that word first before continuing
+- Wrap response in <output> tags
+- No unnecssary code fences, commentary, or meta-text
+- Preserve whitespace exactly — <completion_start> may include spaces or newlines
 
-How much text to output:
-- If the text already looks complete, respond with empty <output></output> tags
-- If there is a clear gap between the text before >>>CURSOR<<< and after, output just enough to bridge that gap
+How much to output:
+- If the text is already complete, output just the <completion_start> text unchanged
+- If there is a clear gap to bridge to the text after >>>CURSOR<<<, output just enough to bridge it
 - If there is no text after >>>CURSOR<<<, continue naturally for a sentence or two (or a few lines of code)
 
 ---
 
-Examples of correct <output> for various <current_text> inputs:
+Examples:
 
-### Example: Continuing from an existing ("-") marker
-<current_text>I'm a fan of pangrams. Let me list some of my favorites:
+### Continuing a bullet list
+<current_text>My favorite pangrams:
 
 - The quick brown fox jumps over the lazy dog.
-- >>>CURSOR<<<
+>>>CURSOR<<<
 - Five quacking zephyrs jolt my wax bed.</current_text>
-<output>Pack my box with five dozen liquor jugs.</output>
+<completion_start>- </completion_start>
+<output>- Pack my box with five dozen liquor jugs.</output>
 
-### Example: Continuing from an existing (numbered) marker
+### Continuing a numbered list
 <current_text>Steps to deploy:
 1. Build the project
 2. Run the tests
-3. >>>CURSOR<<<
+>>>CURSOR<<<
 4. Verify the deployment</current_text>
-<output>Push to production</output>
+<completion_start>3. </completion_start>
+<output>3. Push to production</output>
 
-### Example: Filling in JSON with proper indentation
+### Filling in JSON
 <current_text>{
   "name": "my-project",
-  "dependencies": {>>>CURSOR<<<
+  "dependencies>>>CURSOR<<<
   }
 }</current_text>
-<output>
+<completion_start>": {</completion_start>
+<output>": {
     "lodash": "^4.17.21"</output>
 
-### Example: Filling in a code function with proper indenting
-<current_text>function add(a, b) {>>>CURSOR<<<
+### Filling in a code function
+<current_text>function add(a, b>>>CURSOR<<<
 }</current_text>
-<output>
+<completion_start>) {</completion_start>
+<output>) {
   return a + b;</output>
 
-### Example: Bridging the text before and after the cursor
-<current_text>The project was completed >>>CURSOR<<< the original deadline.</current_text>
-<output>two weeks ahead of</output>
+### Bridging text
+<current_text>The project >>>CURSOR<<< the original deadline.</current_text>
+<completion_start>was completed </completion_start>
+<output>was completed two weeks ahead of</output>
 
-### Example: Completing a partial word, then bridging the text
-<current_text>The quic>>>CURSOR<<< fox jumps over the lazy dog.</current_text>
-<output>k brown</output>
+### Completing a partial word
+<current_text>>>>CURSOR<<< fox jumps over the lazy dog.</current_text>
+<completion_start>The quic</completion_start>
+<output>The quick brown</output>
 
-### Example: Adding content between markdown headings
-<current_text>## Getting Started
+### Adding content between headings
+<current_text>## Getting >>>CURSOR<<<
 
->>>CURSOR<<<
+### Prerequisites</current_text>
+<completion_start>Started
 
-### Prerequsites</current_text>
-<output>This guide walks you through the initial setup process.</output>
+</completion_start>
+<output>Started
 
-### Example: Introducing content before a table
-<current_text>The results show >>>CURSOR<<<
+This guide walks you through the initial setup process.</output>
+
+### Introducing content before a table
+<current_text>The >>>CURSOR<<<
 
 | Name  | Score |
 | Alice | 95    |</current_text>
-<output>the following data:</output>
+<completion_start>results show </completion_start>
+<output>results show the following data:</output>
 
-### Example: Filling in a missing row within a markdown table
+### Filling in a table row
 <current_text>| Name  | Score |
 | Alice | 95    |
 >>>CURSOR<<<
 | Carol | 88    |</current_text>
-<output>| Bob   | 91    |</output>
+<completion_start>
+</completion_start>
+<output>
+| Bob   | 91    |</output>
 
-### Example: Completing a partial word with unrelated text below
-<current_text>The quick brown fox jum>>>CURSOR<<<
+### Completing a partial word with unrelated content below
+<current_text>The quick brown >>>CURSOR<<<
 
 ---
 ## Next Section</current_text>
-<output>ped over the lazy dog.</output>
+<completion_start>fox jum</completion_start>
+<output>fox jumped over the lazy dog.</output>
 
-### Example: Pure continuation with no suffix
+### Pure continuation (no suffix)
 <current_text>The benefits of this approach include:
 
-- >>>CURSOR<<<</current_text>
-<output>Improved performance and reduced complexity.</output>
+>>>CURSOR<<<</current_text>
+<completion_start>- </completion_start>
+<output>- Improved performance and reduced complexity.</output>
 
-### Example: Outputting nothing when insertion would be awkward
-<current_text>She finished her coffee>>>CURSOR<<< and left.</current_text>
-<output></output>
+### No continuation needed
+<current_text>She finished her >>>CURSOR<<< and left.</current_text>
+<completion_start>coffee</completion_start>
+<output>coffee</output>
 
-### Example: Ignoring incomplete content elsewhere in the document
+### Ignoring incomplete content elsewhere
 <current_text>## Configuration
 
-All settings are now configured.>>>CURSOR<<<
+All settings are >>>CURSOR<<<
 
 ## API Reference
 
 The response includes (e.g., \`user.json\`,</current_text>
-<output></output>
+<completion_start>now configured.</completion_start>
+<output>now configured.</output>
 
-### Example: Continuing normally despite errors elsewhere
-<current_text>Key benefits of this approach:
+### Continuing despite errors elsewhere
+<current_text>Key benefits:
 
 - Improved performance
-- >>>CURSOR<<<
-- Reduced complxity and better maintainability</current_text>
-<output>Enhanced reliability</output>
+>>>CURSOR<<<
+- Reduced complxity and maintainability</current_text>
+<completion_start>- </completion_start>
+<output>- Enhanced reliability</output>
 
 ---
 
-All examples show outputs that integrate naturally with the surrounding <current_text>.
-
-Now output only <output> tags containing your predicted text:
+Now output only <output> tags:
 `;
 
 type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
@@ -218,7 +273,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
     const slot = this.slots[slotIndex];
 
-    const message = buildFillMessage(context.prefix, context.suffix);
+    const { message, completionStart } = buildFillMessage(context.prefix, context.suffix);
 
     this.logger.traceInline('slot', String(slotIndex));
     this.logger.traceBlock('→ sent', message);
@@ -236,14 +291,26 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
       if (!raw) { return null; }
 
-      // Extract content from <output> tags, then run standard post-processing
+      // Extract content from <output> tags
       const extracted = extractOutput(raw);
       if (extracted !== raw) {
         this.logger.traceBlock('← extracted', extracted);
       }
-      const result = postProcessCompletion(extracted, undefined, context.suffix);
 
-      if (result !== extracted) {
+      // Strip the completion start from the output
+      const stripped = stripCompletionStart(extracted, completionStart);
+      if (stripped === null) {
+        this.logger.debug(`completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`);
+        return null;
+      }
+      if (stripped !== extracted) {
+        this.logger.traceBlock('← stripped', stripped);
+      }
+
+      // Run standard post-processing
+      const result = postProcessCompletion(stripped, undefined, context.suffix);
+
+      if (result !== stripped) {
         this.logger.traceBlock('← processed', result ?? '(null)');
       }
 
@@ -335,9 +402,8 @@ export class ClaudeCodeProvider implements CompletionProvider {
       const channel = createMessageChannel();
       slot.channel = channel;
 
-      // Push a real fill-the-blank warmup to prime the session into the
-      // text-filling pattern (response is discarded, but sets conversation history)
-      const warmup = buildFillMessage('Two plus two equals ', '.');
+      // Push a warmup using the new format to prime the session
+      const { message: warmup } = buildFillMessage('Two plus two equals ', '.');
       channel.push(warmup);
       this.logger.traceBlock(`warmup → sent (slot ${index})`, warmup);
 

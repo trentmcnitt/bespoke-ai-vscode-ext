@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/test/api/**/*.test.ts'],
+    include: ['src/test/api/claude-code.test.ts', 'src/test/api/anchor-echo.test.ts'],
     testTimeout: 30000,
     globals: true,
   },

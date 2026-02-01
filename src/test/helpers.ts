@@ -51,6 +51,16 @@ export function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
+/** Logger that captures traceBlock calls for inspecting raw provider output */
+export function makeCapturingLogger(): { logger: Logger; getTrace: (label: string) => string | undefined } {
+  const traces = new Map<string, string>();
+  const logger = {
+    ...makeLogger(),
+    traceBlock: (label: string, content: string) => { traces.set(label, content); },
+  } as unknown as Logger;
+  return { logger, getTrace: (label) => traces.get(label) };
+}
+
 export function makeProseContext(overrides: Partial<CompletionContext> = {}): CompletionContext {
   return {
     prefix: 'The quick brown fox jumped over the lazy dog and then',

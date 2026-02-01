@@ -218,4 +218,66 @@ export const regressionScenarios: RegressionScenario[] = [
         'the model should recognize "This sol" needs inline continuation first.',
     },
   },
+  {
+    id: 'regression-prose-distant-suffix-completion',
+    description: 'Model completes truncated text at end of suffix instead of cursor position',
+    observedModel: 'claude-code/haiku',
+    observedDate: '2026-01-31',
+    regression_notes:
+      'The cursor is after a complete sentence ("...VS Code. "). The suffix is long (2499 chars) ' +
+      'and ends with a truncated heading "**Switched " due to the suffix character limit. ' +
+      'The model output "to VSCodium" — completing the distant "**Switched " text instead of ' +
+      'recognizing that the cursor position is after a complete sentence. The model should either ' +
+      'output nothing (the sentence is complete) or continue with contextually relevant content, ' +
+      'NOT complete truncated text at the end of the visible suffix.',
+    mode: 'prose',
+    languageId: 'markdown',
+    fileName: 'journal.jnl.md',
+    prefix:
+      '#journal\n\n' +
+      '#### *Notes about anything*\n\n' +
+      '01-30-26\n\n' +
+      'Set `EDITOR` and `VISUAL` environment variables to `codium` in `~/.zshrc` so Claude Code\'s Ctrl+G opens VS Codium instead of VS Code. ',
+    suffix:
+      '\n\n' +
+      '01-29-26\n\n' +
+      '**OpenTask — Vikunja rebrand and logo**\n\n' +
+      'Renamed my self-hosted Vikunja app to OpenTask. Created a text logo and favicon using the Honk font on Google Fonts — typed "OpenTask" for the main logo and "ot" for a second version, sized up to 300px. Took a screenshot, trimmed the whitespace, and that\'s how I generated the typographic logos.\n\n' +
+      '---\n\n' +
+      '**Met Phil at ice skating**\n\n' +
+      'Met a guy named Phil at ice skating lessons today. He has a son who\'s six years old, and also has a one-year-old that plays with a hockey stick at home. Phil grew up playing hockey, starting with pond hockey, then got more serious and still plays as an adult.\n\n' +
+      '01-28-26\n\n' +
+      '**Local LLM autocomplete — extension research**\n\n' +
+      'Frustrated with Llama VS Code\'s clunky interface and Continue.dev being just okay. Looking for better alternatives for local model autocomplete.\n\n' +
+      '---\n\n' +
+      '01-27-26\n\n' +
+      '**VS Code privacy deep dive — considering VSCodium**\n\n' +
+      'Did a thorough investigation into what Microsoft actually collects through VS Code, especially since I\'m storing sensitive personal stuff in the vault now. Key findings:\n\n' +
+      '- VS Code collects file paths (not just extensions) — reveals health concerns, financial situations, project names even without file contents\n' +
+      '- Telemetry is opt-out, not opt-in — data sent before you can disable it\n' +
+      '- Extensions have their own telemetry outside VS Code\'s controls\n' +
+      '- Microsoft\'s privacy statement uses "may" language giving them broad latitude\n' +
+      '- No disclosed retention period for telemetry data\n\n' +
+      'Researched alternatives:\n' +
+      '- **VSCodium** — VS Code\'s open-source build with telemetry removed. Works for most of my extensions (Python, markdown, etc.). GitHub Copilot is hard-blocked, but I\'d replace it with API-based autocomplete anyway.\n' +
+      '- **Belt and suspenders** — Keep VS Code but disable telemetry + block domains at firewall level\n\n' +
+      'For autocomplete replacement, compared AI providers:\n' +
+      '- **Anthropic API** (7-day retention, no training) — best privacy, already trust them via Claude Code\n' +
+      '- **xAI/Grok** — avoid entirely (de-identified data extraction, security incidents, DOGE conflicts)\n' +
+      '- **Gemini API** — cheaper alternative ($0.26 vs $1.00/MTok) with solid enterprise privacy\n\n' +
+      'Leaning toward: VSCodium + Continue.dev extension + Anthropic API. Would cost ~$3-10/month for autocomplete, down from $10/month Copilot, with better privacy guarantees.\n\n' +
+      'Full research: [VS Code and Microsoft Privacy Research](_ai/2026-01-27%20VS%20Code%20and%20Microsoft%20Privacy%20Research.md)\n\n' +
+      '---\n\n' +
+      '**Switched ',
+    requirements: {
+      must_not_include: ['to VSCodium', 'VSCodium', 'to vscodium'],
+      quality_notes:
+        'The prefix ends with a complete sentence ("...VS Code. "). ' +
+        'The suffix ends with a truncated heading "**Switched " which is an artifact of the suffix character limit. ' +
+        'The completion MUST NOT complete that distant truncated text (e.g., "to VSCodium"). ' +
+        'Acceptable outputs: empty (sentence is complete), a new paragraph about VSCodium/the switch, ' +
+        'or other contextually relevant continuation. The key failure mode is the model being drawn ' +
+        'to complete the salient incomplete text at the END of the suffix instead of the cursor position.',
+    },
+  },
 ];

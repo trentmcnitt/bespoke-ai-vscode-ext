@@ -174,7 +174,7 @@ After `test:quality` completes, it prints Layer 2 instructions to stdout. Follow
 
 ### Unit tests
 
-Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext` with sensible defaults), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
+Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger for tests that construct providers), `makeCapturingLogger()` (logger that captures `traceBlock` calls for inspecting raw provider output), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext` with sensible defaults), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
@@ -196,9 +196,11 @@ The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
 
 Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Quality tests default to the `claude-code` backend (via `QUALITY_TEST_BACKEND` env var); set `QUALITY_TEST_BACKEND=anthropic` for direct API testing (requires `ANTHROPIC_API_KEY`). To test quality with Ollama, use the benchmark system with the corresponding config. This uses a two-layer validation pattern:
 
-**Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `requirements.json`, and `metadata.json`. Layer 1 only checks that the provider didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The `summary.json` file records which model was used.
+**Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `raw-response.txt` (pre-post-processing model output), `requirements.json`, and `metadata.json`. Layer 1 only checks that the provider didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The `summary.json` file records which model was used.
 
 **Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` per scenario and an overall `layer2-summary.md`. Validate every scenario — do not spot-check. Use background agents to parallelize if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
+
+**Fabricated content is expected and acceptable.** Completions are predictions — the model will invent plausible content (names, dates, code, narrative). Judge whether fabricated content is contextually sensible, not whether it's factually accurate.
 
 **Testing different models:** By default, quality tests use the model from `makeConfig()` (currently `claude-haiku-4-5-20251001`). To test a different model:
 
