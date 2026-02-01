@@ -2,15 +2,23 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { OllamaProvider } from '../../providers/ollama';
 import { CompletionContext } from '../../types';
 import { makeConfig, makeLogger } from '../helpers';
-import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
+import {
+  getApiRunDir,
+  buildApiResult,
+  saveApiResult,
+  saveApiSummary,
+  ApiResult,
+} from './result-writer';
 
 async function isOllamaReady(endpoint: string, model: string): Promise<boolean> {
   try {
     const response = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(2000) });
-    if (!response.ok) { return false; }
-    const data = await response.json() as { models?: { name: string }[] };
+    if (!response.ok) {
+      return false;
+    }
+    const data = (await response.json()) as { models?: { name: string }[] };
     // Check if the required model is actually available
-    return data.models?.some(m => m.name.startsWith(model)) ?? false;
+    return data.models?.some((m) => m.name.startsWith(model)) ?? false;
   } catch {
     return false;
   }

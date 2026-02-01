@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { UsageTracker } from '../../utils/usage-tracker';
 
 describe('UsageTracker', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   describe('record and totalToday', () => {
     it('increments count on record', () => {
@@ -108,7 +112,9 @@ describe('UsageTracker', () => {
       const tracker = new UsageTracker(60_000, 10); // 1-min window, threshold 10
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
-      for (let i = 0; i < 9; i++) { tracker.record('anthropic', 'model'); }
+      for (let i = 0; i < 9; i++) {
+        tracker.record('anthropic', 'model');
+      }
       expect(tracker.getSnapshot().isBurst).toBe(false);
     });
 
@@ -116,7 +122,9 @@ describe('UsageTracker', () => {
       const tracker = new UsageTracker(60_000, 10); // 1-min window, threshold 10
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
-      for (let i = 0; i < 10; i++) { tracker.record('anthropic', 'model'); }
+      for (let i = 0; i < 10; i++) {
+        tracker.record('anthropic', 'model');
+      }
       expect(tracker.getSnapshot().isBurst).toBe(true);
     });
 
@@ -124,7 +132,9 @@ describe('UsageTracker', () => {
       const tracker = new UsageTracker(60_000, 10); // 1-min window, threshold 10
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
-      for (let i = 0; i < 15; i++) { tracker.record('anthropic', 'model'); }
+      for (let i = 0; i < 15; i++) {
+        tracker.record('anthropic', 'model');
+      }
       expect(tracker.getSnapshot().isBurst).toBe(true);
     });
   });
@@ -247,7 +257,9 @@ describe('UsageTracker', () => {
     it('records construction time', () => {
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
       const tracker = new UsageTracker();
-      expect(tracker.getSnapshot().sessionStartTime).toBe(new Date('2025-06-15T12:00:00').getTime());
+      expect(tracker.getSnapshot().sessionStartTime).toBe(
+        new Date('2025-06-15T12:00:00').getTime(),
+      );
     });
   });
 

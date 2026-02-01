@@ -42,7 +42,9 @@ async function main() {
 
   const sdk = await import('@anthropic-ai/claude-agent-sdk');
   const queryFn = sdk.query ?? sdk.default?.query;
-  if (!queryFn) { process.exit(1); }
+  if (!queryFn) {
+    process.exit(1);
+  }
 
   const channel = createMessageChannel();
 
@@ -54,14 +56,14 @@ async function main() {
     prompt: channel.iterable,
     options: {
       model,
-      tools: [],              // No tools — all context is inline
+      tools: [], // No tools — all context is inline
       allowedTools: [],
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       systemPrompt: SYSTEM_PROMPT,
       cwd: CWD,
       settingSources: [],
-      maxThinkingTokens: 0,   // No thinking
+      maxThinkingTokens: 0, // No thinking
       maxTurns: 50,
       persistSession: false,
     },
@@ -73,7 +75,9 @@ async function main() {
     try {
       for await (const message of stream) {
         if (message.type === 'system' && message.subtype === 'init') {
-          console.log(`  [init] ${Date.now() - overallStart}ms — tools=[${message.tools?.join(', ') || 'none'}]`);
+          console.log(
+            `  [init] ${Date.now() - overallStart}ms — tools=[${message.tools?.join(', ') || 'none'}]`,
+          );
         }
         if (message.type === 'result') {
           const text = message.subtype === 'success' ? (message.result ?? '') : '';
@@ -94,7 +98,9 @@ async function main() {
   })();
 
   function waitResult(): Promise<{ text: string; turns: number }> {
-    return new Promise(r => { resultResolve = r; });
+    return new Promise((r) => {
+      resultResolve = r;
+    });
   }
 
   // Warmup
@@ -141,7 +147,9 @@ async function main() {
       }
       JSON.parse(cleaned);
       validJson = true;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     results.push({ file, wallMs, chars: result.text.length, validJson, turns: result.turns });
     console.log(`${wallMs}ms | ${result.text.length} chars | JSON: ${validJson ? '✓' : '✗'}`);
@@ -152,12 +160,13 @@ async function main() {
 
   // Summary
   const totalMs = Date.now() - overallStart;
-  const validResults = results.filter(r => r.validJson);
-  const avg = validResults.length > 0
-    ? Math.round(validResults.reduce((s, r) => s + r.wallMs, 0) / validResults.length)
-    : 0;
-  const min = validResults.length > 0 ? Math.min(...validResults.map(r => r.wallMs)) : 0;
-  const max = validResults.length > 0 ? Math.max(...validResults.map(r => r.wallMs)) : 0;
+  const validResults = results.filter((r) => r.validJson);
+  const avg =
+    validResults.length > 0
+      ? Math.round(validResults.reduce((s, r) => s + r.wallMs, 0) / validResults.length)
+      : 0;
+  const min = validResults.length > 0 ? Math.min(...validResults.map((r) => r.wallMs)) : 0;
+  const max = validResults.length > 0 ? Math.max(...validResults.map((r) => r.wallMs)) : 0;
 
   console.log('\n=== Summary ===');
   console.log(`Model: ${model}`);

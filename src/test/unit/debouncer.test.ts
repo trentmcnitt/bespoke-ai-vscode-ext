@@ -3,8 +3,12 @@ import { Debouncer } from '../../utils/debouncer';
 import { createMockToken } from '../helpers';
 
 describe('Debouncer', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   describe('basic debounce', () => {
     it('returns AbortSignal after delay completes', async () => {
@@ -25,7 +29,9 @@ describe('Debouncer', () => {
       const token = createMockToken();
 
       let resolved = false;
-      debouncer.debounce(token as any).then(() => { resolved = true; });
+      debouncer.debounce(token as any).then(() => {
+        resolved = true;
+      });
 
       vi.advanceTimersByTime(299);
       await vi.advanceTimersByTimeAsync(0); // flush microtasks

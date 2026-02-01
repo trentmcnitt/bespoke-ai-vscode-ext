@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildCommitPrompt, getSystemPrompt, parseCommitMessage, DEFAULT_SYSTEM_PROMPT } from '../../utils/commit-message-utils';
+import {
+  buildCommitPrompt,
+  getSystemPrompt,
+  parseCommitMessage,
+  DEFAULT_SYSTEM_PROMPT,
+} from '../../utils/commit-message-utils';
 
 describe('buildCommitPrompt', () => {
   const sampleDiff = `diff --git a/src/foo.ts b/src/foo.ts
@@ -71,6 +76,8 @@ describe('parseCommitMessage', () => {
   });
 
   it('preserves text that is not fully wrapped in fences', () => {
-    expect(parseCommitMessage('feat: add foo\n```\ndetails\n```')).toBe('feat: add foo\n```\ndetails\n```');
+    expect(parseCommitMessage('feat: add foo\n```\ndetails\n```')).toBe(
+      'feat: add foo\n```\ndetails\n```',
+    );
   });
 });

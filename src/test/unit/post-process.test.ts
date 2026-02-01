@@ -88,7 +88,7 @@ describe('trimPrefixOverlap', () => {
     const result = postProcessCompletion(
       '- **Bold** and continues into suffix text',
       'Some text\n- ',
-      ' suffix text that follows'
+      ' suffix text that follows',
     );
     expect(result).toBe('**Bold** and continues into');
   });

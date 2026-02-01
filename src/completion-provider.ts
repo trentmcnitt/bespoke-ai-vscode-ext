@@ -20,7 +20,12 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
 
-  constructor(config: ExtensionConfig, router: ProviderRouter, logger: Logger, tracker?: UsageTracker) {
+  constructor(
+    config: ExtensionConfig,
+    router: ProviderRouter,
+    logger: Logger,
+    tracker?: UsageTracker,
+  ) {
     this.config = config;
     this.modeDetector = new ModeDetector();
     this.router = router;
@@ -43,9 +48,12 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
   private getActiveModel(): string {
     switch (this.config.backend) {
-      case 'anthropic': return this.config.anthropic.model;
-      case 'ollama': return this.config.ollama.model;
-      case 'claude-code': return this.config.claudeCode.model;
+      case 'anthropic':
+        return this.config.anthropic.model;
+      case 'ollama':
+        return this.config.ollama.model;
+      case 'claude-code':
+        return this.config.claudeCode.model;
     }
   }
 
@@ -58,25 +66,33 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     document: vscode.TextDocument,
     position: vscode.Position,
     _inlineContext: vscode.InlineCompletionContext,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | null> {
-    if (!this.config.enabled) { return null; }
+    if (!this.config.enabled) {
+      return null;
+    }
 
     // Detect mode
     const mode = this.modeDetector.detectMode(document.languageId, this.config);
 
     // Build document context
-    const contextChars = mode === 'code' ? this.config.code.contextChars : this.config.prose.contextChars;
-    const suffixChars = mode === 'code' ? this.config.code.suffixChars : this.config.prose.suffixChars;
+    const contextChars =
+      mode === 'code' ? this.config.code.contextChars : this.config.prose.contextChars;
+    const suffixChars =
+      mode === 'code' ? this.config.code.suffixChars : this.config.prose.suffixChars;
     const docContext = buildDocumentContext(document, position, contextChars, suffixChars);
 
     // Skip if no prefix content
-    if (!docContext.prefix.trim()) { return null; }
+    if (!docContext.prefix.trim()) {
+      return null;
+    }
 
     // Suppress after punctuation that typically ends a thought or opens a new context
     const suppressAfter = new Set(['.', '?', '!', ';', '(', '[', '{', '"', "'", '`', ':', ',']);
     const lastChar = docContext.prefix.slice(-1);
-    if (suppressAfter.has(lastChar)) { return null; }
+    if (suppressAfter.has(lastChar)) {
+      return null;
+    }
 
     const completionContext: CompletionContext = {
       ...docContext,
@@ -94,7 +110,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.traceBlock('← cached value', cached);
       this.tracker?.recordCacheHit();
       const item = new vscode.InlineCompletionItem(cached, new vscode.Range(position, position));
-      this.logger.trace(`returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`);
+      this.logger.trace(
+        `returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`,
+      );
       return [item];
     }
 
@@ -141,7 +159,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
           resultLen: null,
           cancelled: token.isCancellationRequested,
         });
-        this.logger.trace(`#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`);
+        this.logger.trace(
+          `#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`,
+        );
         return null;
       }
 
@@ -156,7 +176,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       // Cache and return
       this.cache.set(cacheKey, result);
       const item = new vscode.InlineCompletionItem(result, new vscode.Range(position, position));
-      this.logger.trace(`returning completion: insertText=${JSON.stringify(result.slice(0, 50))}... range=${position.line}:${position.character}`);
+      this.logger.trace(
+        `returning completion: insertText=${JSON.stringify(result.slice(0, 50))}... range=${position.line}:${position.character}`,
+      );
       return [item];
     } catch (err: unknown) {
       this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);

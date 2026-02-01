@@ -210,15 +210,17 @@ describe('OllamaProvider', () => {
     it('throws on non-200 response', async () => {
       mockFetch.mockResolvedValue(new Response('Not Found', { status: 404 }));
       const provider = new OllamaProvider(makeConfig(), makeLogger());
-      await expect(provider.getCompletion(makeProseContext(), new AbortController().signal))
-        .rejects.toThrow('Ollama returned 404');
+      await expect(
+        provider.getCompletion(makeProseContext(), new AbortController().signal),
+      ).rejects.toThrow('Ollama returned 404');
     });
 
     it('throws on network error', async () => {
       mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
       const provider = new OllamaProvider(makeConfig(), makeLogger());
-      await expect(provider.getCompletion(makeProseContext(), new AbortController().signal))
-        .rejects.toThrow('ECONNREFUSED');
+      await expect(
+        provider.getCompletion(makeProseContext(), new AbortController().signal),
+      ).rejects.toThrow('ECONNREFUSED');
     });
 
     it('returns null when response is empty string', async () => {

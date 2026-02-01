@@ -17,8 +17,12 @@ function makeBrief(overrides: Partial<ContextBrief> = {}): ContextBrief {
 }
 
 describe('ContextBriefStore', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('returns null for unknown keys', () => {
     const store = new ContextBriefStore(60000);

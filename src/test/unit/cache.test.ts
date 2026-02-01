@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LRUCache } from '../../utils/cache';
 
 describe('LRUCache', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   describe('basic operations', () => {
     it('stores and retrieves values', () => {
@@ -49,7 +53,7 @@ describe('LRUCache', () => {
       const cache = new LRUCache(2);
       cache.set('a', '1');
       cache.set('b', '2');
-      cache.get('a');       // promote 'a', now 'b' is LRU
+      cache.get('a'); // promote 'a', now 'b' is LRU
       cache.set('c', '3'); // evicts 'b'
       expect(cache.get('a')).toBe('1');
       expect(cache.get('b')).toBeNull();
@@ -61,7 +65,7 @@ describe('LRUCache', () => {
       cache.set('a', '1');
       cache.set('b', '2');
       cache.set('a', 'updated'); // promote 'a', now 'b' is LRU
-      cache.set('c', '3');       // evicts 'b'
+      cache.set('c', '3'); // evicts 'b'
       expect(cache.get('a')).toBe('updated');
       expect(cache.get('b')).toBeNull();
     });

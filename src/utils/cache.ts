@@ -8,7 +8,7 @@ export class LRUCache {
 
   constructor(
     private maxSize: number = 50,
-    private ttlMs: number = 5 * 60 * 1000
+    private ttlMs: number = 5 * 60 * 1000,
   ) {}
 
   static makeKey(mode: string, prefix: string, suffix: string): string {
@@ -17,7 +17,9 @@ export class LRUCache {
 
   get(key: string): string | null {
     const entry = this.map.get(key);
-    if (!entry) { return null; }
+    if (!entry) {
+      return null;
+    }
 
     if (Date.now() - entry.timestamp > this.ttlMs) {
       this.map.delete(key);

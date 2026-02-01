@@ -10,7 +10,8 @@ import { createMessageChannel } from '../utils/message-channel';
 
 const CWD = path.resolve(__dirname, '../..');
 
-const SYSTEM_PROMPT = 'You are an inline code completion engine. Output ONLY the code that comes next. No markdown, no explanation, no commentary. Do not repeat code already written.';
+const SYSTEM_PROMPT =
+  'You are an inline code completion engine. Output ONLY the code that comes next. No markdown, no explanation, no commentary. Do not repeat code already written.';
 
 // FIM-style prompts with prefix + suffix
 function prefixOnly(prefix: string): string {
@@ -91,7 +92,10 @@ async function main() {
 
   const sdk = await import('@anthropic-ai/claude-agent-sdk');
   const queryFn = sdk.query ?? sdk.default?.query;
-  if (!queryFn) { console.log('No query()'); process.exit(1); }
+  if (!queryFn) {
+    console.log('No query()');
+    process.exit(1);
+  }
 
   const channel = createMessageChannel();
   channel.push('hi');
@@ -135,7 +139,9 @@ async function main() {
   })();
 
   function waitResult(): Promise<{ text: string }> {
-    return new Promise(r => { resultResolve = r; });
+    return new Promise((r) => {
+      resultResolve = r;
+    });
   }
 
   // Warmup
@@ -170,7 +176,9 @@ async function main() {
 
     results.push({ label: c.label, wallMs, outputLen: result.text.length, output: result.text });
     const preview = result.text.replace(/\n/g, '\\n').substring(0, 80);
-    console.log(`  ${c.label.padEnd(28)} ${String(wallMs).padStart(6)}ms | ${String(result.text.length).padStart(4)} chars | ${preview}`);
+    console.log(
+      `  ${c.label.padEnd(28)} ${String(wallMs).padStart(6)}ms | ${String(result.text.length).padStart(4)} chars | ${preview}`,
+    );
   }
 
   channel.close();
@@ -179,19 +187,25 @@ async function main() {
   // Summary
   console.log('\n=== Summary ===\n');
 
-  const consistency = results.filter(r => r.label.startsWith('consistency'));
+  const consistency = results.filter((r) => r.label.startsWith('consistency'));
   const cAvg = Math.round(consistency.reduce((s, r) => s + r.wallMs, 0) / consistency.length);
-  const cMin = Math.min(...consistency.map(r => r.wallMs));
-  const cMax = Math.max(...consistency.map(r => r.wallMs));
-  const p50 = consistency.map(r => r.wallMs).sort((a, b) => a - b)[Math.floor(consistency.length / 2)];
+  const cMin = Math.min(...consistency.map((r) => r.wallMs));
+  const cMax = Math.max(...consistency.map((r) => r.wallMs));
+  const p50 = consistency.map((r) => r.wallMs).sort((a, b) => a - b)[
+    Math.floor(consistency.length / 2)
+  ];
 
   console.log(`Cold start: ${warmupMs}ms`);
-  console.log(`Consistency (tiny prefix, 5 runs): avg=${cAvg}ms, min=${cMin}ms, max=${cMax}ms, p50=${p50}ms`);
+  console.log(
+    `Consistency (tiny prefix, 5 runs): avg=${cAvg}ms, min=${cMin}ms, max=${cMax}ms, p50=${p50}ms`,
+  );
 
-  const nonConsistency = results.filter(r => !r.label.startsWith('consistency'));
+  const nonConsistency = results.filter((r) => !r.label.startsWith('consistency'));
   console.log('\nPer-case:');
   for (const r of nonConsistency) {
-    console.log(`  ${r.label.padEnd(28)} ${String(r.wallMs).padStart(6)}ms | ${String(r.outputLen).padStart(4)} chars`);
+    console.log(
+      `  ${r.label.padEnd(28)} ${String(r.wallMs).padStart(6)}ms | ${String(r.outputLen).padStart(4)} chars`,
+    );
   }
 
   console.log('\n=== DONE ===');

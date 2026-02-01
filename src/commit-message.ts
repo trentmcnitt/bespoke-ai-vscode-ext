@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import { Logger } from './utils/logger';
-import { buildCommitPrompt, getSystemPrompt, parseCommitMessage } from './utils/commit-message-utils';
+import {
+  buildCommitPrompt,
+  getSystemPrompt,
+  parseCommitMessage,
+} from './utils/commit-message-utils';
 import type { GitExtension, Repository } from './types/git';
 
 const TIMEOUT_MS = 60_000;
@@ -9,7 +13,9 @@ const TIMEOUT_MS = 60_000;
 let inFlight = false;
 
 export async function generateCommitMessage(logger: Logger): Promise<void> {
-  if (inFlight) { return; }
+  if (inFlight) {
+    return;
+  }
   inFlight = true;
   try {
     await doGenerateCommitMessage(logger);
@@ -47,7 +53,9 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
       placeHolder: 'Select a repository',
       title: 'Bespoke AI: Generate Commit Message',
     });
-    if (!picked) { return; }
+    if (!picked) {
+      return;
+    }
     repo = picked.repo;
   }
 
@@ -55,23 +63,26 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
   let staged: string;
   let unstaged: string;
   try {
-    [staged, unstaged] = await Promise.all([
-      repo.diff(true),
-      repo.diff(false),
-    ]);
+    [staged, unstaged] = await Promise.all([repo.diff(true), repo.diff(false)]);
   } catch (err) {
     logger.error('Failed to read git diff', err);
-    vscode.window.showWarningMessage('Bespoke AI: Failed to read git diff. Check Output log for details.');
+    vscode.window.showWarningMessage(
+      'Bespoke AI: Failed to read git diff. Check Output log for details.',
+    );
     return;
   }
 
   const hasStaged = staged.trim().length > 0;
   const hasUnstaged = unstaged.trim().length > 0;
 
-  logger.debug(`Commit message: staged=${hasStaged} (${staged.length} chars), unstaged=${hasUnstaged} (${unstaged.length} chars)`);
+  logger.debug(
+    `Commit message: staged=${hasStaged} (${staged.length} chars), unstaged=${hasUnstaged} (${unstaged.length} chars)`,
+  );
 
   if (!hasStaged && !hasUnstaged) {
-    vscode.window.showInformationMessage('Bespoke AI: No changes to generate a commit message for.');
+    vscode.window.showInformationMessage(
+      'Bespoke AI: No changes to generate a commit message for.',
+    );
     return;
   }
 
@@ -88,7 +99,9 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
         title: 'Bespoke AI: Generate Commit Message',
       },
     );
-    if (!choice) { return; }
+    if (!choice) {
+      return;
+    }
     diff = choice.diff;
   } else {
     diff = hasStaged ? staged : unstaged;
@@ -102,7 +115,9 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
   const systemPrompt = getSystemPrompt(customSystemPrompt);
   const userPrompt = buildCommitPrompt(diff);
 
-  logger.debug(`Commit message: diff source=${hasStaged && hasUnstaged ? 'user choice' : hasStaged ? 'staged' : 'unstaged'}, diff chars=${diff.length}, custom prompt=${!!customSystemPrompt?.trim()}`);
+  logger.debug(
+    `Commit message: diff source=${hasStaged && hasUnstaged ? 'user choice' : hasStaged ? 'staged' : 'unstaged'}, diff chars=${diff.length}, custom prompt=${!!customSystemPrompt?.trim()}`,
+  );
   logger.trace(`Commit message system prompt:\n${systemPrompt}`);
   logger.trace(`Commit message user prompt:\n${userPrompt}`);
 
@@ -115,24 +130,34 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
     },
     (_progress, token) => {
       return new Promise<string | null>((resolve) => {
-        const child = spawn('claude', [
-          '-p',
-          '--output-format', 'text',
-          '--max-turns', '1',
-          '--no-session-persistence',
-          '--tools', '',              // No tools needed — diff is piped via stdin
-          '--system-prompt', systemPrompt, // Replace default ~33K token prompt with focused one
-        ], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          cwd: repo.rootUri.fsPath,
-        });
+        const child = spawn(
+          'claude',
+          [
+            '-p',
+            '--output-format',
+            'text',
+            '--max-turns',
+            '1',
+            '--no-session-persistence',
+            '--tools',
+            '', // No tools needed — diff is piped via stdin
+            '--system-prompt',
+            systemPrompt, // Replace default ~33K token prompt with focused one
+          ],
+          {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: repo.rootUri.fsPath,
+          },
+        );
 
         let stdout = '';
         let stderr = '';
         let settled = false;
 
         const settle = (value: string | null): void => {
-          if (settled) { return; }
+          if (settled) {
+            return;
+          }
           settled = true;
           clearTimeout(timeout);
           resolve(value);
@@ -191,7 +216,9 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
     },
   );
 
-  if (result === null) { return; }
+  if (result === null) {
+    return;
+  }
 
   logger.trace(`Commit message raw response:\n${result}`);
 

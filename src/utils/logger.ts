@@ -76,10 +76,12 @@ export class Logger {
    * Only shown at debug level and above.
    */
   requestStart(reqId: string, details: RequestStartDetails): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) { return; }
+    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+      return;
+    }
     this.channel.appendLine(SEPARATOR);
     this.channel.appendLine(
-      `[DEBUG ${ts()}] ▶ #${reqId} | ${details.mode} | ${details.backend} | ${details.file} | ${details.prefixLen}+${details.suffixLen} chars`
+      `[DEBUG ${ts()}] ▶ #${reqId} | ${details.mode} | ${details.backend} | ${details.file} | ${details.prefixLen}+${details.suffixLen} chars`,
     );
   }
 
@@ -88,7 +90,9 @@ export class Logger {
    * Only shown at debug level and above.
    */
   requestEnd(reqId: string, details: RequestEndDetails): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) { return; }
+    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+      return;
+    }
 
     let status: string;
     if (details.cancelled) {
@@ -112,7 +116,9 @@ export class Logger {
    * Only shown at debug level and above.
    */
   cacheHit(reqId: string, resultLen: number): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) { return; }
+    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+      return;
+    }
     this.channel.appendLine(SEPARATOR);
     this.channel.appendLine(`[DEBUG ${ts()}] ◀ #${reqId} | cache hit | ${resultLen} chars`);
   }
@@ -126,10 +132,15 @@ export class Logger {
    * Content is truncated with ⋮ marker if too long.
    */
   traceBlock(label: string, content: string): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) { return; }
+    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) {
+      return;
+    }
 
     // Indent each line of content
-    const indented = content.split('\n').map(line => `          ${line}`).join('\n');
+    const indented = content
+      .split('\n')
+      .map((line) => `          ${line}`)
+      .join('\n');
     this.channel.appendLine(`[TRACE]   ${label}:`);
     this.channel.appendLine(indented);
   }
@@ -138,7 +149,9 @@ export class Logger {
    * Log a short inline trace value (no block formatting).
    */
   traceInline(label: string, value: string): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) { return; }
+    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) {
+      return;
+    }
     this.channel.appendLine(`[TRACE]   ${label}: ${value}`);
   }
 

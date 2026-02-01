@@ -9,16 +9,37 @@ vi.mock('@anthropic-ai/sdk', () => {
   // Simulate SDK error classes
   class APIError extends Error {
     status: number;
-    constructor(m: string, status = 500) { super(m); this.name = 'APIError'; this.status = status; }
+    constructor(m: string, status = 500) {
+      super(m);
+      this.name = 'APIError';
+      this.status = status;
+    }
   }
-  class APIUserAbortError extends APIError { constructor() { super('Request aborted'); this.name = 'APIUserAbortError'; } }
-  class RateLimitError extends APIError { constructor() { super('Rate limited'); this.name = 'RateLimitError'; } }
-  class AuthenticationError extends APIError { constructor() { super('Auth failed'); this.name = 'AuthenticationError'; } }
+  class APIUserAbortError extends APIError {
+    constructor() {
+      super('Request aborted');
+      this.name = 'APIUserAbortError';
+    }
+  }
+  class RateLimitError extends APIError {
+    constructor() {
+      super('Rate limited');
+      this.name = 'RateLimitError';
+    }
+  }
+  class AuthenticationError extends APIError {
+    constructor() {
+      super('Auth failed');
+      this.name = 'AuthenticationError';
+    }
+  }
 
   // Must be a real class so `new Anthropic(...)` works
   class MockAnthropic {
     messages = { create: mockCreate };
-    constructor(_opts?: Record<string, unknown>) { /* noop */ }
+    constructor(_opts?: Record<string, unknown>) {
+      /* noop */
+    }
     static APIError = APIError;
     static APIUserAbortError = APIUserAbortError;
     static RateLimitError = RateLimitError;
@@ -48,24 +69,50 @@ describe('AnthropicProvider', () => {
     });
 
     it('is not available when API key is empty', () => {
-      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }), makeLogger());
+      const provider = new AnthropicProvider(
+        makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }),
+        makeLogger(),
+      );
       expect(provider.isAvailable()).toBe(false);
     });
 
     it('returns null when not available', async () => {
-      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }), makeLogger());
+      const provider = new AnthropicProvider(
+        makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }),
+        makeLogger(),
+      );
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
 
     it('is not available when apiCallsEnabled is false', () => {
-      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: 'test-key', model: 'test', useCaching: false, apiCallsEnabled: false } }), makeLogger());
+      const provider = new AnthropicProvider(
+        makeConfig({
+          anthropic: {
+            apiKey: 'test-key',
+            model: 'test',
+            useCaching: false,
+            apiCallsEnabled: false,
+          },
+        }),
+        makeLogger(),
+      );
       expect(provider.isAvailable()).toBe(false);
     });
 
     it('returns null from getCompletion when apiCallsEnabled is false', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('should not be called'));
-      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: 'test-key', model: 'test', useCaching: false, apiCallsEnabled: false } }), makeLogger());
+      const provider = new AnthropicProvider(
+        makeConfig({
+          anthropic: {
+            apiKey: 'test-key',
+            model: 'test',
+            useCaching: false,
+            apiCallsEnabled: false,
+          },
+        }),
+        makeLogger(),
+      );
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
       expect(mockCreate).not.toHaveBeenCalled();
@@ -173,7 +220,9 @@ describe('AnthropicProvider', () => {
     it('passes through text with leading and embedded \\n\\n', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('\n\nfirst paragraph\n\nsecond'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
-      expect(await provider.getCompletion(makeProseContext(), new AbortController().signal)).toBe('\n\nfirst paragraph\n\nsecond');
+      expect(await provider.getCompletion(makeProseContext(), new AbortController().signal)).toBe(
+        '\n\nfirst paragraph\n\nsecond',
+      );
     });
 
     it('passes through fenced block with empty content', async () => {
@@ -194,7 +243,9 @@ describe('AnthropicProvider', () => {
     it('does not add cache_control to static system block (cached as prefix automatically)', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('text'));
       // Sonnet has a 1024-token minimum — our ~1250 estimated tokens should exceed it
-      const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'claude-sonnet-4-20250514', useCaching: true } });
+      const config = makeConfig({
+        anthropic: { apiKey: 'test-key', model: 'claude-sonnet-4-20250514', useCaching: true },
+      });
       const provider = new AnthropicProvider(config, makeLogger());
       await provider.getCompletion(largePrefixContext, new AbortController().signal);
 
@@ -206,7 +257,9 @@ describe('AnthropicProvider', () => {
     it('skips cache_control when caching enabled but tokens below minimum', async () => {
       mockCreate.mockResolvedValue(makeApiResponse('text'));
       // Haiku 4.5 needs 4096 tokens — our short prose context (~50 chars) won't meet it
-      const config = makeConfig({ anthropic: { apiKey: 'test-key', model: 'claude-haiku-4-5-20251001', useCaching: true } });
+      const config = makeConfig({
+        anthropic: { apiKey: 'test-key', model: 'claude-haiku-4-5-20251001', useCaching: true },
+      });
       const provider = new AnthropicProvider(config, makeLogger());
       await provider.getCompletion(makeProseContext(), new AbortController().signal);
 
@@ -226,7 +279,9 @@ describe('AnthropicProvider', () => {
 
   describe('error handling', () => {
     it('returns null on abort', async () => {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIUserAbortError: new () => Error } };
+      const { default: Anthropic } = (await import('@anthropic-ai/sdk')) as unknown as {
+        default: { APIUserAbortError: new () => Error };
+      };
       mockCreate.mockRejectedValue(new Anthropic.APIUserAbortError());
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
@@ -243,7 +298,9 @@ describe('AnthropicProvider', () => {
     });
 
     it('returns null on rate limit (429) without logging error', async () => {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
+      const { default: Anthropic } = (await import('@anthropic-ai/sdk')) as unknown as {
+        default: { APIError: new (m: string, s: number) => Error & { status: number } };
+      };
       mockCreate.mockRejectedValue(new Anthropic.APIError('Rate limited', 429));
       const logger = makeLogger();
       const traceInlineSpy = vi.fn();
@@ -258,7 +315,9 @@ describe('AnthropicProvider', () => {
     });
 
     it('returns null on server overload (529) without logging error', async () => {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk') as unknown as { default: { APIError: new (m: string, s: number) => Error & { status: number } } };
+      const { default: Anthropic } = (await import('@anthropic-ai/sdk')) as unknown as {
+        default: { APIError: new (m: string, s: number) => Error & { status: number } };
+      };
       mockCreate.mockRejectedValue(new Anthropic.APIError('Overloaded', 529));
       const logger = makeLogger();
       const traceInlineSpy = vi.fn();
@@ -268,15 +327,19 @@ describe('AnthropicProvider', () => {
       const provider = new AnthropicProvider(makeConfig(), logger);
       const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
-      expect(traceInlineSpy).toHaveBeenCalledWith('server overloaded', expect.stringContaining('529'));
+      expect(traceInlineSpy).toHaveBeenCalledWith(
+        'server overloaded',
+        expect.stringContaining('529'),
+      );
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it('re-throws non-abort API errors', async () => {
       mockCreate.mockRejectedValue(new Error('API broke'));
       const provider = new AnthropicProvider(makeConfig(), makeLogger());
-      await expect(provider.getCompletion(makeProseContext(), new AbortController().signal))
-        .rejects.toThrow('API broke');
+      await expect(
+        provider.getCompletion(makeProseContext(), new AbortController().signal),
+      ).rejects.toThrow('API broke');
     });
 
     it('returns null when response has no text block', async () => {
@@ -300,10 +363,15 @@ describe('AnthropicProvider', () => {
 
   describe('config updates', () => {
     it('reinitializes client on updateConfig', async () => {
-      const provider = new AnthropicProvider(makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }), makeLogger());
+      const provider = new AnthropicProvider(
+        makeConfig({ anthropic: { apiKey: '', model: 'test', useCaching: false } }),
+        makeLogger(),
+      );
       expect(provider.isAvailable()).toBe(false);
 
-      provider.updateConfig(makeConfig({ anthropic: { apiKey: 'new-key', model: 'test', useCaching: false } }));
+      provider.updateConfig(
+        makeConfig({ anthropic: { apiKey: 'new-key', model: 'test', useCaching: false } }),
+      );
       expect(provider.isAvailable()).toBe(true);
     });
   });

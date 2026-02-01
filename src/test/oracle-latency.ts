@@ -42,11 +42,7 @@ async function main() {
   // --- Test 1: Independent queries (current approach) ---
   console.log('--- Test 1: Independent query() calls ---\n');
 
-  const files = [
-    'src/utils/cache.ts',
-    'src/utils/post-process.ts',
-    'src/mode-detector.ts',
-  ];
+  const files = ['src/utils/cache.ts', 'src/utils/post-process.ts', 'src/mode-detector.ts'];
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -59,7 +55,9 @@ async function main() {
       tools: ALLOWED_TOOLS,
     });
     timings.push({ label, ...t });
-    console.log(`    ${t.wallMs}ms wall | ${t.sdkMs}ms sdk | ${t.apiMs}ms api | ${t.turns}t | ${t.tools} tools | $${t.cost.toFixed(4)}`);
+    console.log(
+      `    ${t.wallMs}ms wall | ${t.sdkMs}ms sdk | ${t.apiMs}ms api | ${t.turns}t | ${t.tools} tools | $${t.cost.toFixed(4)}`,
+    );
   }
 
   // --- Test 2: Resumed session ---
@@ -69,10 +67,14 @@ async function main() {
   const file0 = files[0];
   const content0 = fs.readFileSync(path.join(CWD, file0), 'utf-8');
   console.log(`  initial: ${file0}...`);
-  const initial = await timedQueryWithSessionId(queryFn, buildAnalysisPrompt(file0, content0, 'typescript'), {
-    model,
-    tools: ALLOWED_TOOLS,
-  });
+  const initial = await timedQueryWithSessionId(
+    queryFn,
+    buildAnalysisPrompt(file0, content0, 'typescript'),
+    {
+      model,
+      tools: ALLOWED_TOOLS,
+    },
+  );
   timings.push({ label: `resume-initial (${file0})`, ...initial.timing });
   console.log(`    ${initial.timing.wallMs}ms wall | session=${initial.sessionId}`);
 
@@ -89,7 +91,9 @@ async function main() {
         resume: initial.sessionId,
       });
       timings.push({ label, ...t });
-      console.log(`    ${t.wallMs}ms wall | ${t.sdkMs}ms sdk | ${t.apiMs}ms api | ${t.turns}t | ${t.tools} tools`);
+      console.log(
+        `    ${t.wallMs}ms wall | ${t.sdkMs}ms sdk | ${t.apiMs}ms api | ${t.turns}t | ${t.tools} tools`,
+      );
     }
   } else {
     console.log('  (no session ID returned, skipping resume tests)');
@@ -112,8 +116,12 @@ async function main() {
 
   // --- Summary ---
   console.log('\n=== Summary ===\n');
-  console.log('Label                                  | Wall ms | SDK ms  | API ms  | Turns | Tools | Cost');
-  console.log('---------------------------------------|---------|---------|---------|-------|-------|-------');
+  console.log(
+    'Label                                  | Wall ms | SDK ms  | API ms  | Turns | Tools | Cost',
+  );
+  console.log(
+    '---------------------------------------|---------|---------|---------|-------|-------|-------',
+  );
   for (const t of timings) {
     const l = t.label.substring(0, 39).padEnd(39);
     const w = String(t.wallMs).padStart(7);
@@ -133,11 +141,7 @@ interface QueryOpts {
   persistSession?: boolean;
 }
 
-async function timedQuery(
-  queryFn: any,
-  prompt: string,
-  opts: QueryOpts,
-): Promise<Timing> {
+async function timedQuery(queryFn: any, prompt: string, opts: QueryOpts): Promise<Timing> {
   const r = await timedQueryWithSessionId(queryFn, prompt, opts);
   return r.timing;
 }
@@ -183,7 +187,9 @@ async function timedQueryWithSessionId(
     if (message.type === 'assistant') {
       const content = message.message?.content ?? [];
       for (const block of content) {
-        if (block.type === 'tool_use') { toolCount++; }
+        if (block.type === 'tool_use') {
+          toolCount++;
+        }
       }
     } else if (message.type === 'result') {
       if (message.subtype === 'success') {

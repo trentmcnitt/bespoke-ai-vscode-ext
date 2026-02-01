@@ -69,7 +69,9 @@ async function main() {
     if (msg.type === 'system' && msg.subtype === 'init') {
       initTools = msg.tools ?? [];
       console.log(`  Session created in ${Date.now() - sessionStart}ms`);
-      console.log(`  Tools loaded: ${initTools.length} (${initTools.slice(0, 5).join(', ')}${initTools.length > 5 ? '...' : ''})`);
+      console.log(
+        `  Tools loaded: ${initTools.length} (${initTools.slice(0, 5).join(', ')}${initTools.length > 5 ? '...' : ''})`,
+      );
       console.log(`  Model: ${msg.model}`);
       console.log(`  Session ID: ${session.sessionId}\n`);
       break;
@@ -121,9 +123,13 @@ async function main() {
       }
       JSON.parse(cleaned);
       valid = true;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
-    console.log(`    ${wallMs}ms | ${turns} turn(s) | ${tools.length} tools | JSON: ${valid ? 'valid' : 'INVALID'} | ${resultText.length} chars`);
+    console.log(
+      `    ${wallMs}ms | ${turns} turn(s) | ${tools.length} tools | JSON: ${valid ? 'valid' : 'INVALID'} | ${resultText.length} chars`,
+    );
     if (tools.length > 0) {
       console.log(`    tools: ${tools.join(', ')}`);
     }

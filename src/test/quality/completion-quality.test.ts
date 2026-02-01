@@ -43,14 +43,18 @@ if (backend === 'claude-code') {
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const queryFn = sdk.query ?? sdk.default?.query;
     canRun = typeof queryFn === 'function';
-    if (!canRun) { skipReason = 'Agent SDK does not export query()'; }
+    if (!canRun) {
+      skipReason = 'Agent SDK does not export query()';
+    }
   } catch {
     canRun = false;
     skipReason = 'Agent SDK not available (npm install @anthropic-ai/claude-agent-sdk)';
   }
 } else if (backend === 'anthropic') {
   canRun = apiKey.length > 0;
-  if (!canRun) { skipReason = 'ANTHROPIC_API_KEY not set'; }
+  if (!canRun) {
+    skipReason = 'ANTHROPIC_API_KEY not set';
+  }
 } else {
   skipReason = `Unsupported backend: ${backend}`;
 }
@@ -76,7 +80,9 @@ function makeCompletionConfig() {
 
 function getModelName(): string {
   const config = makeCompletionConfig();
-  if (backend === 'claude-code') { return `claude-code/${config.claudeCode.model}`; }
+  if (backend === 'claude-code') {
+    return `claude-code/${config.claudeCode.model}`;
+  }
   return config.anthropic.model;
 }
 
@@ -103,13 +109,17 @@ function saveScenarioOutput(result: GenerationResult): void {
   // Save the input context
   fs.writeFileSync(
     path.join(scenarioDir, 'input.json'),
-    JSON.stringify({
-      mode: result.scenario.mode,
-      languageId: result.scenario.languageId,
-      fileName: result.scenario.fileName,
-      prefix: result.scenario.prefix,
-      suffix: result.scenario.suffix,
-    }, null, 2),
+    JSON.stringify(
+      {
+        mode: result.scenario.mode,
+        languageId: result.scenario.languageId,
+        fileName: result.scenario.fileName,
+        prefix: result.scenario.prefix,
+        suffix: result.scenario.suffix,
+      },
+      null,
+      2,
+    ),
   );
 
   // Save requirements
@@ -126,25 +136,26 @@ function saveScenarioOutput(result: GenerationResult): void {
 
   // Save raw model output (before post-processing) when available
   if (result.rawResponse !== undefined) {
-    fs.writeFileSync(
-      path.join(scenarioDir, 'raw-response.txt'),
-      result.rawResponse,
-    );
+    fs.writeFileSync(path.join(scenarioDir, 'raw-response.txt'), result.rawResponse);
   }
 
   // Save metadata
   fs.writeFileSync(
     path.join(scenarioDir, 'metadata.json'),
-    JSON.stringify({
-      id: result.scenario.id,
-      description: result.scenario.description,
-      durationMs: result.durationMs,
-      completionLength: result.completion?.length ?? 0,
-      error: result.error ?? null,
-      generatedAt: new Date().toISOString(),
-      backend,
-      model: getModelName(),
-    }, null, 2),
+    JSON.stringify(
+      {
+        id: result.scenario.id,
+        description: result.scenario.description,
+        durationMs: result.durationMs,
+        completionLength: result.completion?.length ?? 0,
+        error: result.error ?? null,
+        generatedAt: new Date().toISOString(),
+        backend,
+        model: getModelName(),
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -178,8 +189,8 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
     if (results.length === 0) return;
 
     // Write summary
-    const generated = results.filter(r => r.completion !== null).length;
-    const nulls = results.filter(r => r.completion === null).length;
+    const generated = results.filter((r) => r.completion !== null).length;
+    const nulls = results.filter((r) => r.completion === null).length;
     const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);
 
     const summary = {
@@ -190,7 +201,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
       generated,
       nullResults: nulls,
       totalDurationMs: totalMs,
-      scenarios: results.map(r => ({
+      scenarios: results.map((r) => ({
         id: r.scenario.id,
         mode: r.scenario.mode,
         hasCompletion: r.completion !== null,
@@ -203,8 +214,16 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
 
     // Create a 'latest' symlink
     const latestPath = path.join(RESULTS_DIR, 'latest');
-    try { fs.unlinkSync(latestPath); } catch { /* */ }
-    try { fs.symlinkSync(RUN_DIR, latestPath); } catch { /* */ }
+    try {
+      fs.unlinkSync(latestPath);
+    } catch {
+      /* */
+    }
+    try {
+      fs.symlinkSync(RUN_DIR, latestPath);
+    } catch {
+      /* */
+    }
 
     // ════════════════════════════════════════════════════════════════
     // LAYER 2 INSTRUCTIONS — Claude reads this in the session
@@ -270,47 +289,35 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
 
   // Structural checks (Layer 1): just verify we got something
   describe('prose scenarios', () => {
-    it.each(proseScenarios.map(s => [s.id, s] as const))(
-      '%s',
-      async (_id, scenario) => {
-        const result = await generateCompletion(scenario);
-        results.push(result);
-        // Layer 1: completion was generated without throwing
-        expect(result.error).toBeUndefined();
-      },
-    );
+    it.each(proseScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
+      const result = await generateCompletion(scenario);
+      results.push(result);
+      // Layer 1: completion was generated without throwing
+      expect(result.error).toBeUndefined();
+    });
   });
 
   describe('code scenarios', () => {
-    it.each(codeScenarios.map(s => [s.id, s] as const))(
-      '%s',
-      async (_id, scenario) => {
-        const result = await generateCompletion(scenario);
-        results.push(result);
-        expect(result.error).toBeUndefined();
-      },
-    );
+    it.each(codeScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
+      const result = await generateCompletion(scenario);
+      results.push(result);
+      expect(result.error).toBeUndefined();
+    });
   });
 
   describe('edge cases', () => {
-    it.each(edgeCaseScenarios.map(s => [s.id, s] as const))(
-      '%s',
-      async (_id, scenario) => {
-        const result = await generateCompletion(scenario);
-        results.push(result);
-        expect(result.error).toBeUndefined();
-      },
-    );
+    it.each(edgeCaseScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
+      const result = await generateCompletion(scenario);
+      results.push(result);
+      expect(result.error).toBeUndefined();
+    });
   });
 
   describe('regression cases', () => {
-    it.each(regressionScenarios.map(s => [s.id, s] as const))(
-      '%s',
-      async (_id, scenario) => {
-        const result = await generateCompletion(scenario);
-        results.push(result);
-        expect(result.error).toBeUndefined();
-      },
-    );
+    it.each(regressionScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
+      const result = await generateCompletion(scenario);
+      results.push(result);
+      expect(result.error).toBeUndefined();
+    });
   });
 });

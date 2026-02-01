@@ -61,12 +61,12 @@ Providers catch abort errors and return `null`; all other errors propagate to `C
 
 The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). The `activate()` function creates the Logger and injects it into `CompletionProvider`, `ProviderRouter`, and all three providers. The `bespokeAI.logLevel` setting controls verbosity:
 
-| Level | What gets logged |
-|-------|-----------------|
-| `info` (default) | Lifecycle: activation, config changes, profile switches |
-| `debug` | Per-request flow: start/end with timing, cache hits, request IDs |
-| `trace` | Full content: prefix, suffix, messages sent, responses received |
-| (errors) | Failures are always logged regardless of the selected level — `error` is not a selectable log level |
+| Level            | What gets logged                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| `info` (default) | Lifecycle: activation, config changes, profile switches                                             |
+| `debug`          | Per-request flow: start/end with timing, cache hits, request IDs                                    |
+| `trace`          | Full content: prefix, suffix, messages sent, responses received                                     |
+| (errors)         | Failures are always logged regardless of the selected level — `error` is not a selectable log level |
 
 **Structured request logging:** Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correlation. At debug level, requests show visual separators (`───`) and directional markers (`▶` start, `◀` end). At trace level, content blocks appear indented under the debug skeleton. Example:
 
@@ -85,6 +85,7 @@ The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bes
 ```
 
 **Logger methods:**
+
 - `info()`, `debug()`, `trace()`, `error()` — basic level-gated logging
 - `requestStart(reqId, details)` — log request start with separator (debug+)
 - `requestEnd(reqId, details)` — log request end with timing (debug+)
@@ -150,15 +151,15 @@ All shared types live in `src/types.ts`. The key interface is `CompletionProvide
 
 Adding or modifying a VS Code setting requires coordinated changes to:
 
-| Step | File | What to change |
-|------|------|----------------|
-| 1 | `package.json` | Add to `contributes.configuration` |
-| 2 | `src/types.ts` | Add field to `ExtensionConfig` |
-| 3 | `src/extension.ts` | Read it in `loadConfig()` |
-| 4 | `src/test/helpers.ts` | Add default value in `DEFAULT_CONFIG` |
-| 5 | (varies) | Wire the new field into the component that needs it |
-| 6 | `src/types.ts` | If profile-overridable: add to `ProfileOverrides` |
-| 7 | `package.json` | If profile-overridable: add to `profiles` → `additionalProperties` schema |
+| Step | File                  | What to change                                                            |
+| ---- | --------------------- | ------------------------------------------------------------------------- |
+| 1    | `package.json`        | Add to `contributes.configuration`                                        |
+| 2    | `src/types.ts`        | Add field to `ExtensionConfig`                                            |
+| 3    | `src/extension.ts`    | Read it in `loadConfig()`                                                 |
+| 4    | `src/test/helpers.ts` | Add default value in `DEFAULT_CONFIG`                                     |
+| 5    | (varies)              | Wire the new field into the component that needs it                       |
+| 6    | `src/types.ts`        | If profile-overridable: add to `ProfileOverrides`                         |
+| 7    | `package.json`        | If profile-overridable: add to `profiles` → `additionalProperties` schema |
 
 If the setting should take effect without restarting VS Code, also propagate the new value through `CompletionProvider.updateConfig()` and/or `ProviderRouter.updateConfig()`.
 
@@ -213,6 +214,7 @@ QUALITY_TEST_MODEL=claude-sonnet-4-20250514 npm run test:quality
 The model name is recorded in `summary.json` so results are traceable.
 
 **Key files:**
+
 - `src/test/quality/scenarios.ts` — Golden data: input contexts + quality requirements
 - `src/test/quality/validator-prompt.md` — Evaluation criteria (scoring rubric, per-mode rules)
 - `src/test/quality/judge.ts` — Type definitions for scenarios and judgments
@@ -225,11 +227,13 @@ To add a new scenario, add a `TestScenario` object to the prose, code, or edge-c
 Regression scenarios (`src/test/quality/regression-scenarios.ts`) capture real-world completion failures observed during use. They run alongside the standard quality scenarios via `npm run test:quality` and flow through the same Layer 1 + Layer 2 pipeline.
 
 Each `RegressionScenario` extends `TestScenario` with:
+
 - `observedModel` — which model/backend produced the failure
 - `observedDate` — when the issue was observed
 - `regression_notes` — what went wrong, guiding the Layer 2 judge on what to watch for
 
 **Adding a new regression case:**
+
 1. Copy the **exact** prefix and suffix from the trace log verbatim — no truncation, no paraphrasing, no edits. The `[TRACE]` lines show the full userMessage and suffix. The goal is to reproduce the exact conditions that caused the failure.
 2. Add a `RegressionScenario` to the array in `regression-scenarios.ts`
 3. Document the failure in `regression_notes` and set `quality_notes` to tell the judge what constitutes a fix
@@ -240,11 +244,13 @@ Each `RegressionScenario` extends `TestScenario` with:
 Profiles are named config presets stored in `bespokeAI.profiles`. Each profile is a partial config that deep-merges over the base settings. The active profile is set via `bespokeAI.activeProfile` (empty string = no profile, use base settings).
 
 **Commands:**
+
 - `Bespoke AI: Show Menu` — Unified QuickPick menu (mode, profile, actions) — status bar click target
 - `Bespoke AI: Select Profile` — QuickPick UI to switch profiles (or select "(none)" for base settings)
 - `Bespoke AI: Clear Completion Cache` — manually clear the LRU cache
 
 **Behavior:**
+
 - Clicking the status bar opens the unified menu (mode selection, profile switching, toggle enable, clear cache, open settings, open output log)
 - The status bar shows a `$(loading~spin)` spinner while a completion request is in-flight
 - Switching profiles auto-clears the completion cache
@@ -252,6 +258,7 @@ Profiles are named config presets stored in `bespokeAI.profiles`. Each profile i
 - The status bar shows the shortened model name (e.g., `haiku-4.5`) and the tooltip includes the profile name when active
 
 **Example config:**
+
 ```json
 "bespokeAI.profiles": {
   "haiku-fast": {
@@ -281,13 +288,13 @@ npm run benchmark
 
 ### Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_CONFIGS` | (all) | Comma-separated config labels to run |
-| `BENCHMARK_K` | `3` | Generations per scenario (statistical replication) |
-| `BENCHMARK_J` | `3` | Independent judges per generation |
-| `BENCHMARK_JUDGE_MODEL` | `claude-sonnet-4-20250514` | Model used for automated judging |
-| `BENCHMARK_CONCURRENCY` | `5` | Max concurrent judge API calls |
+| Variable                | Default                    | Description                                        |
+| ----------------------- | -------------------------- | -------------------------------------------------- |
+| `BENCHMARK_CONFIGS`     | (all)                      | Comma-separated config labels to run               |
+| `BENCHMARK_K`           | `3`                        | Generations per scenario (statistical replication) |
+| `BENCHMARK_J`           | `3`                        | Independent judges per generation                  |
+| `BENCHMARK_JUDGE_MODEL` | `claude-sonnet-4-20250514` | Model used for automated judging                   |
+| `BENCHMARK_CONCURRENCY` | `5`                        | Max concurrent judge API calls                     |
 
 ### Examples
 
@@ -347,9 +354,9 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 **If post-processing seems necessary:**
 
 1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does. Do not add post-processing without explicit approval.
-2. **The transformation must be provably safe** — it should only activate when the input is *always* wrong (a true invariant violation), never when the input *might* be correct. If there's any ambiguity about whether the text is a duplicate vs. legitimate content, don't strip it.
+2. **The transformation must be provably safe** — it should only activate when the input is _always_ wrong (a true invariant violation), never when the input _might_ be correct. If there's any ambiguity about whether the text is a duplicate vs. legitimate content, don't strip it.
 3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs. Broad pattern matching or fuzzy heuristics are not acceptable.
-4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected *and* tests that verify it leaves correct completions untouched across a range of realistic inputs.
+4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected _and_ tests that verify it leaves correct completions untouched across a range of realistic inputs.
 5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
 6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or provider level (e.g., adding prefill to a backend that lacked it), remove the corresponding post-processing step. Stale workarounds accumulate risk.
 

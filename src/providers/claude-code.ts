@@ -25,7 +25,10 @@ export function extractOutput(raw: string): string {
  * Extract the completion start from the end of the prefix.
  * Returns the truncated prefix (for display) and the completion start text.
  */
-export function extractCompletionStart(prefix: string): { truncatedPrefix: string; completionStart: string } {
+export function extractCompletionStart(prefix: string): {
+  truncatedPrefix: string;
+  completionStart: string;
+} {
   if (prefix.length <= COMPLETION_START_LENGTH) {
     return { truncatedPrefix: '', completionStart: prefix };
   }
@@ -64,7 +67,10 @@ export function stripCompletionStart(output: string, completionStart: string): s
 }
 
 /** Build the per-request message from prefix + suffix context. */
-export function buildFillMessage(prefix: string, suffix: string): { message: string; completionStart: string } {
+export function buildFillMessage(
+  prefix: string,
+  suffix: string,
+): { message: string; completionStart: string } {
   const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
 
   const currentText = suffix.trim()
@@ -256,7 +262,10 @@ export class ClaudeCodeProvider implements CompletionProvider {
   /** Single-waiter queue: only one request can wait for a slot at a time. */
   private pendingWaiter: ((index: number | null) => void) | null = null;
 
-  constructor(private config: ExtensionConfig, private logger: Logger) {}
+  constructor(
+    private config: ExtensionConfig,
+    private logger: Logger,
+  ) {}
 
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
@@ -272,10 +281,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
     }
 
     this.logger.info('Claude Code: initializing pool...');
-    await Promise.all([
-      this.initSlot(0),
-      this.initSlot(1),
-    ]);
+    await Promise.all([this.initSlot(0), this.initSlot(1)]);
 
     this.logger.info('Claude Code: pool ready (2 slots)');
   }
@@ -285,11 +291,15 @@ export class ClaudeCodeProvider implements CompletionProvider {
   }
 
   async getCompletion(context: CompletionContext, _signal: AbortSignal): Promise<string | null> {
-    if (!this.queryFn) { return null; }
+    if (!this.queryFn) {
+      return null;
+    }
 
     // Acquire an available slot (marks it busy before returning)
     const slotIndex = await this.acquireSlot();
-    if (slotIndex === null) { return null; }
+    if (slotIndex === null) {
+      return null;
+    }
 
     const slot = this.slots[slotIndex];
 
@@ -299,7 +309,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
     this.logger.traceBlock('→ sent', message);
 
     // Guard: slot may have been disposed between acquireSlot and here
-    if (!slot.channel || !slot.resultPromise) { return null; }
+    if (!slot.channel || !slot.resultPromise) {
+      return null;
+    }
 
     // Push the completion request into the slot's channel
     slot.channel.push(message);
@@ -309,7 +321,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
     this.logger.traceBlock('← raw', raw ?? '(null)');
 
-    if (!raw) { return null; }
+    if (!raw) {
+      return null;
+    }
 
     // Extract content from <output> tags
     const extracted = extractOutput(raw);
@@ -320,7 +334,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
     // Strip the completion start from the output
     const stripped = stripCompletionStart(extracted, completionStart);
     if (stripped === null) {
-      this.logger.debug(`completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`);
+      this.logger.debug(
+        `completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`,
+      );
       return null;
     }
     if (stripped !== extracted) {
@@ -361,7 +377,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.pendingWaiter(null);
     }
 
-    this.logger.trace(`waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
+    this.logger.trace(
+      `waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`,
+    );
 
     return new Promise<number | null>((resolve) => {
       this.pendingWaiter = resolve;
@@ -374,7 +392,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
    * The slot is marked busy before notifying the waiter.
    */
   private notifyWaiter(slotIndex: number): boolean {
-    if (!this.pendingWaiter) { return false; }
+    if (!this.pendingWaiter) {
+      return false;
+    }
     const waiter = this.pendingWaiter;
     this.pendingWaiter = null;
     this.slots[slotIndex].state = 'busy';
@@ -404,7 +424,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
   private async loadSdk(): Promise<void> {
     try {
-      if (this.sdkAvailable === false) { return; }
+      if (this.sdkAvailable === false) {
+        return;
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sdk = await (import('@anthropic-ai/claude-agent-sdk') as Promise<any>);
@@ -420,7 +442,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.logger.info('Claude Code: SDK loaded');
     } catch (err) {
       this.sdkAvailable = false;
-      this.logger.error(`Claude Code: Agent SDK not available — provider disabled (${err instanceof Error ? err.stack ?? err.message : err})`);
+      this.logger.error(
+        `Claude Code: Agent SDK not available — provider disabled (${err instanceof Error ? (err.stack ?? err.message) : err})`,
+      );
     }
   }
 
@@ -476,7 +500,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.notifyWaiter(index);
     } catch (err) {
       slot.state = 'dead';
-      this.logger.error(`Claude Code: slot ${index} init failed: ${err instanceof Error ? err.stack ?? err.message : err}`);
+      this.logger.error(
+        `Claude Code: slot ${index} init failed: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
+      );
     }
   }
 
@@ -508,7 +534,8 @@ export class ClaudeCodeProvider implements CompletionProvider {
       for await (const message of stream as AsyncIterable<any>) {
         if (message.type === 'result') {
           resultCount++;
-          const text: string | null = message.subtype === 'success' ? (message.result ?? null) : null;
+          const text: string | null =
+            message.subtype === 'success' ? (message.result ?? null) : null;
 
           if (resultCount === 1) {
             // Warmup result — discard, signal that slot is warm
@@ -523,9 +550,13 @@ export class ClaudeCodeProvider implements CompletionProvider {
           slot.deliverResult?.(text);
 
           // Stop if disposed or hit reuse limit
-          if (slot.state === 'dead') { break; }
+          if (slot.state === 'dead') {
+            break;
+          }
           if (slot.resultCount >= ClaudeCodeProvider.MAX_REUSES) {
-            this.logger.debug(`slot ${slotIndex} reached max reuses (${ClaudeCodeProvider.MAX_REUSES}), recycling`);
+            this.logger.debug(
+              `slot ${slotIndex} reached max reuses (${ClaudeCodeProvider.MAX_REUSES}), recycling`,
+            );
             break;
           }
 
@@ -538,7 +569,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
         }
       }
     } catch (err) {
-      this.logger.error(`Claude Code: stream error on slot ${slotIndex}: ${err instanceof Error ? err.stack ?? err.message : err}`);
+      this.logger.error(
+        `Claude Code: stream error on slot ${slotIndex}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
+      );
       slot.deliverResult?.(null);
       // Also resolve warmup if still pending
       this._warmupResolvers[slotIndex]?.();
@@ -550,7 +583,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
   private recycleSlot(index: number): void {
     const slot = this.slots[index];
-    if (slot.state === 'dead') { return; } // already disposed
+    if (slot.state === 'dead') {
+      return;
+    } // already disposed
 
     slot.state = 'initializing';
 
@@ -565,7 +600,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
     // so consumeStream → recycleSlot → initSlot → consumeStream doesn't recurse
     // synchronously through promise resolution.
     setTimeout(() => {
-      if (this.slots[index].state === 'dead') { return; }
+      if (this.slots[index].state === 'dead') {
+        return;
+      }
       this.initSlot(index).catch((err) => {
         this.logger.error(`Claude Code: slot ${index} recycle failed: ${err}`);
       });

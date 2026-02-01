@@ -34,7 +34,7 @@ Major prompt engineering session to improve Claude Code completion quality. Adde
 
 **Marker rename: `>>>HOLE_TO_FILL<<<` → `>>>GAP_TO_FILL<<<`**
 
-The word "hole" implied something that *must* be filled. "Gap" better conveys that the space might need bridging with substantial content, minimal content, or nothing at all depending on context.
+The word "hole" implied something that _must_ be filled. "Gap" better conveys that the space might need bridging with substantial content, minimal content, or nothing at all depending on context.
 
 **Why not a self-closing XML tag like `<fill/>`?**
 
@@ -42,16 +42,16 @@ Tested earlier — self-closing tags like `<fill/>` caused Claude Code to output
 
 **New examples added (8 total, up from 4):**
 
-| # | Pattern | Teaches |
-|---|---------|---------|
-| 1 | Bullet list (`- `) | Don't repeat marker |
-| 2 | JSON object | Indentation + raw code |
-| 3 | Function body | Indentation + code |
-| 4 | Mid-word (`quic`) | Complete partial word |
-| 5 | Prose bridging | Short phrase fill between prefix/suffix |
-| 6 | After heading | Start prose, not structure |
-| 7 | Numbered list (`3. `) | Don't repeat marker |
-| 8 | Before structured content | Brief lead-in, don't duplicate/elaborate |
+| #   | Pattern                   | Teaches                                  |
+| --- | ------------------------- | ---------------------------------------- |
+| 1   | Bullet list (`- `)        | Don't repeat marker                      |
+| 2   | JSON object               | Indentation + raw code                   |
+| 3   | Function body             | Indentation + code                       |
+| 4   | Mid-word (`quic`)         | Complete partial word                    |
+| 5   | Prose bridging            | Short phrase fill between prefix/suffix  |
+| 6   | After heading             | Start prose, not structure               |
+| 7   | Numbered list (`3. `)     | Don't repeat marker                      |
+| 8   | Before structured content | Brief lead-in, don't duplicate/elaborate |
 
 **New prompt structure:**
 
@@ -102,6 +102,7 @@ Replaced the Claude Code provider's anchor echo strategy with a `${TEXT_TO_FILL}
 ### API research and provider fixes
 
 Deep-dived into both the Anthropic SDK and Ollama API to ensure correct, token-efficient usage. Two research agents ran in parallel. Full findings documented in:
+
 - `docs/anthropic-sdk-reference.md` — prefill behavior, stop sequence constraints, caching limits, timeout config, error classes
 - `docs/ollama-api-reference.md` — raw vs templated mode, FIM via suffix param, keep_alive, KV cache reuse, endpoint selection
 

@@ -70,7 +70,16 @@ const FULL_SCHEMA = {
     },
     projectSummary: { type: 'string' },
   },
-  required: ['filePath', 'generatedAt', 'language', 'imports', 'typeContext', 'patterns', 'relatedSymbols', 'projectSummary'],
+  required: [
+    'filePath',
+    'generatedAt',
+    'language',
+    'imports',
+    'typeContext',
+    'patterns',
+    'relatedSymbols',
+    'projectSummary',
+  ],
 };
 
 function buildPrompt(filePath: string, content: string): string {
@@ -147,7 +156,8 @@ async function main() {
     },
     {
       label: 'E: Structured output (json_schema) + no thinking',
-      systemPrompt: 'Analyze the given file and extract imports, types, patterns, and related symbols.',
+      systemPrompt:
+        'Analyze the given file and extract imports, types, patterns, and related symbols.',
       prompt: buildPrompt(TARGET_FILE, TARGET_CONTENT),
       tools: [],
       maxThinkingTokens: 0,
@@ -155,7 +165,13 @@ async function main() {
     },
   ];
 
-  const results: { label: string; wallMs: number; chars: number; validJson: boolean; turns: number }[] = [];
+  const results: {
+    label: string;
+    wallMs: number;
+    chars: number;
+    validJson: boolean;
+    turns: number;
+  }[] = [];
 
   for (const config of configs) {
     console.log(`${config.label}...`);
@@ -204,10 +220,14 @@ async function main() {
       }
       JSON.parse(cleaned);
       validJson = true;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     results.push({ label: config.label, wallMs, chars: resultText.length, validJson, turns });
-    console.log(`  ${wallMs}ms | ${turns}t | ${resultText.length} chars | JSON: ${validJson ? 'valid' : 'INVALID'}`);
+    console.log(
+      `  ${wallMs}ms | ${turns}t | ${resultText.length} chars | JSON: ${validJson ? 'valid' : 'INVALID'}`,
+    );
     if (!validJson && resultText.length > 0) {
       console.log(`  preview: ${resultText.substring(0, 200)}`);
     }

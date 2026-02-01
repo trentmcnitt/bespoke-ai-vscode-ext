@@ -16,7 +16,7 @@ const CACHE_MIN_TOKENS: Record<string, number> = {
   'haiku-4.5': 4096,
   'opus-4-5': 4096,
   'opus-4.5': 4096,
-  'sonnet': 1024,
+  sonnet: 1024,
   'opus-4': 1024,
   'opus-4-1': 1024,
   'opus-4.1': 1024,
@@ -35,12 +35,20 @@ function estimateTokens(text: string): number {
 function getMinCacheableTokens(model: string): number {
   const lower = model.toLowerCase();
   for (const [fragment, min] of Object.entries(CACHE_MIN_TOKENS)) {
-    if (lower.includes(fragment)) { return min; }
+    if (lower.includes(fragment)) {
+      return min;
+    }
   }
   return 1024;
 }
 
-export type TokenUsageCallback = (model: string, input: number, output: number, cacheRead: number, cacheWrite: number) => void;
+export type TokenUsageCallback = (
+  model: string,
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheWrite: number,
+) => void;
 
 export class AnthropicProvider implements CompletionProvider {
   private client: Anthropic | null = null;
@@ -48,7 +56,11 @@ export class AnthropicProvider implements CompletionProvider {
   private getBrief: ((filePath: string) => ContextBrief | null) | null;
   private onTokenUsage: TokenUsageCallback | null = null;
 
-  constructor(private config: ExtensionConfig, private logger: Logger, getBrief?: (filePath: string) => ContextBrief | null) {
+  constructor(
+    private config: ExtensionConfig,
+    private logger: Logger,
+    getBrief?: (filePath: string) => ContextBrief | null,
+  ) {
     this.promptBuilder = new PromptBuilder();
     this.getBrief = getBrief ?? null;
     this.initClient();
@@ -61,7 +73,9 @@ export class AnthropicProvider implements CompletionProvider {
   updateConfig(config: ExtensionConfig): void {
     const keyChanged = config.anthropic.apiKey !== this.config.anthropic.apiKey;
     this.config = config;
-    if (keyChanged) { this.initClient(); }
+    if (keyChanged) {
+      this.initClient();
+    }
   }
 
   private initClient(): void {
@@ -81,7 +95,9 @@ export class AnthropicProvider implements CompletionProvider {
   }
 
   async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
-    if (!this.client || !this.config.anthropic.apiCallsEnabled) { return null; }
+    if (!this.client || !this.config.anthropic.apiCallsEnabled) {
+      return null;
+    }
 
     const prompt = this.promptBuilder.buildPrompt(context, this.config);
 
@@ -97,7 +113,9 @@ export class AnthropicProvider implements CompletionProvider {
 
       this.logger.traceBlock('← raw', raw ?? '(null)');
 
-      if (!raw) { return null; }
+      if (!raw) {
+        return null;
+      }
 
       const result = postProcessCompletion(raw, context.prefix, context.suffix);
 
@@ -108,8 +126,12 @@ export class AnthropicProvider implements CompletionProvider {
       return result;
     } catch (err: unknown) {
       // Abort errors — normal during typing, not worth logging
-      if (err instanceof Anthropic.APIUserAbortError) { return null; }
-      if (err instanceof Error && err.name === 'AbortError') { return null; }
+      if (err instanceof Anthropic.APIUserAbortError) {
+        return null;
+      }
+      if (err instanceof Error && err.name === 'AbortError') {
+        return null;
+      }
       // API errors — differentiate rate limit / overload from other errors
       if (err instanceof Anthropic.APIError) {
         if (err.status === 429) {
@@ -127,12 +149,16 @@ export class AnthropicProvider implements CompletionProvider {
     }
   }
 
-  private async callApi(prompt: BuiltPrompt, signal: AbortSignal, filePath?: string): Promise<string | null> {
-    if (!this.client) { return null; }
+  private async callApi(
+    prompt: BuiltPrompt,
+    signal: AbortSignal,
+    filePath?: string,
+  ): Promise<string | null> {
+    if (!this.client) {
+      return null;
+    }
 
-    const messages: Anthropic.MessageParam[] = [
-      { role: 'user', content: prompt.userMessage },
-    ];
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt.userMessage }];
 
     if (prompt.assistantPrefill) {
       messages.push({ role: 'assistant', content: prompt.assistantPrefill });
@@ -148,7 +174,10 @@ export class AnthropicProvider implements CompletionProvider {
     const shouldCache = this.config.anthropic.useCaching && totalEstimatedTokens >= minTokens;
 
     if (this.config.anthropic.useCaching && !shouldCache) {
-      this.logger.traceInline('caching', `skipped (~${totalEstimatedTokens} tokens < ${minTokens} min)`);
+      this.logger.traceInline(
+        'caching',
+        `skipped (~${totalEstimatedTokens} tokens < ${minTokens} min)`,
+      );
     }
 
     // Static system prompt first — stable across requests, cached as a prefix automatically
@@ -168,7 +197,9 @@ export class AnthropicProvider implements CompletionProvider {
             text: briefText,
           };
           if (shouldCache) {
-            (briefBlock as Anthropic.TextBlockParam & { cache_control?: { type: string } }).cache_control = { type: 'ephemeral' };
+            (
+              briefBlock as Anthropic.TextBlockParam & { cache_control?: { type: string } }
+            ).cache_control = { type: 'ephemeral' };
           }
           systemBlocks.push(briefBlock);
           this.logger.traceInline('oracle brief', `${briefText.length} chars`);
@@ -183,7 +214,7 @@ export class AnthropicProvider implements CompletionProvider {
         temperature: prompt.temperature,
         // Anthropic rejects stop sequences that are purely whitespace.
         // Filter them out — the system prompt + maxTokens constrain output length instead.
-        stop_sequences: prompt.stopSequences.filter(s => /\S/.test(s)),
+        stop_sequences: prompt.stopSequences.filter((s) => /\S/.test(s)),
         system: systemBlocks,
         messages,
       },
@@ -197,11 +228,20 @@ export class AnthropicProvider implements CompletionProvider {
       const cacheWrite = (usageAny.cache_creation_input_tokens as number) ?? 0;
       const uncached = usage.input_tokens;
       const totalInput = cacheRead + cacheWrite + uncached;
-      const hitRate = totalInput > 0 ? (cacheRead / totalInput * 100).toFixed(1) : '0.0';
+      const hitRate = totalInput > 0 ? ((cacheRead / totalInput) * 100).toFixed(1) : '0.0';
 
-      this.logger.traceInline('tokens', `in=${uncached} out=${usage.output_tokens} cache=${cacheRead}r/${cacheWrite}w (${hitRate}% hit)`);
+      this.logger.traceInline(
+        'tokens',
+        `in=${uncached} out=${usage.output_tokens} cache=${cacheRead}r/${cacheWrite}w (${hitRate}% hit)`,
+      );
 
-      this.onTokenUsage?.(this.config.anthropic.model, uncached, usage.output_tokens, cacheRead, cacheWrite);
+      this.onTokenUsage?.(
+        this.config.anthropic.model,
+        uncached,
+        usage.output_tokens,
+        cacheRead,
+        cacheWrite,
+      );
     }
 
     const block = response.content[0];

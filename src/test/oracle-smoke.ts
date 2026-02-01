@@ -52,8 +52,13 @@ async function main() {
 
   // Step 2: Cold warmup — measures process spawn + init
   console.log('2. Cold warmup (trivial prompt, no tools)...');
-  const warmup = await runQuery(queryFn, 'Respond with just the word "ready".', { model, tools: [] });
-  console.log(`   ✓ "${warmup.text.trim()}" — ${warmup.durationMs}ms (SDK reports ${warmup.sdkDurationMs}ms)\n`);
+  const warmup = await runQuery(queryFn, 'Respond with just the word "ready".', {
+    model,
+    tools: [],
+  });
+  console.log(
+    `   ✓ "${warmup.text.trim()}" — ${warmup.durationMs}ms (SDK reports ${warmup.sdkDurationMs}ms)\n`,
+  );
 
   // Step 3: Analyze file #1 (first real query after warmup)
   const files = ['src/utils/cache.ts', 'src/providers/anthropic.ts', 'src/utils/post-process.ts'];
@@ -66,7 +71,9 @@ async function main() {
     const label = i === 0 ? 'First analysis (post-warmup)' : `Analysis #${i + 1}`;
 
     console.log(`${i + 3}. ${label}: ${file}...`);
-    const result = await runQuery(queryFn, buildAnalysisPrompt(file, content, 'typescript'), { model });
+    const result = await runQuery(queryFn, buildAnalysisPrompt(file, content, 'typescript'), {
+      model,
+    });
     results.push({ file, result });
 
     // Validate JSON
@@ -86,7 +93,9 @@ async function main() {
     const imports = Array.isArray(parsed.imports) ? parsed.imports.length : 0;
     const types = Array.isArray(parsed.typeContext) ? parsed.typeContext.length : 0;
     const symbols = Array.isArray(parsed.relatedSymbols) ? parsed.relatedSymbols.length : 0;
-    console.log(`   ✓ ${result.durationMs}ms | ${result.turns} turn(s) | ${result.toolCalls.length} tool calls | $${result.cost.toFixed(4)}`);
+    console.log(
+      `   ✓ ${result.durationMs}ms | ${result.turns} turn(s) | ${result.toolCalls.length} tool calls | $${result.cost.toFixed(4)}`,
+    );
     console.log(`     ${imports} imports, ${types} types, ${symbols} symbols`);
     if (result.toolCalls.length > 0) {
       console.log(`     tools: ${result.toolCalls.join(', ')}`);

@@ -20,9 +20,9 @@ export default [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       'no-console': 'off',
-      'eqeqeq': ['error', 'always'],
+      eqeqeq: ['error', 'always'],
       'no-throw-literal': 'error',
-      'semi': ['error', 'always'],
+      semi: ['error', 'always'],
     },
   },
   {

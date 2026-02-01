@@ -1,7 +1,11 @@
 import { buildDocumentContext } from '../../utils/context-builder';
 
 /** Minimal mock of vscode.TextDocument for unit testing. */
-function makeDocument(text: string, languageId = 'markdown', fileName = '/home/user/docs/story.md') {
+function makeDocument(
+  text: string,
+  languageId = 'markdown',
+  fileName = '/home/user/docs/story.md',
+) {
   return {
     getText: () => text,
     offsetAt: (pos: { line: number; character: number }) => {

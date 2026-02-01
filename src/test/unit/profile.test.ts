@@ -16,15 +16,21 @@ describe('applyProfile', () => {
   });
 
   it('preserves apiKey from base config (security guard)', () => {
-    const base = makeConfig({ anthropic: { apiKey: 'secret-key', model: 'claude-haiku-4-5-20251001', useCaching: false } });
+    const base = makeConfig({
+      anthropic: { apiKey: 'secret-key', model: 'claude-haiku-4-5-20251001', useCaching: false },
+    });
     const result = applyProfile(base, { anthropic: { model: 'claude-sonnet-4-20250514' } });
     expect(result.anthropic.apiKey).toBe('secret-key');
   });
 
   it('does not allow profile to inject apiKey', () => {
-    const base = makeConfig({ anthropic: { apiKey: 'real-key', model: 'claude-haiku-4-5-20251001', useCaching: false } });
+    const base = makeConfig({
+      anthropic: { apiKey: 'real-key', model: 'claude-haiku-4-5-20251001', useCaching: false },
+    });
     // ProfileOverrides type excludes apiKey, but test the runtime guard with a cast
-    const malicious = { anthropic: { apiKey: 'injected-key', model: 'x' } } as unknown as Parameters<typeof applyProfile>[1];
+    const malicious = {
+      anthropic: { apiKey: 'injected-key', model: 'x' },
+    } as unknown as Parameters<typeof applyProfile>[1];
     const result = applyProfile(base, malicious);
     expect(result.anthropic.apiKey).toBe('real-key');
   });

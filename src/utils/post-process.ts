@@ -5,11 +5,15 @@
  * false positives on common short phrases).
  */
 function trimSuffixOverlap(completion: string, suffix: string): string {
-  if (!suffix) { return completion; }
+  if (!suffix) {
+    return completion;
+  }
 
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
   const normSuffix = norm(suffix);
-  if (!normSuffix) { return completion; }
+  if (!normSuffix) {
+    return completion;
+  }
 
   // Try cutting the completion at each sentence/clause boundary and check
   // if the remainder matches the start of the suffix.
@@ -27,7 +31,9 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
     }
   }
 
-  if (bestNormLen === 0) { return completion; }
+  if (bestNormLen === 0) {
+    return completion;
+  }
 
   // Find where in the original completion the overlapping text starts.
   // The overlapping normalized text is normCompletion.slice(-bestNormLen).
@@ -35,12 +41,14 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
   // original completion to find the cut point.
   const overlapText = normCompletion.slice(-bestNormLen);
   let oi = overlapText.length - 1; // index into overlap text (from end)
-  let ci = completion.length - 1;  // index into original completion (from end)
+  let ci = completion.length - 1; // index into original completion (from end)
 
   while (oi >= 0 && ci >= 0) {
     if (/\s/.test(overlapText[oi])) {
       // Skip whitespace in original
-      while (ci >= 0 && /\s/.test(completion[ci])) { ci--; }
+      while (ci >= 0 && /\s/.test(completion[ci])) {
+        ci--;
+      }
       oi--;
     } else {
       // Must match non-whitespace char
@@ -92,7 +100,11 @@ function trimPrefixOverlap(completion: string, prefix: string): string {
  * 2. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
  * 3. Return null for empty results so callers get a clean "no completion" signal.
  */
-export function postProcessCompletion(text: string, prefix?: string, suffix?: string): string | null {
+export function postProcessCompletion(
+  text: string,
+  prefix?: string,
+  suffix?: string,
+): string | null {
   let result = text;
 
   if (prefix) {

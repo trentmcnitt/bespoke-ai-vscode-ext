@@ -19,7 +19,9 @@ export function createMessageChannel(): MessageChannel {
           if (done) {
             return Promise.resolve({ value: undefined, done: true });
           }
-          return new Promise((r) => { resolve = r; });
+          return new Promise((r) => {
+            resolve = r;
+          });
         },
         return(): Promise<IteratorResult<unknown>> {
           done = true;

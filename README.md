@@ -12,22 +12,24 @@ The extension auto-detects whether you're writing prose or code and adjusts its 
 
 ### Three Modes
 
-| Mode | Activates for | Strategy |
-|---|---|---|
+| Mode      | Activates for                                        | Strategy                                                                                                             |
+| --------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **Prose** | `markdown`, `plaintext`, `latex`, `restructuredtext` | Continuation-style prompting. "Continue this text naturally." Uses Anthropic prefill to force seamless continuation. |
-| **Code** | All recognized programming languages | FIM-style with prefix + suffix context. Language-aware (filename, language ID in system prompt). |
-| **Auto** | Default | Auto-selects prose or code based on `document.languageId`. Unrecognized languages default to prose. |
+| **Code**  | All recognized programming languages                 | FIM-style with prefix + suffix context. Language-aware (filename, language ID in system prompt).                     |
+| **Auto**  | Default                                              | Auto-selects prose or code based on `document.languageId`. Unrecognized languages default to prose.                  |
 
 The mode is auto-detected but can be overridden via settings or by clicking the status bar item to cycle through `auto → prose → code → auto`.
 
 ### Two Backends
 
 **Anthropic Claude** — Cloud API via `@anthropic-ai/sdk`. Features:
+
 - Assistant prefill for prose mode (forces natural continuation by seeding the response with the last 4 words of your text)
 - Prompt caching headers sent (`cache_control: { type: "ephemeral" }`), though caching likely does not activate — Anthropic requires 1,024+ token cached prefix and our system prompts are ~50 tokens. See `docs/anthropic-sdk-reference.md`.
 - Default model: `claude-haiku-4-5-20251001`
 
 **Ollama** — Local inference via HTTP API. Features:
+
 - Prose uses raw mode (`raw: true`) for direct text continuation; code FIM uses templated mode with native `suffix` parameter
 - No SDK dependency — uses native `fetch`
 - Default model: `qwen2.5:3b`
@@ -75,57 +77,57 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 ### General
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | boolean | `true` | Master on/off toggle |
-| `backend` | `"anthropic"` \| `"ollama"` | `"anthropic"` | Which backend to use |
-| `mode` | `"auto"` \| `"prose"` \| `"code"` | `"auto"` | Completion mode (auto-detects by default) |
-| `debounceMs` | number | `300` | Delay before triggering a completion |
+| Setting      | Type                              | Default       | Description                               |
+| ------------ | --------------------------------- | ------------- | ----------------------------------------- |
+| `enabled`    | boolean                           | `true`        | Master on/off toggle                      |
+| `backend`    | `"anthropic"` \| `"ollama"`       | `"anthropic"` | Which backend to use                      |
+| `mode`       | `"auto"` \| `"prose"` \| `"code"` | `"auto"`      | Completion mode (auto-detects by default) |
+| `debounceMs` | number                            | `300`         | Delay before triggering a completion      |
 
 ### Anthropic
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `anthropic.apiKey` | string | `""` | Anthropic API key for Claude completions |
-| `anthropic.model` | string | `"claude-haiku-4-5-20251001"` | Model ID. See `anthropic.models` for available options. |
-| `anthropic.models` | string[] | `["claude-haiku-4-5-20251001", ...]` | Available Anthropic models |
-| `anthropic.useCaching` | boolean | `true` | Enable prompt caching |
+| Setting                | Type     | Default                              | Description                                             |
+| ---------------------- | -------- | ------------------------------------ | ------------------------------------------------------- |
+| `anthropic.apiKey`     | string   | `""`                                 | Anthropic API key for Claude completions                |
+| `anthropic.model`      | string   | `"claude-haiku-4-5-20251001"`        | Model ID. See `anthropic.models` for available options. |
+| `anthropic.models`     | string[] | `["claude-haiku-4-5-20251001", ...]` | Available Anthropic models                              |
+| `anthropic.useCaching` | boolean  | `true`                               | Enable prompt caching                                   |
 
 ### Ollama
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `ollama.endpoint` | string | `"http://localhost:11434"` | Ollama API URL |
-| `ollama.model` | string | `"qwen2.5:3b"` | Model name. See `ollama.models` for available options. |
-| `ollama.models` | string[] | `["qwen2.5:3b", ...]` | Available Ollama models |
-| `ollama.raw` | boolean | `true` | Use raw mode (no chat template) |
+| Setting           | Type     | Default                    | Description                                            |
+| ----------------- | -------- | -------------------------- | ------------------------------------------------------ |
+| `ollama.endpoint` | string   | `"http://localhost:11434"` | Ollama API URL                                         |
+| `ollama.model`    | string   | `"qwen2.5:3b"`             | Model name. See `ollama.models` for available options. |
+| `ollama.models`   | string[] | `["qwen2.5:3b", ...]`      | Available Ollama models                                |
+| `ollama.raw`      | boolean  | `true`                     | Use raw mode (no chat template)                        |
 
 ### Prose Mode
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `prose.maxTokens` | number | `100` | Max tokens per completion |
-| `prose.temperature` | number | `0.7` | Sampling temperature |
-| `prose.stopSequences` | string[] | `["\n\n", "---", "##"]` | Stop sequences |
-| `prose.contextChars` | number | `2000` | Prefix context window |
-| `prose.fileTypes` | string[] | `["markdown", "plaintext"]` | Additional language IDs to treat as prose |
+| Setting               | Type     | Default                     | Description                               |
+| --------------------- | -------- | --------------------------- | ----------------------------------------- |
+| `prose.maxTokens`     | number   | `100`                       | Max tokens per completion                 |
+| `prose.temperature`   | number   | `0.7`                       | Sampling temperature                      |
+| `prose.stopSequences` | string[] | `["\n\n", "---", "##"]`     | Stop sequences                            |
+| `prose.contextChars`  | number   | `2000`                      | Prefix context window                     |
+| `prose.fileTypes`     | string[] | `["markdown", "plaintext"]` | Additional language IDs to treat as prose |
 
 ### Code Mode
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `code.maxTokens` | number | `256` | Max tokens per completion |
-| `code.temperature` | number | `0.2` | Sampling temperature |
-| `code.stopSequences` | string[] | `["\n\n"]` | Stop sequences |
-| `code.contextChars` | number | `4000` | Prefix context window |
+| Setting              | Type     | Default    | Description               |
+| -------------------- | -------- | ---------- | ------------------------- |
+| `code.maxTokens`     | number   | `256`      | Max tokens per completion |
+| `code.temperature`   | number   | `0.2`      | Sampling temperature      |
+| `code.stopSequences` | string[] | `["\n\n"]` | Stop sequences            |
+| `code.contextChars`  | number   | `4000`     | Prefix context window     |
 
 ## Commands & Keybindings
 
-| Command | Keybinding | Description |
-|---|---|---|
-| `Bespoke AI: Trigger Completion` | `Ctrl+L` | Manually trigger a completion |
-| `Bespoke AI: Toggle Enabled` | — | Toggle the extension on/off |
-| `Bespoke AI: Cycle Mode` | Click status bar | Cycle through auto → prose → code |
+| Command                          | Keybinding       | Description                       |
+| -------------------------------- | ---------------- | --------------------------------- |
+| `Bespoke AI: Trigger Completion` | `Ctrl+L`         | Manually trigger a completion     |
+| `Bespoke AI: Toggle Enabled`     | —                | Toggle the extension on/off       |
+| `Bespoke AI: Cycle Mode`         | Click status bar | Cycle through auto → prose → code |
 
 ## Setup
 
@@ -212,13 +214,13 @@ The architecture is an **Action Registry** — each action is an ID, a prompt te
 
 ### Output Modes
 
-| Mode | Use case |
-|---|---|
-| **Side panel** (Webview, renders Markdown) | Explanations, summaries, analysis |
-| **Inline replace** (with undo) | Rephrase, fix errors, expand |
-| **Diff preview** (accept/reject) | Rewrites where you want to compare before/after |
-| **New document tab** | Long outputs like outlines, document digests |
-| **Notification/hover** | Short answers, quick definitions |
+| Mode                                       | Use case                                        |
+| ------------------------------------------ | ----------------------------------------------- |
+| **Side panel** (Webview, renders Markdown) | Explanations, summaries, analysis               |
+| **Inline replace** (with undo)             | Rephrase, fix errors, expand                    |
+| **Diff preview** (accept/reject)           | Rewrites where you want to compare before/after |
+| **New document tab**                       | Long outputs like outlines, document digests    |
+| **Notification/hover**                     | Short answers, quick definitions                |
 
 ### Selection Actions (Right-Click Menu)
 

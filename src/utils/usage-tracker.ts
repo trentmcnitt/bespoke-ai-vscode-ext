@@ -15,11 +15,11 @@ interface ModelPricing {
 }
 
 const ANTHROPIC_PRICING: Record<string, ModelPricing> = {
-  'haiku-4-5': { input: 0.80, output: 4.00, cacheRead: 0.08, cacheWrite: 1.00 },
-  'haiku-4.5': { input: 0.80, output: 4.00, cacheRead: 0.08, cacheWrite: 1.00 },
-  'sonnet':    { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
-  'opus-4':    { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },
-  'opus-4.5':  { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },
+  'haiku-4-5': { input: 0.8, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
+  'haiku-4.5': { input: 0.8, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
+  sonnet: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+  'opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
+  'opus-4.5': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
 };
 
 const DEFAULT_PRICING: ModelPricing = ANTHROPIC_PRICING['haiku-4-5'];
@@ -27,7 +27,9 @@ const DEFAULT_PRICING: ModelPricing = ANTHROPIC_PRICING['haiku-4-5'];
 function getPricing(model: string): ModelPricing {
   const lower = model.toLowerCase();
   for (const [fragment, pricing] of Object.entries(ANTHROPIC_PRICING)) {
-    if (lower.includes(fragment)) { return pricing; }
+    if (lower.includes(fragment)) {
+      return pricing;
+    }
   }
   return DEFAULT_PRICING;
 }
@@ -80,7 +82,13 @@ export class UsageTracker {
     this._errors++;
   }
 
-  recordTokens(model: string, input: number, output: number, cacheRead: number, cacheWrite: number): void {
+  recordTokens(
+    model: string,
+    input: number,
+    output: number,
+    cacheRead: number,
+    cacheWrite: number,
+  ): void {
     this._tokens.input += input;
     this._tokens.output += output;
     this._tokens.cacheRead += cacheRead;
@@ -101,9 +109,9 @@ export class UsageTracker {
     todayStart.setHours(0, 0, 0, 0);
     const midnightMs = todayStart.getTime();
 
-    const todayEntries = this.entries.filter(e => e.time >= midnightMs);
+    const todayEntries = this.entries.filter((e) => e.time >= midnightMs);
     const windowStart = now - this.rateWindowMs;
-    const windowEntries = this.entries.filter(e => e.time >= windowStart);
+    const windowEntries = this.entries.filter((e) => e.time >= windowStart);
 
     const windowMinutes = this.rateWindowMs / 60_000;
     const ratePerMinute = windowEntries.length / windowMinutes;
@@ -116,12 +124,11 @@ export class UsageTracker {
     }
 
     const totalCacheLookups = this._cacheHits + this._cacheMisses;
-    const cacheHitRate = totalCacheLookups > 0
-      ? Math.round((this._cacheHits / totalCacheLookups) * 100)
-      : 0;
+    const cacheHitRate =
+      totalCacheLookups > 0 ? Math.round((this._cacheHits / totalCacheLookups) * 100) : 0;
 
     // Prune entries older than midnight to bound memory
-    this.entries = this.entries.filter(e => e.time >= midnightMs);
+    this.entries = this.entries.filter((e) => e.time >= midnightMs);
 
     return {
       totalToday: todayEntries.length,

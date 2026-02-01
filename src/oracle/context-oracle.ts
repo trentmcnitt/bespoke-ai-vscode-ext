@@ -29,7 +29,11 @@ Rules:
 - ALL arrays must be present (use empty arrays if nothing found)
 - Output ONLY the JSON object, nothing else`;
 
-export function buildAnalysisPrompt(filePath: string, fileContent: string, languageId: string): string {
+export function buildAnalysisPrompt(
+  filePath: string,
+  fileContent: string,
+  languageId: string,
+): string {
   return `Analyze this file for inline completion context. The file content is below — do NOT re-read it.
 Only use tools to look up imported modules' type signatures (Read the specific files referenced in imports). Do not explore broadly — be targeted.
 Limit yourself to at most 3 tool calls total.
@@ -76,7 +80,12 @@ function extractImports(parsed: any): ContextBrief['imports'] {
     return parsed.imports;
   }
   const deps: ContextBrief['imports'] = [];
-  for (const key of ['dependencies', 'internalDependencies', 'externalDependencies', 'requiredModules']) {
+  for (const key of [
+    'dependencies',
+    'internalDependencies',
+    'externalDependencies',
+    'requiredModules',
+  ]) {
     const val = parsed[key];
     if (Array.isArray(val)) {
       for (const item of val) {
@@ -111,11 +120,23 @@ function extractImports(parsed: any): ContextBrief['imports'] {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractTypeContext(parsed: any): ContextBrief['typeContext'] {
-  if (Array.isArray(parsed.typeContext) && parsed.typeContext.length > 0 && parsed.typeContext[0]?.name) {
+  if (
+    Array.isArray(parsed.typeContext) &&
+    parsed.typeContext.length > 0 &&
+    parsed.typeContext[0]?.name
+  ) {
     return parsed.typeContext;
   }
   const types: ContextBrief['typeContext'] = [];
-  for (const key of ['keyTypes', 'keyComponents', 'types', 'primaryExports', 'mainExports', 'exports', 'codeStructure']) {
+  for (const key of [
+    'keyTypes',
+    'keyComponents',
+    'types',
+    'primaryExports',
+    'mainExports',
+    'exports',
+    'codeStructure',
+  ]) {
     const val = parsed[key];
     if (Array.isArray(val)) {
       for (const item of val) {
@@ -138,7 +159,13 @@ function extractPatterns(parsed: any): string[] {
   if (Array.isArray(parsed.patterns)) {
     return parsed.patterns.map(itemToString);
   }
-  for (const key of ['notes', 'conventions', 'usagePatterns', 'keyDetails', 'notableImplementationDetails']) {
+  for (const key of [
+    'notes',
+    'conventions',
+    'usagePatterns',
+    'keyDetails',
+    'notableImplementationDetails',
+  ]) {
     if (Array.isArray(parsed[key])) {
       return parsed[key].map(itemToString);
     }
@@ -147,7 +174,9 @@ function extractPatterns(parsed: any): string[] {
 }
 
 function itemToString(p: unknown): string {
-  if (typeof p === 'string') { return p; }
+  if (typeof p === 'string') {
+    return p;
+  }
   if (p && typeof p === 'object') {
     const obj = p as Record<string, unknown>;
     return String(obj.name ?? obj.pattern ?? obj.description ?? JSON.stringify(p));
@@ -157,11 +186,22 @@ function itemToString(p: unknown): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractRelatedSymbols(parsed: any): ContextBrief['relatedSymbols'] {
-  if (Array.isArray(parsed.relatedSymbols) && parsed.relatedSymbols.length > 0 && parsed.relatedSymbols[0]?.name) {
+  if (
+    Array.isArray(parsed.relatedSymbols) &&
+    parsed.relatedSymbols.length > 0 &&
+    parsed.relatedSymbols[0]?.name
+  ) {
     return parsed.relatedSymbols;
   }
   const symbols: ContextBrief['relatedSymbols'] = [];
-  for (const key of ['usedBy', 'relatedContext', 'relatedFiles', 'configSurface', 'testCoverage', 'architecture']) {
+  for (const key of [
+    'usedBy',
+    'relatedContext',
+    'relatedFiles',
+    'configSurface',
+    'testCoverage',
+    'architecture',
+  ]) {
     const val = parsed[key];
     if (Array.isArray(val)) {
       for (const item of val) {
@@ -184,9 +224,15 @@ function extractRelatedSymbols(parsed: any): ContextBrief['relatedSymbols'] {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractSummary(parsed: any): string {
-  if (typeof parsed.projectSummary === 'string') { return parsed.projectSummary; }
-  if (typeof parsed.summary === 'string') { return parsed.summary; }
-  if (typeof parsed.purpose === 'string') { return parsed.purpose; }
+  if (typeof parsed.projectSummary === 'string') {
+    return parsed.projectSummary;
+  }
+  if (typeof parsed.summary === 'string') {
+    return parsed.summary;
+  }
+  if (typeof parsed.purpose === 'string') {
+    return parsed.purpose;
+  }
   return '';
 }
 
@@ -225,12 +271,12 @@ export class ContextOracle {
     context.subscriptions.push(
       vscode.workspace.onDidOpenTextDocument((doc) => {
         this.onFileEvent(doc.uri.fsPath, doc.getText(), doc.languageId);
-      })
+      }),
     );
     context.subscriptions.push(
       vscode.workspace.onDidSaveTextDocument((doc) => {
         this.onFileEvent(doc.uri.fsPath, doc.getText(), doc.languageId);
-      })
+      }),
     );
     context.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -238,7 +284,7 @@ export class ContextOracle {
           const doc = editor.document;
           this.onFileEvent(doc.uri.fsPath, doc.getText(), doc.languageId);
         }
-      })
+      }),
     );
 
     // Load SDK in background
@@ -274,7 +320,9 @@ export class ContextOracle {
   }
 
   private async runQuery(prompt: string, signal: AbortSignal): Promise<string> {
-    if (!this.queryFn) { throw new Error('No SDK'); }
+    if (!this.queryFn) {
+      throw new Error('No SDK');
+    }
 
     const ac = new AbortController();
     // Forward external abort to query's AbortController
@@ -301,7 +349,9 @@ export class ContextOracle {
 
       let result = '';
       for await (const message of stream) {
-        if (signal.aborted) { break; }
+        if (signal.aborted) {
+          break;
+        }
         if (message.type === 'result' && message.subtype === 'success') {
           result = message.result ?? '';
         }
@@ -356,34 +406,43 @@ export class ContextOracle {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutTimer = setTimeout(() => reject(new Error('Oracle analysis timeout')), 30000);
         signal.addEventListener('abort', () => {
-          if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+          if (timeoutTimer) {
+            clearTimeout(timeoutTimer);
+            timeoutTimer = null;
+          }
           reject(new Error('Aborted'));
         });
       });
 
       let responseText: string;
       try {
-        responseText = await Promise.race([
-          this.runQuery(prompt, signal),
-          timeoutPromise,
-        ]);
+        responseText = await Promise.race([this.runQuery(prompt, signal), timeoutPromise]);
       } finally {
-        if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
       }
 
-      if (signal.aborted) { return; }
+      if (signal.aborted) {
+        return;
+      }
 
       const brief = parseResponse(responseText, filePath);
       if (brief) {
         this.store.set(filePath, brief);
-        this.logger.debug(`Oracle: Brief generated for ${filePath} (${brief.imports.length} imports, ${brief.typeContext.length} types, ${brief.relatedSymbols.length} symbols)`);
+        this.logger.debug(
+          `Oracle: Brief generated for ${filePath} (${brief.imports.length} imports, ${brief.typeContext.length} types, ${brief.relatedSymbols.length} symbols)`,
+        );
       } else {
         this.logger.debug(`Oracle: Failed to parse response for ${filePath}`);
       }
 
       this.status = 'ready';
     } catch (err) {
-      if (signal.aborted) { return; }
+      if (signal.aborted) {
+        return;
+      }
 
       const message = err instanceof Error ? err.message : String(err);
       if (message === 'Oracle analysis timeout') {

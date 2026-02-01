@@ -66,10 +66,14 @@ async function main() {
   });
 
   // Track state for the background consumer
-  let currentResultResolve: ((value: { text: string; turns: number; toolCalls: string[] }) => void) | null = null;
+  let currentResultResolve:
+    | ((value: { text: string; turns: number; toolCalls: string[] }) => void)
+    | null = null;
   let initReceived = false;
   let initResolve: (() => void) | null = null;
-  const initPromise = new Promise<void>((r) => { initResolve = r; });
+  const initPromise = new Promise<void>((r) => {
+    initResolve = r;
+  });
 
   // Background stream consumer
   const consumer = (async () => {
@@ -81,7 +85,9 @@ async function main() {
       for await (const message of stream) {
         if (message.type === 'system' && message.subtype === 'init') {
           const elapsed = Date.now() - overallStart;
-          console.log(`  [init] ${elapsed}ms — model=${message.model}, tools=[${message.tools?.join(', ')}]`);
+          console.log(
+            `  [init] ${elapsed}ms — model=${message.model}, tools=[${message.tools?.join(', ')}]`,
+          );
           initReceived = true;
           initResolve?.();
           continue;
@@ -187,11 +193,22 @@ async function main() {
       }
       JSON.parse(cleaned);
       validJson = true;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
-    const t: Timing = { label, wallMs, turns: result.turns, toolCalls: result.toolCalls, chars: result.text.length, validJson };
+    const t: Timing = {
+      label,
+      wallMs,
+      turns: result.turns,
+      toolCalls: result.toolCalls,
+      chars: result.text.length,
+      validJson,
+    };
     timings.push(t);
-    console.log(`   ${t.wallMs}ms | ${t.turns}t | ${t.toolCalls.length} tools | JSON: ${t.validJson ? 'valid' : 'INVALID'} | ${t.chars} chars`);
+    console.log(
+      `   ${t.wallMs}ms | ${t.turns}t | ${t.toolCalls.length} tools | JSON: ${t.validJson ? 'valid' : 'INVALID'} | ${t.chars} chars`,
+    );
     if (t.toolCalls.length > 0) {
       console.log(`   tools: ${t.toolCalls.join(', ')}`);
     }
@@ -228,10 +245,12 @@ async function main() {
     console.log(`${l} | ${w} | ${tu} | ${tc} | ${j}`);
   }
 
-  const analyses = timings.filter(t => t.label.startsWith('analysis'));
-  const trivials = timings.filter(t => t.label.startsWith('trivial'));
-  const avgAnalysis = analyses.length > 0 ? analyses.reduce((s, t) => s + t.wallMs, 0) / analyses.length : 0;
-  const avgTrivial = trivials.length > 0 ? trivials.reduce((s, t) => s + t.wallMs, 0) / trivials.length : 0;
+  const analyses = timings.filter((t) => t.label.startsWith('analysis'));
+  const trivials = timings.filter((t) => t.label.startsWith('trivial'));
+  const avgAnalysis =
+    analyses.length > 0 ? analyses.reduce((s, t) => s + t.wallMs, 0) / analyses.length : 0;
+  const avgTrivial =
+    trivials.length > 0 ? trivials.reduce((s, t) => s + t.wallMs, 0) / trivials.length : 0;
 
   console.log(`\nCold start (warmup): ${timings[0].wallMs}ms`);
   console.log(`Avg warm analysis: ${Math.round(avgAnalysis)}ms`);

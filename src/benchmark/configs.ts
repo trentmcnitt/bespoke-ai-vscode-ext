@@ -102,12 +102,19 @@ export function getConfigsToRun(): BenchmarkConfig[] {
   const filter = process.env.BENCHMARK_CONFIGS;
   if (!filter) return BENCHMARK_CONFIGS;
 
-  const labels = new Set(filter.split(',').map(s => s.trim()).filter(Boolean));
-  const filtered = BENCHMARK_CONFIGS.filter(c => labels.has(c.label));
+  const labels = new Set(
+    filter
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const filtered = BENCHMARK_CONFIGS.filter((c) => labels.has(c.label));
 
   if (filtered.length === 0) {
-    const available = BENCHMARK_CONFIGS.map(c => c.label).join(', ');
-    throw new Error(`No matching configs for BENCHMARK_CONFIGS="${filter}". Available: ${available}`);
+    const available = BENCHMARK_CONFIGS.map((c) => c.label).join(', ');
+    throw new Error(
+      `No matching configs for BENCHMARK_CONFIGS="${filter}". Available: ${available}`,
+    );
   }
 
   return filtered;

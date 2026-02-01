@@ -10,7 +10,11 @@ export class ProviderRouter {
   private ollama: OllamaProvider;
   private claudeCode: ClaudeCodeProvider;
 
-  constructor(config: ExtensionConfig, logger: Logger, getBrief?: (filePath: string) => ContextBrief | null) {
+  constructor(
+    config: ExtensionConfig,
+    logger: Logger,
+    getBrief?: (filePath: string) => ContextBrief | null,
+  ) {
     this.anthropic = new AnthropicProvider(config, logger, getBrief);
     this.ollama = new OllamaProvider(config, logger);
     this.claudeCode = new ClaudeCodeProvider(config, logger);

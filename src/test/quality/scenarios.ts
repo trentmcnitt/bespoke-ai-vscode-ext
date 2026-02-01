@@ -15,11 +15,13 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'story.md',
-    prefix: 'The old lighthouse keeper climbed the spiral staircase for what felt like the thousandth time. The wind howled outside, rattling the',
+    prefix:
+      'The old lighthouse keeper climbed the spiral staircase for what felt like the thousandth time. The wind howled outside, rattling the',
     suffix: '',
     requirements: {
       must_not_include: ['```', '##', '- ', '* '],
-      quality_notes: 'Should complete the sentence naturally, then possibly add one more. Atmospheric/narrative tone.',
+      quality_notes:
+        'Should complete the sentence naturally, then possibly add one more. Atmospheric/narrative tone.',
     },
   },
   {
@@ -28,12 +30,14 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'README.md',
-    prefix: 'The configuration file supports three output formats: JSON, YAML, and TOML. Each format has specific advantages depending on your',
+    prefix:
+      'The configuration file supports three output formats: JSON, YAML, and TOML. Each format has specific advantages depending on your',
     suffix: '',
     requirements: {
       must_include: ['format'],
       must_not_include: ['```', 'import', 'const'],
-      quality_notes: 'Technical documentation tone. Should discuss use cases or tradeoffs of the formats.',
+      quality_notes:
+        'Technical documentation tone. Should discuss use cases or tradeoffs of the formats.',
     },
   },
   {
@@ -42,11 +46,13 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'blog-post.md',
-    prefix: "I've been using Neovim for about six months now, and honestly, the learning curve was brutal. But once you get past the initial",
+    prefix:
+      "I've been using Neovim for about six months now, and honestly, the learning curve was brutal. But once you get past the initial",
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Casual, first-person blog voice. Should continue the thought about the learning curve.',
+      quality_notes:
+        'Casual, first-person blog voice. Should continue the thought about the learning curve.',
     },
   },
   {
@@ -55,11 +61,14 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'essay.md',
-    prefix: 'The industrial revolution transformed not just manufacturing, but the entire social fabric of European society. Workers migrated from',
-    suffix: ' This mass migration created entirely new urban challenges that city planners had never faced before.',
+    prefix:
+      'The industrial revolution transformed not just manufacturing, but the entire social fabric of European society. Workers migrated from',
+    suffix:
+      ' This mass migration created entirely new urban challenges that city planners had never faced before.',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Must bridge naturally between prefix and suffix. Academic/formal tone. Should mention rural-to-urban migration or similar.',
+      quality_notes:
+        'Must bridge naturally between prefix and suffix. Academic/formal tone. Should mention rural-to-urban migration or similar.',
     },
   },
   {
@@ -68,11 +77,13 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'plaintext',
     fileName: 'draft.txt',
-    prefix: "Hi Sarah,\n\nThanks for sending over the Q3 report. I've reviewed the numbers and have a few questions about the",
+    prefix:
+      "Hi Sarah,\n\nThanks for sending over the Q3 report. I've reviewed the numbers and have a few questions about the",
     suffix: '',
     requirements: {
       must_not_include: ['```', '##', 'Dear', 'Sincerely'],
-      quality_notes: 'Professional but friendly email tone. Should continue asking about specific aspects of a report.',
+      quality_notes:
+        'Professional but friendly email tone. Should continue asking about specific aspects of a report.',
     },
   },
   {
@@ -85,7 +96,8 @@ export const proseScenarios: TestScenario[] = [
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Even with minimal context, should produce something coherent. Generic but grammatically sound.',
+      quality_notes:
+        'Even with minimal context, should produce something coherent. Generic but grammatically sound.',
     },
   },
   {
@@ -94,11 +106,13 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'latex',
     fileName: 'paper.tex',
-    prefix: 'The experimental results demonstrate a statistically significant correlation between the two variables ($p < 0.01$). Furthermore, the effect size suggests that',
+    prefix:
+      'The experimental results demonstrate a statistically significant correlation between the two variables ($p < 0.01$). Furthermore, the effect size suggests that',
     suffix: '',
     requirements: {
       must_not_include: ['```python', '```javascript', '##'],
-      quality_notes: 'Academic voice. May include LaTeX math notation. Should discuss the practical significance or implications of the finding.',
+      quality_notes:
+        'Academic voice. May include LaTeX math notation. Should discuss the practical significance or implications of the finding.',
     },
   },
   {
@@ -107,11 +121,13 @@ export const proseScenarios: TestScenario[] = [
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'design-doc.md',
-    prefix: "## Design Considerations\n\n- Latency must be under 200ms for 95th percentile\n- The system should handle at least 10k concurrent connections\n- Data consistency is more important than availability\n\nGiven these constraints,",
+    prefix:
+      '## Design Considerations\n\n- Latency must be under 200ms for 95th percentile\n- The system should handle at least 10k concurrent connections\n- Data consistency is more important than availability\n\nGiven these constraints,',
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Should continue the prose paragraph that follows the bullet list. Technical design document voice.',
+      quality_notes:
+        'Should continue the prose paragraph that follows the bullet list. Technical design document voice.',
     },
   },
 
@@ -133,7 +149,8 @@ The walk to the post office took seven minutes. Eleanor used every one of them t
     suffix: '',
     requirements: {
       must_not_include: ['```', '##', '- '],
-      quality_notes: 'Long narrative context. Should continue naturally with the scene, maintaining third-person past tense and the literary tone.',
+      quality_notes:
+        'Long narrative context. Should continue naturally with the scene, maintaining third-person past tense and the literary tone.',
     },
   },
   {
@@ -164,7 +181,8 @@ The projection framework handles idempotency automatically — replaying an alre
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Long technical doc. Should continue the sentence about idempotency and projection guarantees. Maintain the formal technical documentation voice.',
+      quality_notes:
+        'Long technical doc. Should continue the sentence about idempotency and projection guarantees. Maintain the formal technical documentation voice.',
     },
   },
   {
@@ -195,7 +213,8 @@ Based on these findings, we propose three immediate actions:
 3. **Address engineering turnover.** Conduct stay interviews with high performers, benchmark compensation against current market rates, and reduce on-call burden through better automation.`,
     requirements: {
       must_not_include: ['```', '### Recommendations'],
-      quality_notes: 'Mid-document insert with both prefix and suffix. Must bridge the analysis paragraph to the recommendations section. Business report voice.',
+      quality_notes:
+        'Mid-document insert with both prefix and suffix. Must bridge the analysis paragraph to the recommendations section. Business report voice.',
     },
   },
   {
@@ -204,11 +223,14 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'guide.md',
-    prefix: "When configuring the development environment, there are several important steps to follow. First, ensure that Node.js version 18 or later is installed. Second, clone the repository and run the setup script. The script will install dependencies and",
-    suffix: " Once the setup is complete, you can verify the installation by running the test suite, which should pass without errors.",
+    prefix:
+      'When configuring the development environment, there are several important steps to follow. First, ensure that Node.js version 18 or later is installed. Second, clone the repository and run the setup script. The script will install dependencies and',
+    suffix:
+      ' Once the setup is complete, you can verify the installation by running the test suite, which should pass without errors.',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Medium-length prefix and suffix. Completion should bridge between the setup description and the verification step. Instructional voice.',
+      quality_notes:
+        'Medium-length prefix and suffix. Completion should bridge between the setup description and the verification step. Instructional voice.',
     },
   },
 
@@ -220,11 +242,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'plaintext',
     fileName: 'terms-of-service.txt',
-    prefix: 'By accessing or using the Service, you agree to be bound by these Terms. If you do not agree to all the terms and conditions of this agreement, you may not access or use the Service. The Company reserves the right to modify these Terms at any time, and such modifications shall be effective immediately upon',
+    prefix:
+      'By accessing or using the Service, you agree to be bound by these Terms. If you do not agree to all the terms and conditions of this agreement, you may not access or use the Service. The Company reserves the right to modify these Terms at any time, and such modifications shall be effective immediately upon',
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Formal legal register. Should continue with standard terms-of-service language about notification of changes or continued use constituting acceptance.',
+      quality_notes:
+        'Formal legal register. Should continue with standard terms-of-service language about notification of changes or continued use constituting acceptance.',
     },
   },
   {
@@ -233,11 +257,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'story.md',
-    prefix: '"I told you this would happen," Maria said, setting her coffee down with more force than necessary.\n\nJames leaned back in his chair. "You told me a lot of things. Most of them turned out to be wrong."\n\n"Name one time I was wrong about something important."\n\nHe opened his mouth, then closed it. After a moment, he said, "',
+    prefix:
+      '"I told you this would happen," Maria said, setting her coffee down with more force than necessary.\n\nJames leaned back in his chair. "You told me a lot of things. Most of them turned out to be wrong."\n\n"Name one time I was wrong about something important."\n\nHe opened his mouth, then closed it. After a moment, he said, "',
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Dialogue continuation. Should provide James\'s response in a natural conversational tone, staying in character with the established tension.',
+      quality_notes:
+        "Dialogue continuation. Should provide James's response in a natural conversational tone, staying in character with the established tension.",
     },
   },
   {
@@ -246,11 +272,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'inventory.md',
-    prefix: "## Server Room Inventory\n\n**Rack A1:**\n- 2x Dell PowerEdge R750 (web servers, Ubuntu 22.04)\n- 1x Dell PowerEdge R650 (database primary, Ubuntu 22.04)\n- 1x Juniper EX4300 (ToR switch, 48-port)\n\n**Rack A2:**\n- 2x Dell PowerEdge R750 (application servers, Ubuntu 22.04)\n- 1x Synology RS3621xs+ (NAS, 12-bay, RAID 6)\n- ",
+    prefix:
+      '## Server Room Inventory\n\n**Rack A1:**\n- 2x Dell PowerEdge R750 (web servers, Ubuntu 22.04)\n- 1x Dell PowerEdge R650 (database primary, Ubuntu 22.04)\n- 1x Juniper EX4300 (ToR switch, 48-port)\n\n**Rack A2:**\n- 2x Dell PowerEdge R750 (application servers, Ubuntu 22.04)\n- 1x Synology RS3621xs+ (NAS, 12-bay, RAID 6)\n- ',
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Structured inventory list. Should continue with more rack items in the same format (count x model, parenthetical description).',
+      quality_notes:
+        'Structured inventory list. Should continue with more rack items in the same format (count x model, parenthetical description).',
     },
   },
   {
@@ -259,11 +287,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'article.md',
-    prefix: 'City council voted 7-2 Tuesday night to approve the controversial downtown redevelopment plan, ending months of heated public debate. The $340 million project will transform the former industrial waterfront into a mixed-use district with housing, retail, and public green space.\n\nMayor Patricia Chen called the vote "a turning point for our city," while opponents vowed to',
+    prefix:
+      'City council voted 7-2 Tuesday night to approve the controversial downtown redevelopment plan, ending months of heated public debate. The $340 million project will transform the former industrial waterfront into a mixed-use district with housing, retail, and public green space.\n\nMayor Patricia Chen called the vote "a turning point for our city," while opponents vowed to',
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Journalistic news voice. Objective, third-person reporting. Should continue with the opponents\' response or next steps.',
+      quality_notes:
+        "Journalistic news voice. Objective, third-person reporting. Should continue with the opponents' response or next steps.",
     },
   },
   {
@@ -272,11 +302,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'recipe.md',
-    prefix: "## Classic Sourdough Bread\n\n### Ingredients\n- 500g bread flour\n- 350g water (room temperature)\n- 100g active starter\n- 10g salt\n\n### Instructions\n\n1. Mix flour and water in a large bowl. Let rest for 30 minutes (autolyse).\n2. Add the starter and salt. Fold until fully incorporated.\n3. Over the next 4 hours, perform stretch-and-folds every 30 minutes. You'll notice the dough becoming",
+    prefix:
+      "## Classic Sourdough Bread\n\n### Ingredients\n- 500g bread flour\n- 350g water (room temperature)\n- 100g active starter\n- 10g salt\n\n### Instructions\n\n1. Mix flour and water in a large bowl. Let rest for 30 minutes (autolyse).\n2. Add the starter and salt. Fold until fully incorporated.\n3. Over the next 4 hours, perform stretch-and-folds every 30 minutes. You'll notice the dough becoming",
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Recipe instructions in second-person imperative. Should continue describing dough development or the next step in the process.',
+      quality_notes:
+        'Recipe instructions in second-person imperative. Should continue describing dough development or the next step in the process.',
     },
   },
   {
@@ -285,11 +317,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'journal.md',
-    prefix: "January 15\n\nI've been thinking a lot about what Sarah said at dinner last week — that I spend so much time planning for the future that I forget to actually live in the present. She's probably right. I keep a task list for everything, even weekends. Even vacations. There's something comforting about the structure, but I'm starting to wonder if",
+    prefix:
+      "January 15\n\nI've been thinking a lot about what Sarah said at dinner last week — that I spend so much time planning for the future that I forget to actually live in the present. She's probably right. I keep a task list for everything, even weekends. Even vacations. There's something comforting about the structure, but I'm starting to wonder if",
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Intimate, reflective first-person journal voice. Should continue the introspective thought about over-planning and presence.',
+      quality_notes:
+        'Intimate, reflective first-person journal voice. Should continue the introspective thought about over-planning and presence.',
     },
   },
 
@@ -305,7 +339,8 @@ Based on these findings, we propose three immediate actions:
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Prefix ends mid-word ("implementa"). Should complete the word (e.g., "implementation") and continue the sentence naturally.',
+      quality_notes:
+        'Prefix ends mid-word ("implementa"). Should complete the word (e.g., "implementation") and continue the sentence naturally.',
     },
   },
   {
@@ -318,7 +353,8 @@ Based on these findings, we propose three immediate actions:
     suffix: '',
     requirements: {
       must_not_include: ['```', '##'],
-      quality_notes: 'Cursor right after a heading. Should begin a paragraph about error handling, not add another heading or list.',
+      quality_notes:
+        'Cursor right after a heading. Should begin a paragraph about error handling, not add another heading or list.',
     },
   },
   {
@@ -327,11 +363,13 @@ Based on these findings, we propose three immediate actions:
     mode: 'prose',
     languageId: 'markdown',
     fileName: 'steps.md',
-    prefix: "## Migration Steps\n\n1. Back up the existing database\n2. Run the schema migration script\n3. Verify data integrity with the check tool\n4. ",
+    prefix:
+      '## Migration Steps\n\n1. Back up the existing database\n2. Run the schema migration script\n3. Verify data integrity with the check tool\n4. ',
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Should continue with item 4 content (not "4." again since it is already in the prefix). Should be a logical next step in a migration process.',
+      quality_notes:
+        'Should continue with item 4 content (not "4." again since it is already in the prefix). Should be a logical next step in a migration process.',
     },
   },
 ];
@@ -363,7 +401,8 @@ export const codeScenarios: TestScenario[] = [
     suffix: ']\n',
     requirements: {
       must_not_include: ['```', 'def ', 'import'],
-      quality_notes: 'Should complete the filter condition for even numbers (x % 2 == 0 or similar).',
+      quality_notes:
+        'Should complete the filter condition for even numbers (x % 2 == 0 or similar).',
     },
   },
   {
@@ -372,11 +411,13 @@ export const codeScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'javascript',
     fileName: 'handlers.js',
-    prefix: "const users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => ",
+    prefix:
+      "const users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => ",
     suffix: ');\n',
     requirements: {
       must_not_include: ['```', 'const users'],
-      quality_notes: 'Should extract the name from user objects. Something like user.name or user.username.',
+      quality_notes:
+        'Should extract the name from user objects. Something like user.name or user.username.',
     },
   },
   {
@@ -389,7 +430,8 @@ export const codeScenarios: TestScenario[] = [
     suffix: '\n}',
     requirements: {
       must_not_include: ['```', 'interface'],
-      quality_notes: 'Should add more typical user profile fields (name, avatar, createdAt, etc.). Must use valid TypeScript type annotations.',
+      quality_notes:
+        'Should add more typical user profile fields (name, avatar, createdAt, etc.). Must use valid TypeScript type annotations.',
     },
   },
   {
@@ -398,12 +440,14 @@ export const codeScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'python',
     fileName: 'models.py',
-    prefix: 'class Stack:\n    def __init__(self):\n        self.items = []\n\n    def push(self, item):\n        ',
+    prefix:
+      'class Stack:\n    def __init__(self):\n        self.items = []\n\n    def push(self, item):\n        ',
     suffix: '\n\n    def pop(self):\n        return self.items.pop()',
     requirements: {
       must_include: ['self.items'],
       must_not_include: ['```', 'class Stack', 'def pop'],
-      quality_notes: 'Should append item to self.items. Must be valid Python with correct indentation.',
+      quality_notes:
+        'Should append item to self.items. Must be valid Python with correct indentation.',
     },
   },
   {
@@ -412,11 +456,13 @@ export const codeScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'rust',
     fileName: 'parser.rs',
-    prefix: 'fn parse_token(token: &str) -> TokenType {\n    match token {\n        "+" => TokenType::Plus,\n        "-" => TokenType::Minus,\n        ',
+    prefix:
+      'fn parse_token(token: &str) -> TokenType {\n    match token {\n        "+" => TokenType::Plus,\n        "-" => TokenType::Minus,\n        ',
     suffix: '\n    }\n}',
     requirements: {
       must_not_include: ['```', 'fn parse_token'],
-      quality_notes: 'Should add more match arms for common tokens (*, /, etc.) and possibly a wildcard. Valid Rust syntax.',
+      quality_notes:
+        'Should add more match arms for common tokens (*, /, etc.) and possibly a wildcard. Valid Rust syntax.',
     },
   },
   {
@@ -425,7 +471,8 @@ export const codeScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'typescript',
     fileName: 'api.ts',
-    prefix: "async function fetchUser(id: string): Promise<User | null> {\n  try {\n    const response = await fetch(`/api/users/${id}`);\n    ",
+    prefix:
+      'async function fetchUser(id: string): Promise<User | null> {\n  try {\n    const response = await fetch(`/api/users/${id}`);\n    ',
     suffix: '\n  } catch (err) {\n    console.error(err);\n    return null;\n  }\n}',
     requirements: {
       must_include: ['response'],
@@ -439,7 +486,8 @@ export const codeScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'go',
     fileName: 'worker.go',
-    prefix: 'func processItems(items []string) []string {\n\tresults := make(chan string, len(items))\n\tfor _, item := range items {\n\t\tgo func(s string) {\n\t\t\t',
+    prefix:
+      'func processItems(items []string) []string {\n\tresults := make(chan string, len(items))\n\tfor _, item := range items {\n\t\tgo func(s string) {\n\t\t\t',
     suffix: '\n\t\t}(item)\n\t}\n}',
     requirements: {
       must_include: ['results'],
@@ -535,7 +583,8 @@ class TypedEventBus {
 export { TypedEventBus, EventMap, EventName };`,
     requirements: {
       must_not_include: ['```', 'class TypedEventBus'],
-      quality_notes: 'Long TypeScript context. Should implement the waitFor body: register a once listener that resolves, and optionally set a timeout that rejects. Valid TypeScript.',
+      quality_notes:
+        'Long TypeScript context. Should implement the waitFor body: register a once listener that resolves, and optionally set a timeout that rejects. Valid TypeScript.',
     },
   },
   {
@@ -544,11 +593,13 @@ export { TypedEventBus, EventMap, EventName };`,
     mode: 'code',
     languageId: 'html',
     fileName: 'index.html',
-    prefix: '<nav class="main-nav">\n  <ul>\n    <li><a href="/">Home</a></li>\n    <li><a href="/about">About</a></li>\n    <li><a href="',
+    prefix:
+      '<nav class="main-nav">\n  <ul>\n    <li><a href="/">Home</a></li>\n    <li><a href="/about">About</a></li>\n    <li><a href="',
     suffix: '</a></li>\n  </ul>\n</nav>',
     requirements: {
       must_not_include: ['```', '<nav', '<ul>'],
-      quality_notes: 'Should complete the href value and link text for a navigation item. Valid HTML.',
+      quality_notes:
+        'Should complete the href value and link text for a navigation item. Valid HTML.',
     },
   },
 ];
@@ -562,11 +613,13 @@ export const edgeCaseScenarios: TestScenario[] = [
     mode: 'code',
     languageId: 'typescript',
     fileName: 'index.ts',
-    prefix: "import express from 'express';\n\nconst app = express();\n\napp.get('/health', (req, res) => {\n  ",
+    prefix:
+      "import express from 'express';\n\nconst app = express();\n\napp.get('/health', (req, res) => {\n  ",
     suffix: '',
     requirements: {
       must_not_include: ['```', 'import express'],
-      quality_notes: 'Should return a health check response. No suffix means end-of-file completion.',
+      quality_notes:
+        'Should return a health check response. No suffix means end-of-file completion.',
     },
   },
   {
@@ -579,7 +632,8 @@ export const edgeCaseScenarios: TestScenario[] = [
     suffix: '',
     requirements: {
       must_not_include: ['```'],
-      quality_notes: 'Short prefix but enough context for continuation. Should produce a coherent sentence completing the thought.',
+      quality_notes:
+        'Short prefix but enough context for continuation. Should produce a coherent sentence completing the thought.',
     },
   },
 ];

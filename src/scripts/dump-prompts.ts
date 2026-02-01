@@ -34,7 +34,11 @@ const DIVIDER = '='.repeat(72);
 type Provider = 'anthropic' | 'ollama' | 'claude-code';
 type Mode = 'prose' | 'code';
 
-interface Combo { provider: Provider; mode: Mode; ctx: CompletionContext }
+interface Combo {
+  provider: Provider;
+  mode: Mode;
+  ctx: CompletionContext;
+}
 
 const ALL_COMBOS: Combo[] = [
   { provider: 'anthropic', mode: 'prose', ctx: proseCtx },
@@ -49,9 +53,11 @@ const PROVIDERS = new Set<string>(['anthropic', 'ollama', 'claude-code']);
 const MODES = new Set<string>(['prose', 'code']);
 
 function parseArgs(argv: string[]): Combo[] {
-  const args = argv.slice(2).filter(a => a !== '--');
+  const args = argv.slice(2).filter((a) => a !== '--');
 
-  if (args.length === 0) { return ALL_COMBOS; }
+  if (args.length === 0) {
+    return ALL_COMBOS;
+  }
 
   let providerFilter: string | null = null;
   let modeFilter: string | null = null;
@@ -63,14 +69,16 @@ function parseArgs(argv: string[]): Combo[] {
     } else if (MODES.has(lower)) {
       modeFilter = lower;
     } else {
-      console.error(`Unknown argument: "${arg}". Expected a provider (${[...PROVIDERS].join(', ')}) or mode (prose, code).`);
+      console.error(
+        `Unknown argument: "${arg}". Expected a provider (${[...PROVIDERS].join(', ')}) or mode (prose, code).`,
+      );
       process.exit(1);
     }
   }
 
-  return ALL_COMBOS.filter(c =>
-    (!providerFilter || c.provider === providerFilter) &&
-    (!modeFilter || c.mode === modeFilter),
+  return ALL_COMBOS.filter(
+    (c) =>
+      (!providerFilter || c.provider === providerFilter) && (!modeFilter || c.mode === modeFilter),
   );
 }
 
@@ -112,7 +120,9 @@ function dumpAnthropic(ctx: CompletionContext): void {
 
   const totalEstTokens = Math.ceil((p.system.length + p.userMessage.length) / 4);
   const cacheable = config.anthropic.useCaching && totalEstTokens >= 4096;
-  out(`\n  cache_control: ${cacheable ? 'ephemeral' : 'disabled (useCaching=' + config.anthropic.useCaching + ', ~' + totalEstTokens + ' tokens)'}`);
+  out(
+    `\n  cache_control: ${cacheable ? 'ephemeral' : 'disabled (useCaching=' + config.anthropic.useCaching + ', ~' + totalEstTokens + ' tokens)'}`,
+  );
 
   // Messages
   out('\nUSER MESSAGE:');
@@ -124,7 +134,7 @@ function dumpAnthropic(ctx: CompletionContext): void {
   }
 
   // Parameters
-  const filteredStops = p.stopSequences.filter(s => /\S/.test(s));
+  const filteredStops = p.stopSequences.filter((s) => /\S/.test(s));
 
   out('\nPARAMETERS:');
   out(`  model:          ${config.anthropic.model}`);
@@ -209,15 +219,15 @@ function dumpClaudeCode(ctx: CompletionContext): void {
 // ---------------------------------------------------------------------------
 
 const DUMP_FN: Record<Provider, (ctx: CompletionContext) => void> = {
-  'anthropic': dumpAnthropic,
-  'ollama': dumpOllama,
+  anthropic: dumpAnthropic,
+  ollama: dumpOllama,
   'claude-code': dumpClaudeCode,
 };
 
 const combos = parseArgs(process.argv);
 
 const timestamp = new Date().toISOString();
-const comboLabels = combos.map(c => `${c.provider}/${c.mode}`).join(', ');
+const comboLabels = combos.map((c) => `${c.provider}/${c.mode}`).join(', ');
 
 out(`Prompt Dump`);
 out(`Generated: ${timestamp}`);

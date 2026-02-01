@@ -12,7 +12,13 @@ import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionMode } from '../../types';
 import { makeConfig } from '../helpers';
 import { Logger } from '../../utils/logger';
-import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
+import {
+  getApiRunDir,
+  buildApiResult,
+  saveApiResult,
+  saveApiSummary,
+  ApiResult,
+} from './result-writer';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -34,7 +40,11 @@ try {
  * Check if the completion echoes text from the prefix or suffix.
  * Returns details about any echo detected.
  */
-function checkForEcho(completion: string, prefix: string, suffix: string): {
+function checkForEcho(
+  completion: string,
+  prefix: string,
+  suffix: string,
+): {
   echoesPrefix: boolean;
   echoesSuffix: boolean;
   details: string;
@@ -108,7 +118,8 @@ const scenarios: FillScenario[] = [
   },
   {
     name: 'long-sentence-continuation',
-    prefix: 'The implementation of the distributed consensus algorithm requires careful consideration of network partitions, message ordering guarantees, and the fundamental trade-offs described by the CAP theorem, which states that',
+    prefix:
+      'The implementation of the distributed consensus algorithm requires careful consideration of network partitions, message ordering guarantees, and the fundamental trade-offs described by the CAP theorem, which states that',
     suffix: '',
     mode: 'prose',
     languageId: 'markdown',
@@ -152,7 +163,9 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
       info: () => {},
       debug: () => {},
       trace: () => {},
-      error: (...args: unknown[]) => { console.error(String(args[0])); },
+      error: (...args: unknown[]) => {
+        console.error(String(args[0]));
+      },
       show: () => {},
       dispose: () => {},
       traceBlock: () => {},
@@ -231,23 +244,20 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
 
       // 3s recycling delay between scenarios
       if (scenarios.indexOf(scenario) < scenarios.length - 1) {
-        await new Promise(r => setTimeout(r, 3_000));
+        await new Promise((r) => setTimeout(r, 3_000));
       }
     }
 
     // ── Summary ──────────────────────────────────────────────────────
-    const cleanCount = scenarioResults.filter(r => !r.echoesPrefix && !r.echoesSuffix).length;
-    const prefixEchoCount = scenarioResults.filter(r => r.echoesPrefix).length;
-    const suffixEchoCount = scenarioResults.filter(r => r.echoesSuffix).length;
+    const cleanCount = scenarioResults.filter((r) => !r.echoesPrefix && !r.echoesSuffix).length;
+    const prefixEchoCount = scenarioResults.filter((r) => r.echoesPrefix).length;
+    const suffixEchoCount = scenarioResults.filter((r) => r.echoesSuffix).length;
 
     console.log('\n' + '='.repeat(90));
     console.log('FILL MARKER ADHERENCE SUMMARY');
     console.log('='.repeat(90));
     console.log(
-      'Scenario'.padEnd(30) +
-      'Prefix Echo'.padEnd(15) +
-      'Suffix Echo'.padEnd(15) +
-      'Status',
+      'Scenario'.padEnd(30) + 'Prefix Echo'.padEnd(15) + 'Suffix Echo'.padEnd(15) + 'Status',
     );
     console.log('-'.repeat(90));
 
@@ -255,17 +265,17 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
       const status = !r.echoesPrefix && !r.echoesSuffix ? 'CLEAN' : 'ECHO';
       console.log(
         r.name.padEnd(30) +
-        (r.echoesPrefix ? 'YES' : 'no').padEnd(15) +
-        (r.echoesSuffix ? 'YES' : 'no').padEnd(15) +
-        status,
+          (r.echoesPrefix ? 'YES' : 'no').padEnd(15) +
+          (r.echoesSuffix ? 'YES' : 'no').padEnd(15) +
+          status,
       );
     }
 
     console.log('-'.repeat(90));
     console.log(
       `Clean: ${cleanCount}/${scenarioResults.length}  ` +
-      `Prefix echo: ${prefixEchoCount}/${scenarioResults.length}  ` +
-      `Suffix echo: ${suffixEchoCount}/${scenarioResults.length}`,
+        `Prefix echo: ${prefixEchoCount}/${scenarioResults.length}  ` +
+        `Suffix echo: ${suffixEchoCount}/${scenarioResults.length}`,
     );
     console.log('='.repeat(90));
 
@@ -275,7 +285,7 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
       clean: cleanCount,
       prefixEcho: prefixEchoCount,
       suffixEcho: suffixEchoCount,
-      scenarios: scenarioResults.map(r => ({
+      scenarios: scenarioResults.map((r) => ({
         name: r.name,
         echoesPrefix: r.echoesPrefix,
         echoesSuffix: r.echoesSuffix,
@@ -286,6 +296,9 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
     };
     const echoDir = path.join(runDir, 'anchor-echo');
     fs.mkdirSync(echoDir, { recursive: true });
-    fs.writeFileSync(path.join(echoDir, 'echo-adherence.json'), JSON.stringify(echoSummary, null, 2));
+    fs.writeFileSync(
+      path.join(echoDir, 'echo-adherence.json'),
+      JSON.stringify(echoSummary, null, 2),
+    );
   }, 300_000);
 });

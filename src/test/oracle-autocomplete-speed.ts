@@ -14,7 +14,8 @@ const CWD = path.resolve(__dirname, '../..');
 const SYSTEM_PROMPT_MINIMAL = 'Continue the code. Output only the continuation, no explanation.';
 
 // Slightly more structured but still tiny
-const SYSTEM_PROMPT_FIM = 'You are an inline code completion engine. Output ONLY the code that comes next. No markdown, no explanation, no commentary.';
+const SYSTEM_PROMPT_FIM =
+  'You are an inline code completion engine. Output ONLY the code that comes next. No markdown, no explanation, no commentary.';
 
 // No system prompt at all
 const SYSTEM_PROMPT_NONE = '';
@@ -146,7 +147,9 @@ async function runSession(
   })();
 
   function waitResult(): Promise<{ text: string }> {
-    return new Promise(r => { resultResolve = r; });
+    return new Promise((r) => {
+      resultResolve = r;
+    });
   }
 
   // Warmup
@@ -179,7 +182,10 @@ async function main() {
 
   const sdk = await import('@anthropic-ai/claude-agent-sdk');
   const queryFn = sdk.query ?? sdk.default?.query;
-  if (!queryFn) { console.log('No query()'); process.exit(1); }
+  if (!queryFn) {
+    console.log('No query()');
+    process.exit(1);
+  }
 
   // Test 1: Minimal system prompt, varying prefix sizes
   console.log('--- Test 1: Minimal system prompt, varying prefix sizes ---');
@@ -213,9 +219,9 @@ async function main() {
   console.log('Test                                  | Wall ms | Output chars');
   console.log('--------------------------------------|---------|-------------');
   const allResults = [
-    ...test1.map(r => ({ ...r, test: 'minimal-sys' })),
-    ...test2.map(r => ({ ...r, test: 'no-sys' })),
-    ...test3.map(r => ({ ...r, test: 'fim-sys' })),
+    ...test1.map((r) => ({ ...r, test: 'minimal-sys' })),
+    ...test2.map((r) => ({ ...r, test: 'no-sys' })),
+    ...test3.map((r) => ({ ...r, test: 'fim-sys' })),
   ];
   for (const r of allResults) {
     const l = `${r.test}/${r.label}`.substring(0, 38).padEnd(38);
@@ -224,7 +230,7 @@ async function main() {
     console.log(`${l} | ${w} | ${c}`);
   }
 
-  const warmTimes = allResults.map(r => r.wallMs);
+  const warmTimes = allResults.map((r) => r.wallMs);
   console.log(`\nMin: ${Math.min(...warmTimes)}ms`);
   console.log(`Max: ${Math.max(...warmTimes)}ms`);
   console.log(`Avg: ${Math.round(warmTimes.reduce((s, v) => s + v, 0) / warmTimes.length)}ms`);

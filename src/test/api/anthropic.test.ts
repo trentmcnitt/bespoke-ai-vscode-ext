@@ -2,7 +2,13 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { AnthropicProvider } from '../../providers/anthropic';
 import { CompletionContext } from '../../types';
 import { makeConfig, makeLogger, loadApiKey } from '../helpers';
-import { getApiRunDir, buildApiResult, saveApiResult, saveApiSummary, ApiResult } from './result-writer';
+import {
+  getApiRunDir,
+  buildApiResult,
+  saveApiResult,
+  saveApiSummary,
+  ApiResult,
+} from './result-writer';
 
 const apiKey = loadApiKey();
 const hasApiKey = apiKey.length > 0;

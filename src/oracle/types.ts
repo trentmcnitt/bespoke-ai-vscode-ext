@@ -25,7 +25,13 @@ export interface ContextBrief {
   projectSummary: string;
 }
 
-export type OracleStatus = 'disabled' | 'initializing' | 'ready' | 'analyzing' | 'error' | 'unavailable';
+export type OracleStatus =
+  | 'disabled'
+  | 'initializing'
+  | 'ready'
+  | 'analyzing'
+  | 'error'
+  | 'unavailable';
 
 export interface OracleConfig {
   enabled: boolean;

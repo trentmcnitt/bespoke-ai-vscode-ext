@@ -65,5 +65,4 @@ export class PromptBuilder {
       stopSequences: config.code.stopSequences,
     };
   }
-
 }

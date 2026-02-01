@@ -41,7 +41,7 @@ function isRetryable(err: unknown): boolean {
 }
 
 async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function retryDelay(attempt: number): number {
@@ -160,7 +160,7 @@ export async function evaluateCompletion(
           index: input.judgeIndex,
           judgeModel: config.model,
           score: judgment.score,
-          accept: judgment.accept ?? (judgment.score >= 7),
+          accept: judgment.accept ?? judgment.score >= 7,
           pass: judgment.pass,
           reasoning: judgment.reasoning,
           criteria_results: judgment.criteria_results,
@@ -187,7 +187,9 @@ export async function evaluateCompletion(
     } catch (err) {
       if (isRetryable(err) && attempt < MAX_RETRIES) {
         const delay = retryDelay(attempt);
-        console.log(`      Judge retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms (${err instanceof Anthropic.APIError ? err.status : 'timeout'})`);
+        console.log(
+          `      Judge retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms (${err instanceof Anthropic.APIError ? err.status : 'timeout'})`,
+        );
         await sleep(delay);
         continue;
       }
@@ -225,7 +227,7 @@ export async function evaluateBatch(
 
   for (let idx = 0; idx < inputs.length; idx++) {
     const i = idx; // capture for closure
-    const promise = evaluateCompletion(inputs[i], config).then(result => {
+    const promise = evaluateCompletion(inputs[i], config).then((result) => {
       results[i] = result;
       inFlight.splice(inFlight.indexOf(promise), 1);
     });

@@ -484,7 +484,19 @@
     "test:quality": "vitest run --config vitest.quality.config.ts",
     "benchmark": "tsx src/benchmark/runner.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
-    "install-ext": "npm run compile && vsce package --allow-missing-repository --skip-license -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force"
+    "install-ext": "npm run compile && vsce package --allow-missing-repository --skip-license -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",
+    "format": "prettier --write 'src/**/*.ts' '*.{json,mjs,md}'",
+    "format:check": "prettier --check 'src/**/*.ts' '*.{json,mjs,md}'",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,mjs,md}": [
+      "prettier --write"
+    ]
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -493,6 +505,9 @@
     "@typescript-eslint/parser": "^8.54.0",
     "esbuild": "^0.24.0",
     "eslint": "^9.39.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.0.18"

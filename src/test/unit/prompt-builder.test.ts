@@ -121,7 +121,9 @@ describe('PromptBuilder', () => {
       const result = builder.buildPrompt(codeContext, makeConfig());
       expect(result.userMessage).toContain('Code before cursor:');
       expect(result.userMessage).toContain('Code after cursor:');
-      expect(result.userMessage).toContain('Insert ONLY the code that belongs at the cursor position');
+      expect(result.userMessage).toContain(
+        'Insert ONLY the code that belongs at the cursor position',
+      );
     });
 
     it('uses plain prefix when no suffix', () => {
@@ -154,7 +156,12 @@ describe('PromptBuilder', () => {
       const config = makeConfig();
       config.prose.maxTokens = 50;
       const ctx: CompletionContext = {
-        prefix: 'test', suffix: '', languageId: 'markdown', fileName: 'test.md', filePath: '/test/test.md', mode: 'prose',
+        prefix: 'test',
+        suffix: '',
+        languageId: 'markdown',
+        fileName: 'test.md',
+        filePath: '/test/test.md',
+        mode: 'prose',
       };
       expect(builder.buildPrompt(ctx, config).maxTokens).toBe(50);
     });
@@ -163,7 +170,12 @@ describe('PromptBuilder', () => {
       const config = makeConfig();
       config.code.temperature = 0.5;
       const ctx: CompletionContext = {
-        prefix: 'test', suffix: '', languageId: 'typescript', fileName: 'test.ts', filePath: '/test/test.ts', mode: 'code',
+        prefix: 'test',
+        suffix: '',
+        languageId: 'typescript',
+        fileName: 'test.ts',
+        filePath: '/test/test.ts',
+        mode: 'code',
       };
       expect(builder.buildPrompt(ctx, config).temperature).toBe(0.5);
     });

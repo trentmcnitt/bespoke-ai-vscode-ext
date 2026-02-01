@@ -37,7 +37,12 @@ import {
 } from './types';
 
 // ─── Constants ───────────────────────────────────────────────────────
-const ALL_SCENARIOS: TestScenario[] = [...proseScenarios, ...codeScenarios, ...edgeCaseScenarios, ...regressionScenarios];
+const ALL_SCENARIOS: TestScenario[] = [
+  ...proseScenarios,
+  ...codeScenarios,
+  ...edgeCaseScenarios,
+  ...regressionScenarios,
+];
 
 // ─── Env config ──────────────────────────────────────────────────────
 
@@ -74,9 +79,12 @@ function resolveConfig(benchConfig: BenchmarkConfig, apiKey: string): ExtensionC
 
 function getModelName(config: ExtensionConfig): string {
   switch (config.backend) {
-    case 'anthropic': return config.anthropic.model;
-    case 'ollama': return config.ollama.model;
-    case 'claude-code': return config.claudeCode.model;
+    case 'anthropic':
+      return config.anthropic.model;
+    case 'ollama':
+      return config.ollama.model;
+    case 'claude-code':
+      return config.claudeCode.model;
   }
 }
 
@@ -91,7 +99,7 @@ function createProvider(config: ExtensionConfig): CompletionProvider {
 function stddev(values: number[]): number {
   if (values.length < 2) return 0;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const sqDiffs = values.map(v => (v - mean) ** 2);
+  const sqDiffs = values.map((v) => (v - mean) ** 2);
   return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / (values.length - 1));
 }
 
@@ -144,13 +152,17 @@ function saveScenarioInput(scenarioDir: string, scenario: TestScenario): void {
 
   fs.writeFileSync(
     path.join(scenarioDir, 'input.json'),
-    JSON.stringify({
-      mode: scenario.mode,
-      languageId: scenario.languageId,
-      fileName: scenario.fileName,
-      prefix: scenario.prefix,
-      suffix: scenario.suffix,
-    }, null, 2),
+    JSON.stringify(
+      {
+        mode: scenario.mode,
+        languageId: scenario.languageId,
+        fileName: scenario.fileName,
+        prefix: scenario.prefix,
+        suffix: scenario.suffix,
+      },
+      null,
+      2,
+    ),
   );
 
   fs.writeFileSync(
@@ -170,13 +182,17 @@ function saveGeneration(scenarioDir: string, gen: GenerationResult): void {
 
   fs.writeFileSync(
     path.join(genDir, 'metadata.json'),
-    JSON.stringify({
-      index: gen.index,
-      durationMs: gen.durationMs,
-      completionLength: gen.completion?.length ?? 0,
-      error: gen.error ?? null,
-      generatedAt: new Date().toISOString(),
-    }, null, 2),
+    JSON.stringify(
+      {
+        index: gen.index,
+        durationMs: gen.durationMs,
+        completionLength: gen.completion?.length ?? 0,
+        error: gen.error ?? null,
+        generatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -191,10 +207,7 @@ function saveJudgment(scenarioDir: string, genIndex: number, judgment: JudgmentF
 }
 
 function saveAggregation(scenarioDir: string, agg: ScenarioAggregation): void {
-  fs.writeFileSync(
-    path.join(scenarioDir, 'aggregation.json'),
-    JSON.stringify(agg, null, 2),
-  );
+  fs.writeFileSync(path.join(scenarioDir, 'aggregation.json'), JSON.stringify(agg, null, 2));
 }
 
 // ─── Aggregation ─────────────────────────────────────────────────────
@@ -204,10 +217,10 @@ function aggregateScenario(
   mode: 'prose' | 'code',
   judgments: JudgmentFileResult[],
 ): ScenarioAggregation {
-  const scores = judgments.map(j => j.score);
+  const scores = judgments.map((j) => j.score);
   const meanScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-  const acceptCount = judgments.filter(j => j.accept).length;
-  const passCount = judgments.filter(j => j.pass).length;
+  const acceptCount = judgments.filter((j) => j.accept).length;
+  const passCount = judgments.filter((j) => j.pass).length;
 
   return {
     scenarioId,
@@ -216,7 +229,7 @@ function aggregateScenario(
     stdev: stddev(scores),
     acceptRate: judgments.length > 0 ? acceptCount / judgments.length : 0,
     passRate: judgments.length > 0 ? passCount / judgments.length : 0,
-    generationCount: new Set(judgments.map(j => j.index)).size || 0,
+    generationCount: new Set(judgments.map((j) => j.index)).size || 0,
     judgmentCount: judgments.length,
   };
 }
@@ -229,21 +242,35 @@ function aggregateConfig(aggregations: ScenarioAggregation[]): {
   proseAvgScore: number;
   codeAvgScore: number;
 } {
-  const allScores = aggregations.map(a => a.meanScore);
-  const avgScore = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+  const allScores = aggregations.map((a) => a.meanScore);
+  const avgScore =
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
-  const allPassRates = aggregations.map(a => a.passRate);
-  const passRate = allPassRates.length > 0 ? allPassRates.reduce((a, b) => a + b, 0) / allPassRates.length : 0;
+  const allPassRates = aggregations.map((a) => a.passRate);
+  const passRate =
+    allPassRates.length > 0 ? allPassRates.reduce((a, b) => a + b, 0) / allPassRates.length : 0;
 
-  const allAcceptRates = aggregations.map(a => a.acceptRate);
-  const acceptRate = allAcceptRates.length > 0 ? allAcceptRates.reduce((a, b) => a + b, 0) / allAcceptRates.length : 0;
+  const allAcceptRates = aggregations.map((a) => a.acceptRate);
+  const acceptRate =
+    allAcceptRates.length > 0
+      ? allAcceptRates.reduce((a, b) => a + b, 0) / allAcceptRates.length
+      : 0;
 
-  const prose = aggregations.filter(a => a.mode === 'prose');
-  const code = aggregations.filter(a => a.mode === 'code');
-  const proseAvgScore = prose.length > 0 ? prose.reduce((s, a) => s + a.meanScore, 0) / prose.length : 0;
-  const codeAvgScore = code.length > 0 ? code.reduce((s, a) => s + a.meanScore, 0) / code.length : 0;
+  const prose = aggregations.filter((a) => a.mode === 'prose');
+  const code = aggregations.filter((a) => a.mode === 'code');
+  const proseAvgScore =
+    prose.length > 0 ? prose.reduce((s, a) => s + a.meanScore, 0) / prose.length : 0;
+  const codeAvgScore =
+    code.length > 0 ? code.reduce((s, a) => s + a.meanScore, 0) / code.length : 0;
 
-  return { avgScore, passRate, acceptRate, scoreStdev: stddev(allScores), proseAvgScore, codeAvgScore };
+  return {
+    avgScore,
+    passRate,
+    acceptRate,
+    scoreStdev: stddev(allScores),
+    proseAvgScore,
+    codeAvgScore,
+  };
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
@@ -252,12 +279,14 @@ async function main() {
   const params = parseRunParams();
   const configs = getConfigsToRun();
 
-  console.log(`\nBenchmark run: ${configs.length} config(s), ${ALL_SCENARIOS.length} scenarios each`);
+  console.log(
+    `\nBenchmark run: ${configs.length} config(s), ${ALL_SCENARIOS.length} scenarios each`,
+  );
   console.log(`Generations per scenario (K): ${params.K}`);
   console.log(`Judges per generation (J): ${params.J}`);
   console.log(`Judge model: ${params.judgeModel}`);
   console.log(`Concurrency: ${params.concurrency}`);
-  console.log(`Configs: ${configs.map(c => c.label).join(', ')}\n`);
+  console.log(`Configs: ${configs.map((c) => c.label).join(', ')}\n`);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const runId = timestamp;
@@ -326,7 +355,9 @@ async function main() {
       }
     }
 
-    console.log(`    ${evalInputs.length} evaluations (${ALL_SCENARIOS.length} scenarios × ${params.K} generations × ${params.J} judges)...`);
+    console.log(
+      `    ${evalInputs.length} evaluations (${ALL_SCENARIOS.length} scenarios × ${params.K} generations × ${params.J} judges)...`,
+    );
     const judgments = await evaluateBatch(evalInputs, judgeConfig);
 
     // Save judgments and aggregate (evaluateBatch returns results in input order)
@@ -361,7 +392,7 @@ async function main() {
     // Aggregate config-level stats
     const configStats = aggregateConfig(aggregations);
 
-    const scenarioScores: ScenarioScore[] = aggregations.map(a => ({
+    const scenarioScores: ScenarioScore[] = aggregations.map((a) => ({
       id: a.scenarioId,
       score: a.meanScore,
       pass: a.passRate >= 0.5,
@@ -390,7 +421,9 @@ async function main() {
     };
 
     configEntries.push(entry);
-    console.log(`  Config done: avgScore=${configStats.avgScore.toFixed(1)}, acceptRate=${(configStats.acceptRate * 100).toFixed(0)}%, passRate=${(configStats.passRate * 100).toFixed(0)}%`);
+    console.log(
+      `  Config done: avgScore=${configStats.avgScore.toFixed(1)}, acceptRate=${(configStats.acceptRate * 100).toFixed(0)}%, passRate=${(configStats.passRate * 100).toFixed(0)}%`,
+    );
   }
 
   // ── Write ledger entry ──
@@ -416,18 +449,20 @@ async function main() {
   console.log('='.repeat(70));
   console.log(`  Run ID:       ${runId}`);
   console.log(`  Output:       ${runDir}`);
-  console.log(`  Configs:      ${configs.map(c => c.label).join(', ')}`);
+  console.log(`  Configs:      ${configs.map((c) => c.label).join(', ')}`);
   console.log(`  K (gens):     ${params.K}`);
   console.log(`  J (judges):   ${params.J}`);
   console.log(`  Judge model:  ${params.judgeModel}`);
   console.log('');
   for (const entry of configEntries) {
-    console.log(`  ${entry.label}: score=${entry.avgScore?.toFixed(1)} accept=${((entry.acceptRate ?? 0) * 100).toFixed(0)}% pass=${((entry.passRate ?? 0) * 100).toFixed(0)}%`);
+    console.log(
+      `  ${entry.label}: score=${entry.avgScore?.toFixed(1)} accept=${((entry.acceptRate ?? 0) * 100).toFixed(0)}% pass=${((entry.passRate ?? 0) * 100).toFixed(0)}%`,
+    );
   }
   console.log('='.repeat(70) + '\n');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Benchmark failed:', err);
   process.exit(1);
 });

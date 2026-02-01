@@ -36,7 +36,7 @@ function makeFakeStream(completionTexts: string | string[]) {
     // Warmup result (first turn response)
     { type: 'result', subtype: 'success', result: '{"status":"ready"}' },
     // Real completion results
-    ...texts.map(t => ({ type: 'result', subtype: 'success', result: t })),
+    ...texts.map((t) => ({ type: 'result', subtype: 'success', result: t })),
   ];
 
   let index = 0;
@@ -48,7 +48,9 @@ function makeFakeStream(completionTexts: string | string[]) {
 
   function resolveNextWaiter() {
     const waiter = waitQueue.shift();
-    if (waiter) { waiter(); }
+    if (waiter) {
+      waiter();
+    }
   }
 
   const fakeStream = {
@@ -56,19 +58,27 @@ function makeFakeStream(completionTexts: string | string[]) {
       [Symbol.asyncIterator]() {
         return {
           async next(): Promise<IteratorResult<unknown>> {
-            if (terminated) { return { value: undefined, done: true }; }
+            if (terminated) {
+              return { value: undefined, done: true };
+            }
 
             // After all messages consumed, block until terminated
             if (index >= messages.length) {
-              await new Promise<void>((r) => { waitQueue.push(r); });
+              await new Promise<void>((r) => {
+                waitQueue.push(r);
+              });
               return { value: undefined, done: true };
             }
 
             // After warmup result, wait for a signalPush before yielding
             if (index >= 1) {
               if (pushCount <= 0) {
-                await new Promise<void>((r) => { waitQueue.push(r); });
-                if (terminated) { return { value: undefined, done: true }; }
+                await new Promise<void>((r) => {
+                  waitQueue.push(r);
+                });
+                if (terminated) {
+                  return { value: undefined, done: true };
+                }
               }
               pushCount--;
             }
@@ -91,7 +101,9 @@ function makeFakeStream(completionTexts: string | string[]) {
     /** Terminate the stream (unblocks any waiting next() calls) */
     terminate() {
       terminated = true;
-      while (waitQueue.length > 0) { resolveNextWaiter(); }
+      while (waitQueue.length > 0) {
+        resolveNextWaiter();
+      }
     },
   };
 
@@ -110,7 +122,9 @@ describe('ClaudeCodeProvider', () => {
     activeProvider?.dispose();
     activeProvider = null;
     // Terminate all fake streams to prevent hanging promises
-    for (const s of activeFakeStreams) { s.terminate(); }
+    for (const s of activeFakeStreams) {
+      s.terminate();
+    }
     activeFakeStreams.length = 0;
   });
 
@@ -137,7 +151,9 @@ describe('ClaudeCodeProvider', () => {
 
     it('reports unavailable when SDK import fails', async () => {
       // Override the mock to simulate import failure
-      mockQueryFn.mockImplementation(() => { throw new Error('SDK not found'); });
+      mockQueryFn.mockImplementation(() => {
+        throw new Error('SDK not found');
+      });
 
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
 
@@ -150,10 +166,7 @@ describe('ClaudeCodeProvider', () => {
   describe('getCompletion', () => {
     it('returns null when not activated (queryFn is null)', async () => {
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
-      const result = await provider.getCompletion(
-        makeProseContext(),
-        new AbortController().signal,
-      );
+      const result = await provider.getCompletion(makeProseContext(), new AbortController().signal);
       expect(result).toBeNull();
     });
   });
@@ -289,9 +302,9 @@ describe('extractCompletionStart', () => {
   });
 
   it('splits at paragraph boundary when newlines are nearby', () => {
-    const prefix = 'They power so much of our world.\n\nI\'ve heard that ele';
+    const prefix = "They power so much of our world.\n\nI've heard that ele";
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    expect(truncatedPrefix).toBe('They power so much of our world.\n\nI\'ve heard');
+    expect(truncatedPrefix).toBe("They power so much of our world.\n\nI've heard");
     expect(completionStart).toBe(' that ele');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
@@ -422,11 +435,16 @@ describe('buildFillMessage', () => {
 });
 
 /** Helper: consume async iterable in background, signaling the fake stream on each message */
-function consumeIterable(iterable: AsyncIterable<unknown>, fakeStream: ReturnType<typeof makeFakeStream>) {
+function consumeIterable(
+  iterable: AsyncIterable<unknown>,
+  fakeStream: ReturnType<typeof makeFakeStream>,
+) {
   (async () => {
     for await (const _msg of iterable) {
       // Each push signals the stream to yield the next result
       fakeStream.signalPush();
     }
-  })().catch(() => { /* channel closed */ });
+  })().catch(() => {
+    /* channel closed */
+  });
 }

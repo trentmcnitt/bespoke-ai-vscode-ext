@@ -11,7 +11,10 @@ interface OllamaGenerateResponse {
 export class OllamaProvider implements CompletionProvider {
   private promptBuilder: PromptBuilder;
 
-  constructor(private config: ExtensionConfig, private logger: Logger) {
+  constructor(
+    private config: ExtensionConfig,
+    private logger: Logger,
+  ) {
     this.promptBuilder = new PromptBuilder();
   }
 
@@ -37,7 +40,7 @@ export class OllamaProvider implements CompletionProvider {
 
     // For FIM (non-raw with suffix), send raw prefix — Ollama wraps it with FIM tokens.
     // For all other cases, send the formatted userMessage from the prompt builder.
-    const promptText = (hasFimSuffix) ? context.prefix : prompt.userMessage;
+    const promptText = hasFimSuffix ? context.prefix : prompt.userMessage;
 
     const body: Record<string, unknown> = {
       model: this.config.ollama.model,
@@ -69,7 +72,7 @@ export class OllamaProvider implements CompletionProvider {
     }
 
     // Trace: sent content
-    this.logger.traceInline('mode', useRaw ? 'raw' : (hasFimSuffix ? 'FIM' : 'template'));
+    this.logger.traceInline('mode', useRaw ? 'raw' : hasFimSuffix ? 'FIM' : 'template');
     this.logger.traceBlock('→ prompt', promptText);
     if (!useRaw && prompt.system) {
       this.logger.traceBlock('→ system', prompt.system);
@@ -96,7 +99,9 @@ export class OllamaProvider implements CompletionProvider {
       }
 
       const data = (await response.json()) as OllamaGenerateResponse;
-      if (!data.response) { return null; }
+      if (!data.response) {
+        return null;
+      }
 
       this.logger.traceBlock('← raw', data.response);
 
@@ -108,7 +113,9 @@ export class OllamaProvider implements CompletionProvider {
 
       return result;
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') { return null; }
+      if (err instanceof Error && err.name === 'AbortError') {
+        return null;
+      }
       throw err;
     }
   }

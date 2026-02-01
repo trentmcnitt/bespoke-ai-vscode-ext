@@ -25,7 +25,7 @@ function binomialCoeff(n: number, k: number): number {
   if (k === 0 || k === n) return 1;
   let result = 1;
   for (let i = 0; i < Math.min(k, n - k); i++) {
-    result = result * (n - i) / (i + 1);
+    result = (result * (n - i)) / (i + 1);
   }
   return result;
 }
@@ -43,7 +43,7 @@ function signTestPValue(wins: number, total: number): number {
     p += binomialCoeff(total, i);
   }
   // Two-sided: multiply by 2, cap at 1
-  return Math.min(1, p * 2 / (2 ** total));
+  return Math.min(1, (p * 2) / 2 ** total);
 }
 
 // ─── Report generation ───────────────────────────────────────────────
@@ -58,7 +58,7 @@ export function generateComparisonReport(runIds?: string[]): string {
   let runs = ledger.runs;
   if (runIds && runIds.length > 0) {
     const idSet = new Set(runIds);
-    runs = runs.filter(r => idSet.has(r.runId));
+    runs = runs.filter((r) => idSet.has(r.runId));
   }
 
   // Collect all configs that have been scored
@@ -93,12 +93,18 @@ export function generateComparisonReport(runIds?: string[]): string {
   // ── Summary table ──────────────────────────────────────────────────
   lines.push('## Summary');
   lines.push('');
-  lines.push('| Config | Model | Accept Rate | Avg Score | Stdev | Pass Rate | Prose Avg | Code Avg | K | J | Run |');
-  lines.push('|--------|-------|-------------|-----------|-------|-----------|-----------|----------|---|---|-----|');
+  lines.push(
+    '| Config | Model | Accept Rate | Avg Score | Stdev | Pass Rate | Prose Avg | Code Avg | K | J | Run |',
+  );
+  lines.push(
+    '|--------|-------|-------------|-----------|-------|-----------|-----------|----------|---|---|-----|',
+  );
 
   for (const { entry, run } of scoredConfigs) {
-    const acceptPct = entry.acceptRate !== undefined ? `${(entry.acceptRate * 100).toFixed(0)}%` : '-';
-    const passRatePct = entry.passRate !== undefined ? `${(entry.passRate * 100).toFixed(0)}%` : '-';
+    const acceptPct =
+      entry.acceptRate !== undefined ? `${(entry.acceptRate * 100).toFixed(0)}%` : '-';
+    const passRatePct =
+      entry.passRate !== undefined ? `${(entry.passRate * 100).toFixed(0)}%` : '-';
     const stdev = entry.scoreStdev !== undefined ? entry.scoreStdev.toFixed(2) : '-';
     const proseAvg = entry.proseAvgScore?.toFixed(1) ?? '-';
     const codeAvg = entry.codeAvgScore?.toFixed(1) ?? '-';
@@ -112,8 +118,8 @@ export function generateComparisonReport(runIds?: string[]): string {
 
   // ── Pairwise Comparison ────────────────────────────────────────────
   // Only for configs with scenario-level accept data
-  const pairableConfigs = scoredConfigs.filter(
-    sc => sc.entry.scenarioScores?.some(s => s.accept !== undefined),
+  const pairableConfigs = scoredConfigs.filter((sc) =>
+    sc.entry.scenarioScores?.some((s) => s.accept !== undefined),
   );
 
   if (pairableConfigs.length >= 2) {
@@ -128,10 +134,12 @@ export function generateComparisonReport(runIds?: string[]): string {
       for (let j = i + 1; j < pairableConfigs.length; j++) {
         const a = pairableConfigs[i];
         const b = pairableConfigs[j];
-        const aScores = new Map((a.entry.scenarioScores ?? []).map(s => [s.id, s]));
-        const bScores = new Map((b.entry.scenarioScores ?? []).map(s => [s.id, s]));
+        const aScores = new Map((a.entry.scenarioScores ?? []).map((s) => [s.id, s]));
+        const bScores = new Map((b.entry.scenarioScores ?? []).map((s) => [s.id, s]));
 
-        let aWins = 0, bWins = 0, ties = 0;
+        let aWins = 0,
+          bWins = 0,
+          ties = 0;
         for (const [id, aScore] of aScores) {
           const bScore = bScores.get(id);
           if (!bScore) continue;
@@ -157,7 +165,12 @@ export function generateComparisonReport(runIds?: string[]): string {
   }
 
   // ── Failure Modes ──────────────────────────────────────────────────
-  const failureScenarios: { config: string; scenarioId: string; acceptRate: number; score: number }[] = [];
+  const failureScenarios: {
+    config: string;
+    scenarioId: string;
+    acceptRate: number;
+    score: number;
+  }[] = [];
   for (const { entry } of scoredConfigs) {
     if (!entry.scenarioAggregations) continue;
     for (const agg of entry.scenarioAggregations) {
@@ -181,13 +194,16 @@ export function generateComparisonReport(runIds?: string[]): string {
     lines.push('| Config | Scenario | Accept Rate | Avg Score |');
     lines.push('|--------|----------|-------------|-----------|');
     for (const f of failureScenarios) {
-      lines.push(`| ${f.config} | ${f.scenarioId} | ${(f.acceptRate * 100).toFixed(0)}% | ${f.score.toFixed(1)} |`);
+      lines.push(
+        `| ${f.config} | ${f.scenarioId} | ${(f.acceptRate * 100).toFixed(0)}% | ${f.score.toFixed(1)} |`,
+      );
     }
     lines.push('');
   }
 
   // ── High-Variance Scenarios ────────────────────────────────────────
-  const highVariance: { config: string; scenarioId: string; stdev: number; meanScore: number }[] = [];
+  const highVariance: { config: string; scenarioId: string; stdev: number; meanScore: number }[] =
+    [];
   for (const { entry } of scoredConfigs) {
     if (!entry.scenarioAggregations) continue;
     for (const agg of entry.scenarioAggregations) {
@@ -211,17 +227,21 @@ export function generateComparisonReport(runIds?: string[]): string {
     lines.push('| Config | Scenario | Stdev | Mean Score |');
     lines.push('|--------|----------|-------|------------|');
     for (const v of highVariance) {
-      lines.push(`| ${v.config} | ${v.scenarioId} | ${v.stdev.toFixed(2)} | ${v.meanScore.toFixed(1)} |`);
+      lines.push(
+        `| ${v.config} | ${v.scenarioId} | ${v.stdev.toFixed(2)} | ${v.meanScore.toFixed(1)} |`,
+      );
     }
     lines.push('');
   }
 
   // ── v1 backward compat note ────────────────────────────────────────
-  const v1Configs = scoredConfigs.filter(sc => sc.entry.acceptRate === undefined);
+  const v1Configs = scoredConfigs.filter((sc) => sc.entry.acceptRate === undefined);
   if (v1Configs.length > 0) {
     lines.push('## Note');
     lines.push('');
-    lines.push(`${v1Configs.length} config(s) from v1 ledger entries lack accept rate data. They appear with "-" in accept columns and are excluded from pairwise comparison.`);
+    lines.push(
+      `${v1Configs.length} config(s) from v1 ledger entries lack accept rate data. They appear with "-" in accept columns and are excluded from pairwise comparison.`,
+    );
     lines.push('');
   }
 

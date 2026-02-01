@@ -45,8 +45,16 @@ export function getApiRunDir(): string {
   fs.mkdirSync(runDir, { recursive: true });
 
   const latestPath = path.join(RESULTS_DIR, 'latest-api');
-  try { fs.unlinkSync(latestPath); } catch { /* may not exist */ }
-  try { fs.symlinkSync(path.basename(runDir), latestPath); } catch { /* best effort */ }
+  try {
+    fs.unlinkSync(latestPath);
+  } catch {
+    /* may not exist */
+  }
+  try {
+    fs.symlinkSync(path.basename(runDir), latestPath);
+  } catch {
+    /* best effort */
+  }
 
   cachedRunDir = runDir;
   return runDir;
@@ -66,7 +74,13 @@ export function buildApiResult(
   return {
     test,
     backend,
-    input: { prefix: ctx.prefix, suffix: ctx.suffix, languageId: ctx.languageId, fileName: ctx.fileName, mode: ctx.mode },
+    input: {
+      prefix: ctx.prefix,
+      suffix: ctx.suffix,
+      languageId: ctx.languageId,
+      fileName: ctx.fileName,
+      mode: ctx.mode,
+    },
     completion,
     durationMs,
     timestamp: new Date().toISOString(),

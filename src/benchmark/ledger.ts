@@ -55,10 +55,10 @@ export function updateLedgerScores(
   },
 ): void {
   const ledger = loadLedger();
-  const run = ledger.runs.find(r => r.runId === runId);
+  const run = ledger.runs.find((r) => r.runId === runId);
   if (!run) throw new Error(`Run not found: ${runId}`);
 
-  const config = run.configs.find(c => c.label === label);
+  const config = run.configs.find((c) => c.label === label);
   if (!config) throw new Error(`Config not found: ${label} in run ${runId}`);
 
   config.avgScore = scores.avgScore;

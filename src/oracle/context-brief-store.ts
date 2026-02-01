@@ -9,13 +9,18 @@ export class ContextBriefStore {
   private store = new Map<string, StoredBrief>();
   private maxSize: number;
 
-  constructor(private ttlMs: number, maxSize = 100) {
+  constructor(
+    private ttlMs: number,
+    maxSize = 100,
+  ) {
     this.maxSize = maxSize;
   }
 
   get(filePath: string): ContextBrief | null {
     const entry = this.store.get(filePath);
-    if (!entry) { return null; }
+    if (!entry) {
+      return null;
+    }
     if (Date.now() > entry.expiresAt) {
       this.store.delete(filePath);
       return null;
@@ -39,7 +44,9 @@ export class ContextBriefStore {
           oldestKey = key;
         }
       }
-      if (oldestKey) { this.store.delete(oldestKey); }
+      if (oldestKey) {
+        this.store.delete(oldestKey);
+      }
     }
   }
 

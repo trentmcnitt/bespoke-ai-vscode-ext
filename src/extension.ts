@@ -10,14 +10,21 @@ import { ContextOracle } from './oracle/context-oracle';
 import { UsageTracker } from './utils/usage-tracker';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
-type ModeLabel = typeof MODE_LABELS[number];
-const MODE_ICONS: Record<string, string> = { auto: '$(symbol-misc)', prose: '$(book)', code: '$(code)' };
+type ModeLabel = (typeof MODE_LABELS)[number];
+const MODE_ICONS: Record<string, string> = {
+  auto: '$(symbol-misc)',
+  prose: '$(book)',
+  code: '$(code)',
+};
 
 function getActiveModel(config: ExtensionConfig): string {
   switch (config.backend) {
-    case 'anthropic': return config.anthropic.model;
-    case 'ollama': return config.ollama.model;
-    case 'claude-code': return config.claudeCode.model;
+    case 'anthropic':
+      return config.anthropic.model;
+    case 'ollama':
+      return config.ollama.model;
+    case 'claude-code':
+      return config.claudeCode.model;
   }
 }
 
@@ -64,18 +71,22 @@ export function activate(context: vscode.ExtensionContext) {
   completionProvider.setRequestCallbacks(
     () => {
       activeRequests++;
-      if (activeRequests === 1) { updateStatusBarSpinner(true); }
+      if (activeRequests === 1) {
+        updateStatusBarSpinner(true);
+      }
     },
     () => {
       activeRequests = Math.max(0, activeRequests - 1);
-      if (activeRequests === 0) { updateStatusBarSpinner(false); }
-    }
+      if (activeRequests === 0) {
+        updateStatusBarSpinner(false);
+      }
+    },
   );
 
   // Register inline completion provider
   const providerDisposable = vscode.languages.registerInlineCompletionItemProvider(
     { pattern: '**' },
-    completionProvider
+    completionProvider,
   );
   context.subscriptions.push(providerDisposable);
 
@@ -89,7 +100,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.trigger', () => {
       vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
-    })
+    }),
   );
 
   context.subscriptions.push(
@@ -97,7 +108,7 @@ export function activate(context: vscode.ExtensionContext) {
       const ws = vscode.workspace.getConfiguration('bespokeAI');
       const current = ws.get<boolean>('enabled', true);
       ws.update('enabled', !current, vscode.ConfigurationTarget.Global);
-    })
+    }),
   );
 
   context.subscriptions.push(
@@ -107,13 +118,13 @@ export function activate(context: vscode.ExtensionContext) {
       const idx = MODE_LABELS.indexOf(current);
       const next = MODE_LABELS[(idx + 1) % MODE_LABELS.length];
       ws.update('mode', next, vscode.ConfigurationTarget.Global);
-    })
+    }),
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.clearCache', () => {
       completionProvider.clearCache();
-    })
+    }),
   );
 
   context.subscriptions.push(
@@ -122,16 +133,24 @@ export function activate(context: vscode.ExtensionContext) {
       const profiles = ws.get<Record<string, ProfileOverrides>>('profiles', {})!;
       const names = Object.keys(profiles);
       if (names.length === 0) {
-        vscode.window.showInformationMessage('No profiles configured. Add them in bespokeAI.profiles.');
+        vscode.window.showInformationMessage(
+          'No profiles configured. Add them in bespokeAI.profiles.',
+        );
         return;
       }
       const picked = await vscode.window.showQuickPick(['(none)', ...names], {
         placeHolder: `Current: ${ws.get<string>('activeProfile', '') || '(none)'}`,
         title: 'Select Completion Profile',
       });
-      if (picked === undefined) { return; }
-      await ws.update('activeProfile', picked === '(none)' ? '' : picked, vscode.ConfigurationTarget.Global);
-    })
+      if (picked === undefined) {
+        return;
+      }
+      await ws.update(
+        'activeProfile',
+        picked === '(none)' ? '' : picked,
+        vscode.ConfigurationTarget.Global,
+      );
+    }),
   );
 
   context.subscriptions.push(
@@ -242,15 +261,17 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (picked) {
         const handler = handlers.get(picked);
-        if (handler) { await handler(); }
+        if (handler) {
+          await handler();
+        }
       }
-    })
+    }),
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
       await generateCommitMessage(logger);
-    })
+    }),
   );
 
   // Watch for config changes
@@ -271,18 +292,20 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
       }
-    })
+    }),
   );
 
   // Warn if no API key when using Anthropic (not needed for claude-code backend)
   if (config.backend === 'anthropic' && !config.anthropic.apiKey) {
     logger.info('No Anthropic API key configured');
     vscode.window.showWarningMessage(
-      'Bespoke AI: No Anthropic API key configured. Set it in Settings → Bespoke AI → Anthropic: Api Key.'
+      'Bespoke AI: No Anthropic API key configured. Set it in Settings → Bespoke AI → Anthropic: Api Key.',
     );
   }
 
-  logger.info(`Activated | ${config.backend} | profile=${config.activeProfile || '(none)'} | logLevel=${config.logLevel}`);
+  logger.info(
+    `Activated | ${config.backend} | profile=${config.activeProfile || '(none)'} | logLevel=${config.logLevel}`,
+  );
 }
 
 function loadConfig(): ExtensionConfig {
@@ -300,14 +323,23 @@ function loadConfig(): ExtensionConfig {
     anthropic: {
       apiKey,
       model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20251001')!,
-      models: ws.get<string[]>('anthropic.models', ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'])!,
+      models: ws.get<string[]>('anthropic.models', [
+        'claude-haiku-4-5-20251001',
+        'claude-sonnet-4-20250514',
+        'claude-opus-4-20250514',
+      ])!,
       useCaching: ws.get<boolean>('anthropic.useCaching', true)!,
       apiCallsEnabled: ws.get<boolean>('anthropic.apiCallsEnabled', true)!,
     },
     ollama: {
       endpoint: ws.get<string>('ollama.endpoint', 'http://localhost:11434')!,
       model: ws.get<string>('ollama.model', 'qwen2.5:3b')!,
-      models: ws.get<string[]>('ollama.models', ['qwen2.5:3b', 'qwen2.5-coder:3b', 'llama3.2:3b', 'deepseek-coder-v2:latest'])!,
+      models: ws.get<string[]>('ollama.models', [
+        'qwen2.5:3b',
+        'qwen2.5-coder:3b',
+        'llama3.2:3b',
+        'deepseek-coder-v2:latest',
+      ])!,
       raw: ws.get<boolean>('ollama.raw', true)!,
     },
     prose: {
@@ -370,7 +402,9 @@ function updateStatusBar(config: ExtensionConfig) {
 
 function updateStatusBarSpinner(spinning: boolean) {
   const config = lastConfig;
-  if (!config.enabled) { return; }
+  if (!config.enabled) {
+    return;
+  }
 
   if (spinning) {
     const modelLabel = shortenModelName(getActiveModel(config));
@@ -384,13 +418,19 @@ function formatDuration(ms: number): string {
   const totalMinutes = Math.floor(ms / 60_000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours > 0) { return `${hours}h ${minutes}m`; }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
   return `${minutes}m`;
 }
 
 function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) { return `${(count / 1_000_000).toFixed(1)}M`; }
-  if (count >= 1_000) { return `${(count / 1_000).toFixed(0)}K`; }
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(0)}K`;
+  }
   return String(count);
 }
 
@@ -403,8 +443,14 @@ async function showUsageDetail(): Promise<void> {
   // Session info
   items.push({ label: 'Session Info', kind: vscode.QuickPickItemKind.Separator });
   items.push({ label: `$(clock) Session: ${sessionDuration}` });
-  items.push({ label: `$(pulse) ${snap.totalToday} requests today`, description: `${snap.ratePerMinute}/min` });
-  items.push({ label: `$(check) Cache hit rate: ${snap.cacheHitRate}%`, description: `${snap.cacheHits} hits / ${snap.cacheMisses} misses` });
+  items.push({
+    label: `$(pulse) ${snap.totalToday} requests today`,
+    description: `${snap.ratePerMinute}/min`,
+  });
+  items.push({
+    label: `$(check) Cache hit rate: ${snap.cacheHitRate}%`,
+    description: `${snap.cacheHits} hits / ${snap.cacheMisses} misses`,
+  });
   if (snap.errors > 0) {
     items.push({ label: `$(error) ${snap.errors} errors` });
   }
@@ -419,12 +465,17 @@ async function showUsageDetail(): Promise<void> {
   }
 
   // API cost
-  const totalTokens = snap.tokens.input + snap.tokens.output + snap.tokens.cacheRead + snap.tokens.cacheWrite;
+  const totalTokens =
+    snap.tokens.input + snap.tokens.output + snap.tokens.cacheRead + snap.tokens.cacheWrite;
   if (totalTokens > 0) {
     items.push({ label: 'API Cost (Anthropic)', kind: vscode.QuickPickItemKind.Separator });
-    items.push({ label: `$(credit-card) Tokens: ${formatTokenCount(snap.tokens.input)} in / ${formatTokenCount(snap.tokens.output)} out` });
+    items.push({
+      label: `$(credit-card) Tokens: ${formatTokenCount(snap.tokens.input)} in / ${formatTokenCount(snap.tokens.output)} out`,
+    });
     if (snap.tokens.cacheRead > 0 || snap.tokens.cacheWrite > 0) {
-      items.push({ label: `$(credit-card) Cache: ${formatTokenCount(snap.tokens.cacheRead)} read / ${formatTokenCount(snap.tokens.cacheWrite)} write` });
+      items.push({
+        label: `$(credit-card) Cache: ${formatTokenCount(snap.tokens.cacheRead)} read / ${formatTokenCount(snap.tokens.cacheWrite)} write`,
+      });
     }
     items.push({ label: `$(credit-card) Estimated cost: $${snap.estimatedCostUsd.toFixed(2)}` });
   }
