@@ -73,6 +73,11 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     // Skip if no prefix content
     if (!docContext.prefix.trim()) { return null; }
 
+    // Suppress after punctuation that typically ends a thought or opens a new context
+    const suppressAfter = new Set(['.', '?', '!', ';', '(', '[', '{', '"', "'", '`', ':', ',']);
+    const lastChar = docContext.prefix.slice(-1);
+    if (suppressAfter.has(lastChar)) { return null; }
+
     const completionContext: CompletionContext = {
       ...docContext,
       mode,

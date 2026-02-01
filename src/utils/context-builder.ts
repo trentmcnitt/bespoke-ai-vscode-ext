@@ -31,7 +31,22 @@ export function buildDocumentContext(
   const prefix = fullText.slice(prefixStart, offset);
 
   const suffixEnd = Math.min(fullText.length, offset + suffixChars);
-  const suffix = fullText.slice(offset, suffixEnd);
+  let suffix = fullText.slice(offset, suffixEnd);
+
+  // Snap to word boundary: if we cut mid-word at the end, trim back to the
+  // last whitespace so the model doesn't try to complete a truncated word.
+  // Only do this if we actually truncated (didn't reach end of document).
+  if (suffixEnd < fullText.length && suffix.length > 0) {
+    // Check if we cut mid-word (next char in document is not whitespace)
+    const nextChar = fullText[suffixEnd];
+    if (nextChar && !/\s/.test(nextChar)) {
+      // Find the last whitespace in the suffix and trim there
+      const lastWhitespace = suffix.search(/\s[^\s]*$/);
+      if (lastWhitespace !== -1) {
+        suffix = suffix.slice(0, lastWhitespace + 1);
+      }
+    }
+  }
 
   return {
     prefix,

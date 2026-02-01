@@ -125,4 +125,46 @@ describe('buildDocumentContext', () => {
     const ctx = buildDocumentContext(doc as any, pos(2, 3), 7, 500);
     expect(ctx.prefix).toBe('bbb\nccc');
   });
+
+  it('snaps suffix end to word boundary when truncation cuts mid-word', () => {
+    // "Hello world testing here" — cursor at start, suffixChars=14
+    // Raw cut: "Hello world te" (mid-word "testing")
+    // Next char after cut is 's' (non-whitespace) → snap back to last whitespace
+    // Result: "Hello world " (12 chars, ends with space)
+    const text = 'Hello world testing here';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 14);
+    expect(ctx.suffix).toBe('Hello world ');
+  });
+
+  it('keeps full suffix when truncation lands on a word boundary', () => {
+    // "Hello world testing here" — cursor at start, suffixChars=12
+    // Raw cut: "Hello world " (ends with space)
+    // Next char after cut is 't' but we ended on whitespace, so no mid-word cut
+    // Actually, we need to check if next char is whitespace — it's 't', so mid-word
+    // Let's use suffixChars=11 to end on 'd', next char is ' ' (whitespace) → no snap
+    const text = 'Hello world testing here';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 11);
+    expect(ctx.suffix).toBe('Hello world');
+  });
+
+  it('does not snap suffix when truncation reaches end of document', () => {
+    // Short document, suffixChars larger than content → no truncation
+    // Should return full suffix even if it ends mid-word conceptually
+    const text = 'Short';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 100);
+    expect(ctx.suffix).toBe('Short');
+  });
+
+  it('snaps suffix correctly with newlines as word boundaries', () => {
+    // "line one\nline two\npartial" — suffixChars=20
+    // Raw cut: "line one\nline two\np" (mid-word "partial")
+    // Next char is 'a' (non-whitespace) → snap back to newline after "two"
+    const text = 'line one\nline two\npartial word here';
+    const doc = makeDocument(text);
+    const ctx = buildDocumentContext(doc as any, pos(0, 0), 100, 20);
+    expect(ctx.suffix).toBe('line one\nline two\n');
+  });
 });
