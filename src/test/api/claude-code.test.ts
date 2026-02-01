@@ -116,14 +116,14 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
     results.push(data);
   }, 60_000);
 
-  it('slot rotation: second request uses the other slot', async () => {
+  it('slot reuse: second request reuses the same slot', async () => {
     const logger = makeLogger();
     const slotLogs: string[] = [];
     logger.traceInline = (label: string, value: string) => { slotLogs.push(`${label}=${value}`); };
     provider = new ClaudeCodeProvider(makeRealConfig(), logger);
     await provider.activate(CWD);
 
-    // First completion — should use slot 0
+    // First completion
     const ctx1: CompletionContext = {
       prefix: 'The quick brown fox',
       suffix: '',
@@ -136,16 +136,12 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
     const start1 = Date.now();
     const result1 = await provider.getCompletion(ctx1, new AbortController().signal);
     const duration1 = Date.now() - start1;
-    console.log('[Slot rotation result1]:', result1);
+    console.log('[Slot reuse result1]:', result1);
 
-    // Check log for slot 0
-    const slot0Log = slotLogs.find(m => m === 'slot=0');
-    expect(slot0Log, 'expected traceInline to log slot=0').toBeTruthy();
+    const firstSlot = slotLogs[slotLogs.length - 1];
+    expect(firstSlot, 'expected traceInline to log a slot').toBeTruthy();
 
-    // Wait a bit for slot 0 to recycle
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Second completion — should use slot 1
+    // Second completion — should reuse the same slot (no recycle needed)
     const ctx2: CompletionContext = {
       prefix: 'function add(a, b) { return ',
       suffix: ' }',
@@ -158,25 +154,27 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
     const start2 = Date.now();
     const result2 = await provider.getCompletion(ctx2, new AbortController().signal);
     const duration2 = Date.now() - start2;
-    console.log('[Slot rotation result2]:', result2);
-
-    const slot1Log = slotLogs.find(m => m === 'slot=1');
-    expect(slot1Log, 'expected traceInline to log slot=1').toBeTruthy();
+    console.log('[Slot reuse result2]:', result2);
 
     // Both should have produced completions
     expect(result1).toBeTruthy();
     expect(result2).toBeTruthy();
 
-    const data1 = buildApiResult('slot-rotation-1', 'claude-code', ctx1, result1, duration1);
-    saveApiResult(runDir, 'claude-code', 'slot-rotation-1', data1);
+    // With reusable slots, both requests should use the same slot
+    const slotValues = slotLogs.filter(m => m.startsWith('slot='));
+    expect(slotValues.length).toBeGreaterThanOrEqual(2);
+    expect(slotValues[0]).toBe(slotValues[1]);
+
+    const data1 = buildApiResult('slot-reuse-1', 'claude-code', ctx1, result1, duration1);
+    saveApiResult(runDir, 'claude-code', 'slot-reuse-1', data1);
     results.push(data1);
 
-    const data2 = buildApiResult('slot-rotation-2', 'claude-code', ctx2, result2, duration2);
-    saveApiResult(runDir, 'claude-code', 'slot-rotation-2', data2);
+    const data2 = buildApiResult('slot-reuse-2', 'claude-code', ctx2, result2, duration2);
+    saveApiResult(runDir, 'claude-code', 'slot-reuse-2', data2);
     results.push(data2);
   }, 120_000);
 
-  it('returns null when signal is pre-aborted', async () => {
+  it('completes successfully even with pre-aborted signal (signal is ignored)', async () => {
     provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
     await provider.activate(CWD);
 
@@ -189,10 +187,12 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       mode: 'prose',
     };
 
+    // With reusable slots, the abort signal is ignored — the request
+    // commits to the slot and awaits the result unconditionally
     const ac = new AbortController();
     ac.abort();
     const result = await provider.getCompletion(ctx, ac.signal);
-    expect(result).toBeNull();
+    expect(result).toBeTruthy();
   }, 60_000);
 
   it('does not return markdown fences in completion', async () => {

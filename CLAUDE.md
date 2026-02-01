@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Dev Log:** `DEV_LOG.md` contains a reverse-chronological record of development decisions, design rationale, and lessons learned. Update it when making significant changes or discovering important behaviors (e.g., why certain approaches don't work).
 
+**Roadmap:** `ROADMAP.md` tracks planned, exploring, and deferred features. `FEATURE_MAP.md` has the competitive landscape analysis and an open-source reference guide — check it before implementing a feature that may already exist in an open-source project.
+
 **Interpreting pasted content:** When the user pastes log files, error output, or other unusual text without explicit instructions, assume they want you to investigate what's wrong. Diagnose the issue, identify the root cause, and propose a fix.
 
 ## Overview
@@ -110,7 +112,7 @@ Key components, listed in request-flow order:
 
 - `src/providers/ollama.ts` — Calls Ollama's `/api/generate` endpoint using Node.js built-in `fetch()`. Uses raw mode (`raw: true`) to bypass Ollama's chat template for base/completion models, but automatically switches to non-raw mode for code completions with a suffix so Ollama can apply native FIM (Fill-in-the-Middle) tokens. Accepts a `Logger` for debug/trace logging.
 
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Uses a `>>>HOLE_TO_FILL<<<` marker approach: wraps the document prefix + marker + suffix in `<incomplete_text>` tags, and the model fills the hole, wrapping its response in `<output>` tags (extracted by `extractOutput()`). The exported `buildFillMessage()` function is the single source of truth for message construction. Same prompt structure for prose and code — the model infers the content type. No PromptBuilder dependency — reads `maxTokens` and `temperature` directly from the mode-specific config. Manages a 2-slot session pool to reduce latency by keeping sessions warm and recycling them after each completion.
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Uses a `>>>CURSOR<<<` marker approach: wraps the document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. The model fills the gap starting with the anchor text, wrapping its response in `<output>` tags. `extractOutput()` strips the tags, `stripCompletionStart()` removes the echoed anchor. The exported `buildFillMessage()` function is the single source of truth for message construction. Same prompt structure for prose and code — the model infers the content type. No PromptBuilder dependency. Manages a 2-slot reusable session pool: each slot handles up to 24 completions before recycling (one subprocess serves N requests). A single-waiter queue handles slot acquisition — when both slots are busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request commits to the result unconditionally.
 
 - `src/providers/provider-router.ts` — Holds all three provider instances, returns the active one based on `config.backend`. Accepts a `Logger` and an optional `getBrief` callback (from the context oracle) and passes them to providers. Exposes `activateClaudeCode()` for initializing the Claude Code session pool. "Backend" is the user-facing config choice; "provider" is the code abstraction that implements the `CompletionProvider` interface.
 

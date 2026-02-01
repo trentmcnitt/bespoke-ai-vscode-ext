@@ -3,8 +3,10 @@ import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { postProcessCompletion } from '../utils/post-process';
 
-/** How many characters to extract from the end of the prefix as the completion start. */
-const COMPLETION_START_LENGTH = 25;
+/** How many characters to extract from the end of the prefix as the completion start.
+ * Kept short so <current_text> retains maximum context — the model needs to see most
+ * of the prefix to understand the cursor position and generate relevant text. */
+const COMPLETION_START_LENGTH = 10;
 
 /**
  * Extract content from <output> tags. Returns the content between the first
@@ -27,7 +29,18 @@ export function extractCompletionStart(prefix: string): { truncatedPrefix: strin
   if (prefix.length <= COMPLETION_START_LENGTH) {
     return { truncatedPrefix: '', completionStart: prefix };
   }
-  const cutPoint = prefix.length - COMPLETION_START_LENGTH;
+  // Search forward from the ideal cut point for a word boundary (space or
+  // newline) so <current_text> ends at a complete word before >>>CURSOR<<<.
+  // Forward search keeps completion_start ≤ COMPLETION_START_LENGTH chars,
+  // which is easier for the model to echo back reliably.
+  const idealCut = prefix.length - COMPLETION_START_LENGTH;
+  let cutPoint = idealCut;
+  for (let i = idealCut; i < Math.min(prefix.length, idealCut + COMPLETION_START_LENGTH); i++) {
+    if (prefix[i] === ' ' || prefix[i] === '\n') {
+      cutPoint = i;
+      break;
+    }
+  }
   return {
     truncatedPrefix: prefix.slice(0, cutPoint),
     completionStart: prefix.slice(cutPoint),
@@ -214,7 +227,7 @@ The response includes (e.g., \`user.json\`,</current_text>
 Now output only <output> tags:
 `;
 
-type SlotState = 'initializing' | 'ready' | 'busy' | 'recycling' | 'dead';
+type SlotState = 'initializing' | 'available' | 'busy' | 'dead';
 
 interface Slot {
   state: SlotState;
@@ -223,18 +236,25 @@ interface Slot {
   resultPromise: Promise<string | null> | null;
   /** Call to deliver a result from the background consumer. */
   deliverResult: ((value: string | null) => void) | null;
+  /** Number of completions delivered by this slot (excludes warmup). */
+  resultCount: number;
 }
 
 export class ClaudeCodeProvider implements CompletionProvider {
+  /** Recycle a slot after this many completions (warmup=1, maxTurns=50, leaves headroom). */
+  static readonly MAX_REUSES = 24;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private queryFn: ((...args: any[]) => any) | null = null;
   private sdkAvailable: boolean | null = null;
   private slots: [Slot, Slot] = [
-    { state: 'dead', channel: null, resultPromise: null, deliverResult: null },
-    { state: 'dead', channel: null, resultPromise: null, deliverResult: null },
+    { state: 'dead', channel: null, resultPromise: null, deliverResult: null, resultCount: 0 },
+    { state: 'dead', channel: null, resultPromise: null, deliverResult: null, resultCount: 0 },
   ];
   private nextSlot = 0;
   private workspaceRoot = '';
+  /** Single-waiter queue: only one request can wait for a slot at a time. */
+  private pendingWaiter: ((index: number | null) => void) | null = null;
 
   constructor(private config: ExtensionConfig, private logger: Logger) {}
 
@@ -264,11 +284,11 @@ export class ClaudeCodeProvider implements CompletionProvider {
     return this.sdkAvailable === true;
   }
 
-  async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
+  async getCompletion(context: CompletionContext, _signal: AbortSignal): Promise<string | null> {
     if (!this.queryFn) { return null; }
 
-    // Pick a ready slot: try preferred first, then the other, then wait
-    const slotIndex = await this.acquireSlot(signal);
+    // Acquire an available slot (marks it busy before returning)
+    const slotIndex = await this.acquireSlot();
     if (slotIndex === null) { return null; }
 
     const slot = this.slots[slotIndex];
@@ -278,87 +298,96 @@ export class ClaudeCodeProvider implements CompletionProvider {
     this.logger.traceInline('slot', String(slotIndex));
     this.logger.traceBlock('→ sent', message);
 
-    slot.state = 'busy';
+    // Guard: slot may have been disposed between acquireSlot and here
+    if (!slot.channel || !slot.resultPromise) { return null; }
 
-    try {
-      // Push the completion request into the slot's channel
-      slot.channel!.push(message);
+    // Push the completion request into the slot's channel
+    slot.channel.push(message);
 
-      // Race the result against the abort signal
-      const raw = await raceAbort(slot.resultPromise!, signal);
+    // Await the result unconditionally — the consumer owns the slot lifecycle
+    const raw = await slot.resultPromise;
 
-      this.logger.traceBlock('← raw', raw ?? '(null)');
+    this.logger.traceBlock('← raw', raw ?? '(null)');
 
-      if (!raw) { return null; }
+    if (!raw) { return null; }
 
-      // Extract content from <output> tags
-      const extracted = extractOutput(raw);
-      if (extracted !== raw) {
-        this.logger.traceBlock('← extracted', extracted);
-      }
-
-      // Strip the completion start from the output
-      const stripped = stripCompletionStart(extracted, completionStart);
-      if (stripped === null) {
-        this.logger.debug(`completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`);
-        return null;
-      }
-      if (stripped !== extracted) {
-        this.logger.traceBlock('← stripped', stripped);
-      }
-
-      // Run standard post-processing
-      const result = postProcessCompletion(stripped, undefined, context.suffix);
-
-      if (result !== stripped) {
-        this.logger.traceBlock('← processed', result ?? '(null)');
-      }
-
-      return result;
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') { return null; }
-      throw err;
-    } finally {
-      // Always recycle the slot after use (fire-and-forget)
-      slot.state = 'recycling';
-      this.recycleSlot(slotIndex);
+    // Extract content from <output> tags
+    const extracted = extractOutput(raw);
+    if (extracted !== raw) {
+      this.logger.traceBlock('← extracted', extracted);
     }
+
+    // Strip the completion start from the output
+    const stripped = stripCompletionStart(extracted, completionStart);
+    if (stripped === null) {
+      this.logger.debug(`completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`);
+      return null;
+    }
+    if (stripped !== extracted) {
+      this.logger.traceBlock('← stripped', stripped);
+    }
+
+    // Run standard post-processing
+    const result = postProcessCompletion(stripped, undefined, context.suffix);
+
+    if (result !== stripped) {
+      this.logger.traceBlock('← processed', result ?? '(null)');
+    }
+
+    return result;
   }
 
   /**
-   * Try to acquire a ready slot. Checks preferred slot first (alternating),
-   * then the other slot. If neither is ready, polls every 100ms up to 15s
-   * for either slot to become ready. Returns null on abort or timeout.
+   * Acquire an available slot. Returns the slot index (already marked busy)
+   * or null if cancelled by a newer waiter.
+   *
+   * Fast path: find any available slot, mark busy, return.
+   * Slow path: register as single waiter. A new arrival cancels the previous
+   * waiter (resolve(null)), so only the most recent request waits.
    */
-  private async acquireSlot(signal: AbortSignal): Promise<number | null> {
-    const preferred = this.nextSlot;
-    this.nextSlot = (this.nextSlot + 1) % 2;
-
-    // Fast path: preferred slot ready
-    if (this.slots[preferred].state === 'ready') { return preferred; }
-    // Fast path: other slot ready
-    const other = (preferred + 1) % 2;
-    if (this.slots[other].state === 'ready') { return other; }
-
-    // Both busy/recycling — wait for one to become ready
-    this.logger.trace(`waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
-    const deadline = Date.now() + 15_000;
-
-    while (Date.now() < deadline) {
-      if (signal.aborted) { return null; }
-
-      await new Promise(r => setTimeout(r, 100));
-
-      // States change asynchronously via recycleSlot → initSlot
-      if ((this.slots[preferred].state as SlotState) === 'ready') { return preferred; }
-      if ((this.slots[other].state as SlotState) === 'ready') { return other; }
+  private async acquireSlot(): Promise<number | null> {
+    // Fast path: find an available slot
+    for (let i = 0; i < 2; i++) {
+      const idx = (this.nextSlot + i) % 2;
+      if (this.slots[idx].state === 'available') {
+        this.slots[idx].state = 'busy';
+        this.nextSlot = (idx + 1) % 2;
+        return idx;
+      }
     }
 
-    this.logger.debug('Claude Code: slot acquisition timed out (15s)');
-    return null;
+    // Slow path: cancel existing waiter and register self
+    if (this.pendingWaiter) {
+      this.pendingWaiter(null);
+    }
+
+    this.logger.trace(`waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`);
+
+    return new Promise<number | null>((resolve) => {
+      this.pendingWaiter = resolve;
+    });
+  }
+
+  /**
+   * Notify the pending waiter that a slot is available. Called by consumeStream
+   * after delivering a result (slot reuse) and by initSlot after warmup (fresh slot).
+   * The slot is marked busy before notifying the waiter.
+   */
+  private notifyWaiter(slotIndex: number): boolean {
+    if (!this.pendingWaiter) { return false; }
+    const waiter = this.pendingWaiter;
+    this.pendingWaiter = null;
+    this.slots[slotIndex].state = 'busy';
+    waiter(slotIndex);
+    return true;
   }
 
   dispose(): void {
+    // Cancel pending waiter
+    if (this.pendingWaiter) {
+      this.pendingWaiter(null);
+      this.pendingWaiter = null;
+    }
     for (let i = 0; i < 2; i++) {
       const slot = this.slots[i];
       slot.state = 'dead';
@@ -366,6 +395,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       slot.channel = null;
       slot.resultPromise = null;
       slot.deliverResult = null;
+      slot.resultCount = 0;
     }
     this.sdkAvailable = false;
     this.queryFn = null;
@@ -398,6 +428,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
     const slot = this.slots[index];
     try {
       slot.state = 'initializing';
+      slot.resultCount = 0;
 
       const channel = createMessageChannel();
       slot.channel = channel;
@@ -432,16 +463,17 @@ export class ClaudeCodeProvider implements CompletionProvider {
       // Set up promise that the getCompletion caller will await
       this.resetResultPromise(slot);
 
-      // Start background consumer (eats warmup, then delivers real result)
+      // Start background consumer (eats warmup, then delivers real results)
       this.consumeStream(stream, index);
 
       // Wait briefly for warmup to establish the subprocess
-      // The consumer will eat the warmup result and the slot stays ready
-      // for the real completion message
       await this.waitForWarmup(index);
 
       this.logger.traceBlock('system prompt (slot ' + index + ')', SYSTEM_PROMPT);
-      slot.state = 'ready';
+      slot.state = 'available';
+
+      // If a request is already waiting, claim this slot for it
+      this.notifyWaiter(index);
     } catch (err) {
       slot.state = 'dead';
       this.logger.error(`Claude Code: slot ${index} init failed: ${err instanceof Error ? err.stack ?? err.message : err}`);
@@ -463,7 +495,13 @@ export class ClaudeCodeProvider implements CompletionProvider {
 
   private _warmupResolvers: ((() => void) | null)[] = [null, null];
 
+  /**
+   * Background consumer loop. Eats the warmup result, then loops delivering
+   * real completion results. After MAX_REUSES completions or on stream error,
+   * recycles the slot (finally block).
+   */
   private async consumeStream(stream: AsyncIterable<unknown>, slotIndex: number): Promise<void> {
+    const slot = this.slots[slotIndex];
     try {
       let resultCount = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -481,50 +519,56 @@ export class ClaudeCodeProvider implements CompletionProvider {
           }
 
           // Real completion result — deliver to the waiting getCompletion caller
-          this.slots[slotIndex].deliverResult?.(text);
-          break;
+          slot.resultCount++;
+          slot.deliverResult?.(text);
+
+          // Stop if disposed or hit reuse limit
+          if (slot.state === 'dead') { break; }
+          if (slot.resultCount >= ClaudeCodeProvider.MAX_REUSES) {
+            this.logger.debug(`slot ${slotIndex} reached max reuses (${ClaudeCodeProvider.MAX_REUSES}), recycling`);
+            break;
+          }
+
+          // Reuse: reset the result promise and mark available for next request
+          this.resetResultPromise(slot);
+          slot.state = 'available';
+
+          // If a request is already waiting, claim this slot immediately
+          this.notifyWaiter(slotIndex);
         }
       }
     } catch (err) {
       this.logger.error(`Claude Code: stream error on slot ${slotIndex}: ${err instanceof Error ? err.stack ?? err.message : err}`);
-      this.slots[slotIndex].deliverResult?.(null);
+      slot.deliverResult?.(null);
       // Also resolve warmup if still pending
       this._warmupResolvers[slotIndex]?.();
       this._warmupResolvers[slotIndex] = null;
+    } finally {
+      this.recycleSlot(slotIndex);
     }
   }
 
   private recycleSlot(index: number): void {
     const slot = this.slots[index];
+    if (slot.state === 'dead') { return; } // already disposed
+
+    slot.state = 'initializing';
+
     // Close old channel (kills subprocess)
     slot.channel?.close();
     slot.channel = null;
     slot.resultPromise = null;
     slot.deliverResult = null;
+    slot.resultCount = 0;
 
-    // Spawn fresh session in background
-    this.initSlot(index).catch((err) => {
-      this.logger.error(`Claude Code: slot ${index} recycle failed: ${err}`);
-    });
+    // Spawn fresh session in background. setTimeout breaks the microtask chain
+    // so consumeStream → recycleSlot → initSlot → consumeStream doesn't recurse
+    // synchronously through promise resolution.
+    setTimeout(() => {
+      if (this.slots[index].state === 'dead') { return; }
+      this.initSlot(index).catch((err) => {
+        this.logger.error(`Claude Code: slot ${index} recycle failed: ${err}`);
+      });
+    }, 0);
   }
-}
-
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    const err = new Error('Aborted');
-    err.name = 'AbortError';
-    return Promise.reject(err);
-  }
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      const err = new Error('Aborted');
-      err.name = 'AbortError';
-      reject(err);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (val) => { signal.removeEventListener('abort', onAbort); resolve(val); },
-      (err) => { signal.removeEventListener('abort', onAbort); reject(err); },
-    );
-  });
 }

@@ -19,58 +19,99 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
 
 /**
  * Creates a fake async iterable stream that yields an init system message,
- * a warmup result, and then a real completion result.
+ * a warmup result, and then N real completion results (reusable slots).
  */
-function makeFakeStream(completionText: string) {
+/** Track all active fake streams so afterEach can release them */
+const activeFakeStreams: ReturnType<typeof makeFakeStream>[] = [];
+
+/**
+ * Creates a fake async iterable stream that yields a warmup result,
+ * then N real completion results. Each result after the warmup blocks
+ * until signalPush() is called. After all messages are consumed, blocks
+ * indefinitely (like the real SDK stream) until terminate() is called.
+ */
+function makeFakeStream(completionTexts: string | string[]) {
+  const texts = Array.isArray(completionTexts) ? completionTexts : [completionTexts];
   const messages = [
     // Warmup result (first turn response)
     { type: 'result', subtype: 'success', result: '{"status":"ready"}' },
-    // Real completion result (second turn response)
-    { type: 'result', subtype: 'success', result: completionText },
+    // Real completion results
+    ...texts.map(t => ({ type: 'result', subtype: 'success', result: t })),
   ];
 
   let index = 0;
-  let waitResolve: (() => void) | null = null;
-  let waitingForPush = false;
+  const waitQueue: ((v?: unknown) => void)[] = [];
+  // Start at -1 to absorb the warmup signalPush from consumeIterable
+  // (the warmup channel message doesn't correspond to a real result)
+  let pushCount = -1;
+  let terminated = false;
 
-  return {
+  function resolveNextWaiter() {
+    const waiter = waitQueue.shift();
+    if (waiter) { waiter(); }
+  }
+
+  const fakeStream = {
     stream: {
       [Symbol.asyncIterator]() {
         return {
           async next(): Promise<IteratorResult<unknown>> {
+            if (terminated) { return { value: undefined, done: true }; }
+
+            // After all messages consumed, block until terminated
             if (index >= messages.length) {
+              await new Promise<void>((r) => { waitQueue.push(r); });
               return { value: undefined, done: true };
             }
-            // After warmup result, wait for the real message push
-            if (index === 1) {
-              await new Promise<void>((r) => {
-                if (waitingForPush) {
-                  r();
-                } else {
-                  waitResolve = r;
-                }
-              });
+
+            // After warmup result, wait for a signalPush before yielding
+            if (index >= 1) {
+              if (pushCount <= 0) {
+                await new Promise<void>((r) => { waitQueue.push(r); });
+                if (terminated) { return { value: undefined, done: true }; }
+              }
+              pushCount--;
             }
+
             const value = messages[index++];
             return { value, done: false };
           },
           async return(): Promise<IteratorResult<unknown>> {
+            terminated = true;
             return { value: undefined, done: true };
           },
         };
       },
     },
-    /** Signal that a message was pushed (unblocks the stream for the second result) */
+    /** Signal that a message was pushed (unblocks the stream for the next result) */
     signalPush() {
-      waitingForPush = true;
-      waitResolve?.();
+      pushCount++;
+      resolveNextWaiter();
+    },
+    /** Terminate the stream (unblocks any waiting next() calls) */
+    terminate() {
+      terminated = true;
+      while (waitQueue.length > 0) { resolveNextWaiter(); }
     },
   };
+
+  activeFakeStreams.push(fakeStream);
+  return fakeStream;
 }
 
 describe('ClaudeCodeProvider', () => {
+  let activeProvider: ClaudeCodeProvider | null = null;
+
   beforeEach(() => {
     mockQueryFn.mockReset();
+  });
+
+  afterEach(() => {
+    activeProvider?.dispose();
+    activeProvider = null;
+    // Terminate all fake streams to prevent hanging promises
+    for (const s of activeFakeStreams) { s.terminate(); }
+    activeFakeStreams.length = 0;
   });
 
   describe('activation', () => {
@@ -88,6 +129,7 @@ describe('ClaudeCodeProvider', () => {
       });
 
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
       await provider.activate('/test/workspace');
 
       expect(provider.isAvailable()).toBe(true);
@@ -106,30 +148,12 @@ describe('ClaudeCodeProvider', () => {
   });
 
   describe('getCompletion', () => {
-    it('returns null when not activated', async () => {
+    it('returns null when not activated (queryFn is null)', async () => {
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
       const result = await provider.getCompletion(
         makeProseContext(),
         new AbortController().signal,
       );
-      expect(result).toBeNull();
-    });
-
-    it('returns null when slot is not ready', async () => {
-      // Create provider but don't activate — slots are 'dead'
-      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
-      const result = await provider.getCompletion(
-        makeCodeContext(),
-        new AbortController().signal,
-      );
-      expect(result).toBeNull();
-    });
-
-    it('returns null on abort', async () => {
-      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
-      const ac = new AbortController();
-      ac.abort();
-      const result = await provider.getCompletion(makeProseContext(), ac.signal);
       expect(result).toBeNull();
     });
   });
@@ -140,6 +164,46 @@ describe('ClaudeCodeProvider', () => {
       // Should not throw
       provider.dispose();
       expect(provider.isAvailable()).toBe(false);
+    });
+  });
+
+  describe('single-waiter queue', () => {
+    it('dispose cancels pending waiter', async () => {
+      // Waiter cancellation on dispose is tested here.
+      // Full concurrent waiter behavior is validated by API integration tests.
+      const fakeStream0 = makeFakeStream(['result1']);
+      const fakeStream1 = makeFakeStream(['result1']);
+
+      let callCount = 0;
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = callCount === 0 ? fakeStream0 : fakeStream1;
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
+      await provider.activate('/test/workspace');
+
+      // Make both slots busy
+      const p1 = provider.getCompletion(makeProseContext(), new AbortController().signal);
+      const p2 = provider.getCompletion(makeCodeContext(), new AbortController().signal);
+
+      // Third request enters waiter path (both slots busy)
+      const p3 = provider.getCompletion(makeProseContext(), new AbortController().signal);
+
+      // Dispose cancels the waiter
+      provider.dispose();
+      activeProvider = null;
+
+      const result3 = await p3;
+      expect(result3).toBeNull();
+
+      // p1/p2 hold references to old resultPromises that will never resolve
+      // (dispose nulled deliverResult). Don't await them — let GC handle it.
+      void p1;
+      void p2;
     });
   });
 });
@@ -182,9 +246,9 @@ describe('extractCompletionStart', () => {
   it('extracts last N characters from long prefix', () => {
     const prefix = 'The quick brown fox jumps over the lazy dog.';
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // Default COMPLETION_START_LENGTH is 25, so cut at position 44-25=19
-    expect(completionStart).toBe(' jumps over the lazy dog.');
-    expect(truncatedPrefix).toBe('The quick brown fox');
+    // COMPLETION_START_LENGTH is 10, forward search snaps to word boundary
+    expect(completionStart).toBe(' lazy dog.');
+    expect(truncatedPrefix).toBe('The quick brown fox jumps over the');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 
@@ -202,7 +266,7 @@ describe('extractCompletionStart', () => {
   });
 
   it('handles prefix exactly at threshold length', () => {
-    const prefix = 'a'.repeat(25);
+    const prefix = 'a'.repeat(10);
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
     expect(completionStart).toBe(prefix);
     expect(truncatedPrefix).toBe('');
@@ -213,6 +277,42 @@ describe('extractCompletionStart', () => {
     const { completionStart } = extractCompletionStart(prefix);
     // Should include the partial word "wo"
     expect(completionStart).toContain('wo');
+  });
+
+  it('splits at word boundary to avoid cutting mid-word', () => {
+    const prefix = 'They seem so complex and wasteful (noise, h';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // Forward search finds the space after "wasteful"
+    expect(truncatedPrefix).toBe('They seem so complex and wasteful');
+    expect(completionStart).toBe(' (noise, h');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('splits at paragraph boundary when newlines are nearby', () => {
+    const prefix = 'They power so much of our world.\n\nI\'ve heard that ele';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    expect(truncatedPrefix).toBe('They power so much of our world.\n\nI\'ve heard');
+    expect(completionStart).toBe(' that ele');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('falls back to fixed cut when no word boundary found', () => {
+    // A prefix with no spaces in the search range
+    const prefix = 'x'.repeat(60);
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // No spaces to snap to, so falls back to the ideal cut point
+    expect(completionStart.length).toBe(10);
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('maximizes context in current_text for medium-length prefixes', () => {
+    // Simulates the real failure: model ignores completion_start when current_text is too short
+    const prefix = 'I was thinking about choosing colleges for my kids';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // Most of the prefix should be in truncatedPrefix (= visible in current_text)
+    expect(truncatedPrefix).toBe('I was thinking about choosing colleges for');
+    expect(completionStart).toBe(' my kids');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 });
 

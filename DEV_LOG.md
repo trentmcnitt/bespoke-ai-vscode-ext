@@ -4,6 +4,28 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 02-01-26
+
+### Reusable Claude Code slot pool
+
+Refactored the Claude Code provider from disposable slots (kill + respawn after every completion) to reusable slots (one subprocess handles up to 24 completions before recycling).
+
+**Before:** Each completion acquired a slot → pushed a message → awaited the result → recycled the slot (closed the channel, killed the subprocess, spawned a fresh one). The `AbortSignal` was raced against the result promise via `raceAbort()`.
+
+**After:** The `consumeStream` loop continues after delivering a result — it resets the result promise, marks the slot `available`, and waits for the next message. A slot recycles only after 24 completions (warmup=1, maxTurns=50, leaves headroom) or on stream error. The `raceAbort` helper is deleted entirely.
+
+**Key design decisions:**
+
+1. **Single-waiter queue** replaces the 100ms polling loop. A `pendingWaiter` field holds one waiting request. When a new request arrives and both slots are busy, it cancels the previous waiter (`resolve(null)`) and registers itself. Slots notify the waiter immediately when they become available (via `notifyWaiter()`).
+
+2. **Committed in-flight requests** — once `acquireSlot()` returns a slot index, the request awaits `slot.resultPromise` unconditionally. The `AbortSignal` parameter is kept (interface requirement) but ignored. This eliminates the abort race that could leave a slot in an inconsistent state.
+
+3. **Slot states simplified** — removed `recycling` state, renamed `ready` → `available`. States: `initializing → available → busy → available → ... → recycleSlot → initializing`.
+
+**Why not abort?** With reusable slots, aborting mid-request is unsafe: the subprocess is still processing the message and will produce a result that needs to be consumed before the slot can be reused. Ignoring the result would desync the stream. The cost of waiting for a committed result is low (sub-second) and avoids the complexity of stream resynchronization.
+
+---
+
 ## 01-31-26
 
 ### Claude Code prompt overhaul: examples, marker rename, and engine mode
