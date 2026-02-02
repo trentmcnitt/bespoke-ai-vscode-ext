@@ -164,3 +164,107 @@ export function assertWarmupValid(getTrace: (label: string) => string | undefine
     ).toBe(WARMUP_EXPECTED);
   }
 }
+
+/** Type for fake stream returned by makeFakeStream */
+export interface FakeStream {
+  stream: AsyncIterable<unknown>;
+  signalPush: () => void;
+  terminate: () => void;
+}
+
+/**
+ * Creates a fake async iterable stream that yields a warmup result,
+ * then N real results. Each result after the warmup blocks
+ * until signalPush() is called. After all messages are consumed, blocks
+ * indefinitely (like the real SDK stream) until terminate() is called.
+ */
+export function makeFakeStream(
+  resultTexts: string | string[],
+  warmupResponse: string,
+  activeStreams?: FakeStream[],
+): FakeStream {
+  const texts = Array.isArray(resultTexts) ? resultTexts : [resultTexts];
+  const messages = [
+    { type: 'result', subtype: 'success', result: warmupResponse },
+    ...texts.map((t) => ({ type: 'result', subtype: 'success', result: t })),
+  ];
+
+  let index = 0;
+  const waitQueue: (() => void)[] = [];
+  // Start at -1 to absorb the warmup signalPush from consumeIterable
+  let pushCount = -1;
+  let terminated = false;
+
+  function resolveNextWaiter() {
+    const waiter = waitQueue.shift();
+    if (waiter) {
+      waiter();
+    }
+  }
+
+  const fakeStream: FakeStream = {
+    stream: {
+      [Symbol.asyncIterator]() {
+        return {
+          async next(): Promise<IteratorResult<unknown>> {
+            if (terminated) {
+              return { value: undefined, done: true };
+            }
+
+            if (index >= messages.length) {
+              await new Promise<void>((r) => {
+                waitQueue.push(r);
+              });
+              return { value: undefined, done: true };
+            }
+
+            if (index >= 1) {
+              if (pushCount <= 0) {
+                await new Promise<void>((r) => {
+                  waitQueue.push(r);
+                });
+                if (terminated) {
+                  return { value: undefined, done: true };
+                }
+              }
+              pushCount--;
+            }
+
+            const value = messages[index++];
+            return { value, done: false };
+          },
+          async return(): Promise<IteratorResult<unknown>> {
+            terminated = true;
+            return { value: undefined, done: true };
+          },
+        };
+      },
+    },
+    /** Signal that a message was pushed (unblocks the stream for the next result) */
+    signalPush() {
+      pushCount++;
+      resolveNextWaiter();
+    },
+    /** Terminate the stream (unblocks any waiting next() calls) */
+    terminate() {
+      terminated = true;
+      while (waitQueue.length > 0) {
+        resolveNextWaiter();
+      }
+    },
+  };
+
+  activeStreams?.push(fakeStream);
+  return fakeStream;
+}
+
+/** Helper: consume async iterable in background, signaling the fake stream on each message */
+export function consumeIterable(iterable: AsyncIterable<unknown>, fakeStream: FakeStream): void {
+  (async () => {
+    for await (const _msg of iterable) {
+      fakeStream.signalPush();
+    }
+  })().catch(() => {
+    /* channel closed */
+  });
+}

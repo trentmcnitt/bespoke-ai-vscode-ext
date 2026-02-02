@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ExtensionConfig, ProfileOverrides } from './types';
 import { CompletionProvider } from './completion-provider';
 import { ClaudeCodeProvider } from './providers/claude-code';
+import { CommandPool } from './providers/command-pool';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
@@ -11,6 +12,7 @@ import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
+import { getWorkspaceRoot } from './utils/workspace';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -23,6 +25,7 @@ const MODE_ICONS: Record<string, string> = {
 let statusBarItem: vscode.StatusBarItem;
 let completionProvider: CompletionProvider;
 let claudeCodeProvider: ClaudeCodeProvider;
+let commandPool: CommandPool;
 let logger: Logger;
 let currentProfile = '';
 let activeRequests = 0;
@@ -57,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({ dispose: () => claudeCodeProvider.dispose() });
 
   // Activate Claude Code provider with workspace root (async, non-blocking)
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const workspaceRoot = getWorkspaceRoot();
 
   claudeCodeProvider.onPoolDegraded = async () => {
     const action = await vscode.window.showErrorMessage(
@@ -73,6 +76,19 @@ export function activate(context: vscode.ExtensionContext) {
 
   claudeCodeProvider.activate(workspaceRoot).catch((err) => {
     logger.error(`Claude Code activation failed: ${err}`);
+  });
+
+  // Create and activate CommandPool for commit-message and suggest-edit
+  commandPool = new CommandPool(config.claudeCode.model, workspaceRoot, logger);
+  commandPool.setLedger(usageLedger);
+  context.subscriptions.push({ dispose: () => commandPool.dispose() });
+
+  commandPool.onPoolDegraded = () => {
+    logger.error('CommandPool degraded');
+  };
+
+  commandPool.activate().catch((err) => {
+    logger.error(`CommandPool activation failed: ${err}`);
   });
 
   completionProvider = new CompletionProvider(config, claudeCodeProvider, logger, usageTracker);
@@ -334,7 +350,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
-      await generateCommitMessage(logger, usageLedger);
+      await generateCommitMessage(commandPool, logger, usageLedger);
     }),
   );
 
@@ -351,7 +367,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.suggestEdit', async () => {
-      await suggestEdit(logger, usageLedger);
+      await suggestEdit(commandPool, logger, usageLedger);
     }),
   );
 
@@ -371,13 +387,14 @@ export function activate(context: vscode.ExtensionContext) {
         logger.setLevel(newConfig.logLevel);
         completionProvider.updateConfig(newConfig);
 
-        // Recycle pool when model changes
+        // Recycle pools when model changes
         if (newConfig.claudeCode.model !== lastConfig.claudeCode.model) {
-          logger.info(`Model → ${newConfig.claudeCode.model} (recycling pool + clearing cache)`);
+          logger.info(`Model → ${newConfig.claudeCode.model} (recycling pools + clearing cache)`);
           completionProvider.clearCache();
           completionProvider.recyclePool().catch((err) => {
             logger.error(`Pool recycle failed: ${err}`);
           });
+          commandPool.updateModel(newConfig.claudeCode.model);
         }
         updateStatusBar(newConfig);
         logger.info('Configuration updated');

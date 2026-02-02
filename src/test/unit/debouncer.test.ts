@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Debouncer } from '../../utils/debouncer';
+import { Debouncer, MAX_BACKOFF_MS, MAX_DISMISSALS } from '../../utils/debouncer';
 import { createMockToken } from '../helpers';
 
 describe('Debouncer', () => {
@@ -178,14 +178,14 @@ describe('Debouncer', () => {
 
       // Verify monotonically increasing delays and known boundary values
       const delays: number[] = [];
-      for (let i = 0; i <= 8; i++) {
+      for (let i = 0; i <= MAX_DISMISSALS; i++) {
         delays.push(debouncer.getCurrentDelay());
         debouncer.recordDismissal();
       }
 
       // Boundaries
       expect(delays[0]).toBe(1000);
-      expect(delays[8]).toBe(30000);
+      expect(delays[MAX_DISMISSALS]).toBe(MAX_BACKOFF_MS);
 
       // Monotonically increasing
       for (let i = 1; i < delays.length; i++) {
@@ -197,12 +197,12 @@ describe('Debouncer', () => {
       expect(delays[4]).toBeLessThan(5550);
     });
 
-    it('caps at MAX_BACKOFF_MS (30000) after 8 dismissals', () => {
+    it(`caps at MAX_BACKOFF_MS (${MAX_BACKOFF_MS}) after ${MAX_DISMISSALS} dismissals`, () => {
       const debouncer = new Debouncer(1000);
       for (let i = 0; i < 10; i++) {
         debouncer.recordDismissal();
       }
-      expect(debouncer.getCurrentDelay()).toBe(30000);
+      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
     });
 
     it('resets to base delay after resetBackoff()', () => {
@@ -221,11 +221,11 @@ describe('Debouncer', () => {
       const debouncer = new Debouncer(500);
       expect(debouncer.getCurrentDelay()).toBe(500);
 
-      // After 8 dismissals, still caps at 30000
-      for (let i = 0; i < 8; i++) {
+      // After MAX_DISMISSALS dismissals, still caps at MAX_BACKOFF_MS
+      for (let i = 0; i < MAX_DISMISSALS; i++) {
         debouncer.recordDismissal();
       }
-      expect(debouncer.getCurrentDelay()).toBe(30000);
+      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
     });
 
     it('uses back-off delay in debounce()', async () => {
@@ -259,8 +259,38 @@ describe('Debouncer', () => {
       for (let i = 0; i < 20; i++) {
         debouncer.recordDismissal();
       }
-      expect(debouncer.currentDismissalCount).toBe(8);
-      expect(debouncer.getCurrentDelay()).toBe(30000);
+      expect(debouncer.currentDismissalCount).toBe(MAX_DISMISSALS);
+      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
+    });
+
+    it('overrideDelayMs bypasses back-off delay', async () => {
+      const debouncer = new Debouncer(1000);
+
+      // Add several dismissals to increase back-off
+      for (let i = 0; i < 5; i++) {
+        debouncer.recordDismissal();
+      }
+      const backoffDelay = debouncer.getCurrentDelay();
+      expect(backoffDelay).toBeGreaterThan(1000);
+
+      const token = createMockToken();
+      let resolved = false;
+      // Use overrideDelayMs to bypass the back-off
+      debouncer.debounce(token as any, 100).then(() => {
+        resolved = true;
+      });
+
+      // Should NOT be resolved before override delay
+      vi.advanceTimersByTime(99);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(resolved).toBe(false);
+
+      // Should be resolved at override delay, not backoff delay
+      vi.advanceTimersByTime(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(resolved).toBe(true);
+
+      debouncer.dispose();
     });
   });
 });

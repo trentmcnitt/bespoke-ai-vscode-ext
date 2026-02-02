@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ClaudeCodeProvider,
   extractOutput,
@@ -8,7 +8,15 @@ import {
   WARMUP_PREFIX,
   WARMUP_SUFFIX,
 } from '../../providers/claude-code';
-import { makeConfig, makeProseContext, makeCodeContext, makeLogger } from '../helpers';
+import {
+  makeConfig,
+  makeProseContext,
+  makeCodeContext,
+  makeLogger,
+  makeFakeStream,
+  consumeIterable,
+  FakeStream,
+} from '../helpers';
 
 /** Build a realistic warmup response that passes validation. */
 function makeWarmupResponse(): string {
@@ -25,99 +33,12 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
   };
 });
 
-/**
- * Creates a fake async iterable stream that yields an init system message,
- * a warmup result, and then N real completion results (reusable slots).
- */
 /** Track all active fake streams so afterEach can release them */
-const activeFakeStreams: ReturnType<typeof makeFakeStream>[] = [];
+const activeFakeStreams: FakeStream[] = [];
 
-/**
- * Creates a fake async iterable stream that yields a warmup result,
- * then N real completion results. Each result after the warmup blocks
- * until signalPush() is called. After all messages are consumed, blocks
- * indefinitely (like the real SDK stream) until terminate() is called.
- */
-function makeFakeStream(completionTexts: string | string[], warmupResponse?: string) {
-  const texts = Array.isArray(completionTexts) ? completionTexts : [completionTexts];
-  const warmupResult = warmupResponse ?? makeWarmupResponse();
-  const messages = [
-    // Warmup result (first turn response)
-    { type: 'result', subtype: 'success', result: warmupResult },
-    // Real completion results
-    ...texts.map((t) => ({ type: 'result', subtype: 'success', result: t })),
-  ];
-
-  let index = 0;
-  const waitQueue: ((v?: unknown) => void)[] = [];
-  // Start at -1 to absorb the warmup signalPush from consumeIterable
-  // (the warmup channel message doesn't correspond to a real result)
-  let pushCount = -1;
-  let terminated = false;
-
-  function resolveNextWaiter() {
-    const waiter = waitQueue.shift();
-    if (waiter) {
-      waiter();
-    }
-  }
-
-  const fakeStream = {
-    stream: {
-      [Symbol.asyncIterator]() {
-        return {
-          async next(): Promise<IteratorResult<unknown>> {
-            if (terminated) {
-              return { value: undefined, done: true };
-            }
-
-            // After all messages consumed, block until terminated
-            if (index >= messages.length) {
-              await new Promise<void>((r) => {
-                waitQueue.push(r);
-              });
-              return { value: undefined, done: true };
-            }
-
-            // After warmup result, wait for a signalPush before yielding
-            if (index >= 1) {
-              if (pushCount <= 0) {
-                await new Promise<void>((r) => {
-                  waitQueue.push(r);
-                });
-                if (terminated) {
-                  return { value: undefined, done: true };
-                }
-              }
-              pushCount--;
-            }
-
-            const value = messages[index++];
-            return { value, done: false };
-          },
-          async return(): Promise<IteratorResult<unknown>> {
-            terminated = true;
-            return { value: undefined, done: true };
-          },
-        };
-      },
-    },
-    /** Signal that a message was pushed (unblocks the stream for the next result) */
-    signalPush() {
-      pushCount++;
-      resolveNextWaiter();
-    },
-    /** Terminate the stream (unblocks any waiting next() calls) */
-    terminate() {
-      terminated = true;
-      while (waitQueue.length > 0) {
-        resolveNextWaiter();
-      }
-    },
-  };
-
-  activeFakeStreams.push(fakeStream);
-  return fakeStream;
+/** Create a fake stream with the default warmup response, tracked for cleanup */
+function createFakeStream(completionTexts: string | string[], warmupResponse?: string): FakeStream {
+  return makeFakeStream(completionTexts, warmupResponse ?? makeWarmupResponse(), activeFakeStreams);
 }
 
 describe('ClaudeCodeProvider', () => {
@@ -139,8 +60,8 @@ describe('ClaudeCodeProvider', () => {
 
   describe('activation', () => {
     it('loads SDK and reports available after activation', async () => {
-      const fakeStream0 = makeFakeStream('');
-      const fakeStream1 = makeFakeStream('');
+      const fakeStream0 = createFakeStream('');
+      const fakeStream1 = createFakeStream('');
 
       let callCount = 0;
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
@@ -182,9 +103,15 @@ describe('ClaudeCodeProvider', () => {
   });
 
   describe('warmup validation', () => {
-    it('retries once on warmup failure then recovers', async () => {
+    beforeEach(() => {
       vi.useFakeTimers();
+    });
 
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries once on warmup failure then recovers', async () => {
       const goodWarmup = makeWarmupResponse();
       const proseCtx = makeProseContext();
       const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
@@ -195,10 +122,10 @@ describe('ClaudeCodeProvider', () => {
       // (slot 1 also gets killed before its warmup completes)
       // Attempt 2 (retry): both slots get good warmups → pool recovers
       const streams = [
-        makeFakeStream([validCompletion], badWarmup), // attempt 1 slot 0
-        makeFakeStream([validCompletion], goodWarmup), // attempt 1 slot 1 (killed)
-        makeFakeStream([validCompletion], goodWarmup), // attempt 2 slot 0
-        makeFakeStream([validCompletion], goodWarmup), // attempt 2 slot 1
+        createFakeStream([validCompletion], badWarmup), // attempt 1 slot 0
+        createFakeStream([validCompletion], goodWarmup), // attempt 1 slot 1 (killed)
+        createFakeStream([validCompletion], goodWarmup), // attempt 2 slot 0
+        createFakeStream([validCompletion], goodWarmup), // attempt 2 slot 1
       ];
 
       let callCount = 0;
@@ -234,21 +161,17 @@ describe('ClaudeCodeProvider', () => {
       const result = await provider.getCompletion(proseCtx, new AbortController().signal);
       expect(result).not.toBeNull();
       expect(result).toContain('went home.');
-
-      vi.useRealTimers();
     });
 
     it('disables pool after two consecutive warmup failures', async () => {
-      vi.useFakeTimers();
-
       const badWarmup = '<output>garbage response</output>';
 
       // All attempts return bad warmups
       const streams = [
-        makeFakeStream([], badWarmup), // attempt 1 slot 0 (fails)
-        makeFakeStream([], badWarmup), // attempt 1 slot 1 (killed)
-        makeFakeStream([], badWarmup), // attempt 2 slot 0 (fails again)
-        makeFakeStream([], badWarmup), // attempt 2 slot 1 (killed)
+        createFakeStream([], badWarmup), // attempt 1 slot 0 (fails)
+        createFakeStream([], badWarmup), // attempt 1 slot 1 (killed)
+        createFakeStream([], badWarmup), // attempt 2 slot 0 (fails again)
+        createFakeStream([], badWarmup), // attempt 2 slot 1 (killed)
       ];
 
       let callCount = 0;
@@ -280,15 +203,19 @@ describe('ClaudeCodeProvider', () => {
       expect(poolDegraded).toBe(true);
       expect(errorLogs.some((m) => m.includes('autocomplete disabled'))).toBe(true);
       expect(provider.isAvailable()).toBe(false);
-
-      vi.useRealTimers();
     });
   });
 
   describe('restart', () => {
-    it('recovers pool after degradation', async () => {
+    beforeEach(() => {
       vi.useFakeTimers();
+    });
 
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('recovers pool after degradation', async () => {
       const badWarmup = '<output>garbage response</output>';
       const goodWarmup = makeWarmupResponse();
       const proseCtx = makeProseContext();
@@ -298,12 +225,12 @@ describe('ClaudeCodeProvider', () => {
       // First: all warmups fail → pool degrades
       // Then: restart with good warmups → pool recovers
       const streams = [
-        makeFakeStream([], badWarmup), // attempt 1 slot 0
-        makeFakeStream([], badWarmup), // attempt 1 slot 1
-        makeFakeStream([], badWarmup), // retry slot 0
-        makeFakeStream([], badWarmup), // retry slot 1
-        makeFakeStream([validCompletion], goodWarmup), // restart slot 0
-        makeFakeStream([validCompletion], goodWarmup), // restart slot 1
+        createFakeStream([], badWarmup), // attempt 1 slot 0
+        createFakeStream([], badWarmup), // attempt 1 slot 1
+        createFakeStream([], badWarmup), // retry slot 0
+        createFakeStream([], badWarmup), // retry slot 1
+        createFakeStream([validCompletion], goodWarmup), // restart slot 0
+        createFakeStream([validCompletion], goodWarmup), // restart slot 1
       ];
 
       let callCount = 0;
@@ -337,8 +264,6 @@ describe('ClaudeCodeProvider', () => {
       const result = await provider.getCompletion(proseCtx, new AbortController().signal);
       expect(result).not.toBeNull();
       expect(result).toContain('went home.');
-
-      vi.useRealTimers();
     });
   });
 
@@ -351,10 +276,10 @@ describe('ClaudeCodeProvider', () => {
 
       // Initial activation streams + post-recycle streams
       const streams = [
-        makeFakeStream([completion1]), // init slot 0
-        makeFakeStream([completion1]), // init slot 1
-        makeFakeStream([completion2]), // recycled slot 0
-        makeFakeStream([completion2]), // recycled slot 1
+        createFakeStream([completion1]), // init slot 0
+        createFakeStream([completion1]), // init slot 1
+        createFakeStream([completion2]), // recycled slot 0
+        createFakeStream([completion2]), // recycled slot 1
       ];
 
       let callCount = 0;
@@ -390,10 +315,10 @@ describe('ClaudeCodeProvider', () => {
 
       // Initial activation streams (2) + recycleAll streams (2) = 4 total
       const streams = [
-        makeFakeStream([completion]), // init slot 0
-        makeFakeStream([completion]), // init slot 1
-        makeFakeStream([completion]), // recycled slot 0
-        makeFakeStream([completion]), // recycled slot 1
+        createFakeStream([completion]), // init slot 0
+        createFakeStream([completion]), // init slot 1
+        createFakeStream([completion]), // recycled slot 0
+        createFakeStream([completion]), // recycled slot 1
       ];
 
       let callCount = 0;
@@ -437,7 +362,7 @@ describe('ClaudeCodeProvider', () => {
       let poolDegraded = false;
 
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        const fake = makeFakeStream([]);
+        const fake = createFakeStream([]);
         // Terminate immediately after warmup — the stream ends, triggering recycleSlot
         consumeIterable(prompt, fake);
         setTimeout(() => fake.terminate(), 0);
@@ -473,8 +398,8 @@ describe('ClaudeCodeProvider', () => {
     it('dispose cancels pending waiter', async () => {
       // Waiter cancellation on dispose is tested here.
       // Full concurrent waiter behavior is validated by API integration tests.
-      const fakeStream0 = makeFakeStream(['result1']);
-      const fakeStream1 = makeFakeStream(['result1']);
+      const fakeStream0 = createFakeStream(['result1']);
+      const fakeStream1 = createFakeStream(['result1']);
 
       let callCount = 0;
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
@@ -719,18 +644,3 @@ describe('buildFillMessage', () => {
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 });
-
-/** Helper: consume async iterable in background, signaling the fake stream on each message */
-function consumeIterable(
-  iterable: AsyncIterable<unknown>,
-  fakeStream: ReturnType<typeof makeFakeStream>,
-) {
-  (async () => {
-    for await (const _msg of iterable) {
-      // Each push signals the stream to yield the next result
-      fakeStream.signalPush();
-    }
-  })().catch(() => {
-    /* channel closed */
-  });
-}

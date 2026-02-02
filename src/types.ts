@@ -12,6 +12,8 @@ export interface CompletionContext {
 export interface CompletionProvider {
   getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null>;
   isAvailable(): boolean;
+  updateConfig?(config: ExtensionConfig): void;
+  recycleAll?(): Promise<void>;
 }
 
 export interface ExtensionConfig {

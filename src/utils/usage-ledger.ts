@@ -198,13 +198,24 @@ export class UsageLedger {
       const archiveName = `usage-ledger-${dateStr}.jsonl`;
       const archivePath = path.join(this.dirPath, archiveName);
 
+      // Use process-unique temp file and rename-based atomic claim for concurrency safety
+      const tempPath = `${this.filePath}.rotating.${process.pid}`;
+
       // If archive for today already exists, append to it instead of overwriting
       if (fs.existsSync(archivePath)) {
         const content = fs.readFileSync(this.filePath, 'utf-8');
         fs.appendFileSync(archivePath, content);
         fs.writeFileSync(this.filePath, '');
       } else {
-        fs.renameSync(this.filePath, archivePath);
+        // Atomic claim: rename to process-unique temp, then rename to archive
+        // If another process wins the race, our renameSync will fail
+        try {
+          fs.renameSync(this.filePath, tempPath);
+        } catch {
+          // Another process won the race — let them handle rotation
+          return;
+        }
+        fs.renameSync(tempPath, archivePath);
         // Start a fresh active file
         fs.writeFileSync(this.filePath, '');
       }

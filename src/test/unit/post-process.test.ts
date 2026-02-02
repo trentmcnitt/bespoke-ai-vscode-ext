@@ -93,3 +93,84 @@ describe('trimPrefixOverlap', () => {
     expect(result).toBe('**Bold** and continues into');
   });
 });
+
+describe('trimSuffixOverlap', () => {
+  it('does not trim overlap below 10-character minimum threshold', () => {
+    // "the end" is only 7 chars - should NOT be trimmed
+    const result = postProcessCompletion('This is the end', undefined, 'the end of the document');
+    expect(result).toBe('This is the end');
+  });
+
+  it('trims overlap at exactly 10-character threshold', () => {
+    // "1234567890" is exactly 10 chars - should be trimmed
+    const result = postProcessCompletion('Prefix 1234567890', undefined, '1234567890 continues');
+    expect(result).toBe('Prefix');
+  });
+
+  it('trims overlap above 10-character threshold', () => {
+    // "this is overlap" is 15 chars - should be trimmed
+    const result = postProcessCompletion(
+      'Completion this is overlap',
+      undefined,
+      'this is overlap text',
+    );
+    expect(result).toBe('Completion');
+  });
+
+  it('normalizes whitespace when comparing overlap', () => {
+    // Multiple spaces in completion should match single space in suffix
+    const result = postProcessCompletion(
+      'Start   of   sentence  here',
+      undefined,
+      'of sentence here and more',
+    );
+    // "of sentence here" = 16 chars normalized, should trim
+    expect(result).toBe('Start');
+  });
+
+  it('normalizes newlines to spaces when comparing', () => {
+    const result = postProcessCompletion(
+      'Beginning\nof\nthe\ntext',
+      undefined,
+      'of the text continues',
+    );
+    // "of the text" = 11 chars normalized, should trim
+    expect(result).toBe('Beginning');
+  });
+
+  it('handles whitespace-only suffix gracefully', () => {
+    const result = postProcessCompletion('Some completion', undefined, '   \n\n  ');
+    expect(result).toBe('Some completion');
+  });
+
+  it('handles empty suffix gracefully', () => {
+    const result = postProcessCompletion('Some completion', undefined, '');
+    expect(result).toBe('Some completion');
+  });
+
+  it('handles completion shorter than minOverlap', () => {
+    const result = postProcessCompletion('short', undefined, 'short suffix');
+    // "short" is only 5 chars, below 10-char threshold
+    expect(result).toBe('short');
+  });
+
+  it('finds longest matching overlap', () => {
+    // Both "overlap here" (12 chars) and "here" (4 chars) match, should use longest
+    const result = postProcessCompletion(
+      'Text with overlap here',
+      undefined,
+      'overlap here in the suffix',
+    );
+    expect(result).toBe('Text with');
+  });
+
+  it('preserves leading whitespace after trim', () => {
+    const result = postProcessCompletion(
+      '  indented continuation text',
+      undefined,
+      'continuation text follows',
+    );
+    // "continuation text" = 17 chars, should trim, preserve "  indented "
+    expect(result).toBe('  indented');
+  });
+});

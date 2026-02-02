@@ -1,18 +1,12 @@
 export const DEFAULT_SYSTEM_PROMPT = `You are a commit message generator. Given a git diff, write a concise conventional commit message. Output ONLY the commit message, nothing else. Use the imperative mood. The first line should be a short summary (max 72 chars). If the change warrants it, add a blank line followed by a longer description.`;
 
 /**
- * Build the user prompt piped to `claude -p` via stdin.
- * The system prompt is passed separately via `--system-prompt`.
+ * Build a full commit prompt that merges system instructions + diff into one user message.
+ * Used when sending to a pre-warmed session pool that has a generic system prompt.
  */
-export function buildCommitPrompt(diff: string): string {
-  return `<diff>\n${diff}\n</diff>`;
-}
-
-/**
- * Returns the system prompt to pass via `--system-prompt`.
- */
-export function getSystemPrompt(customSystemPrompt?: string): string {
-  return customSystemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+export function buildFullCommitPrompt(diff: string, customSystemPrompt?: string): string {
+  const instructions = customSystemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+  return `<instructions>\n${instructions}\n</instructions>\n\n<diff>\n${diff}\n</diff>`;
 }
 
 /**

@@ -52,7 +52,7 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | ------------ | ---------------------------------- | -------- | ----------------------------------------- |
 | `enabled`    | boolean                            | `true`   | Master on/off toggle                      |
 | `mode`       | `"auto"` \| `"prose"` \| `"code"`  | `"auto"` | Completion mode (auto-detects by default) |
-| `debounceMs` | number                             | `300`    | Delay before triggering a completion      |
+| `debounceMs` | number                             | `1000`   | Delay before triggering a completion      |
 | `logLevel`   | `"info"` \| `"debug"` \| `"trace"` | `"info"` | Logging verbosity in the Output channel   |
 
 ### Claude Code

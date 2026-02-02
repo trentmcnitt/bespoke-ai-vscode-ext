@@ -9,6 +9,14 @@ export function buildEditPrompt(text: string, languageId: string, fileName: stri
 }
 
 /**
+ * Build a full edit prompt that merges system instructions + file content into one user message.
+ * Used when sending to a pre-warmed session pool that has a generic system prompt.
+ */
+export function buildFullEditPrompt(text: string, languageId: string, fileName: string): string {
+  return `<instructions>\n${SYSTEM_PROMPT}\n</instructions>\n\n${buildEditPrompt(text, languageId, fileName)}`;
+}
+
+/**
  * Parse the stdout from `claude -p` to extract corrected text.
  * Looks for <corrected>...</corrected> tags first, then falls back
  * to stripping markdown code fences. Returns null on parse failure.

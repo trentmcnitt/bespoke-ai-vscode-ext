@@ -55,9 +55,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
     this.debouncer.setDelay(config.debounceMs);
-    if ('updateConfig' in this.provider) {
-      (this.provider as { updateConfig(c: ExtensionConfig): void }).updateConfig(config);
-    }
+    this.provider.updateConfig?.(config);
   }
 
   setSnoozed(snoozed: boolean): void {
@@ -71,9 +69,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   }
 
   async recyclePool(): Promise<void> {
-    if ('recycleAll' in this.provider) {
-      await (this.provider as { recycleAll(): Promise<void> }).recycleAll();
-    }
+    await this.provider.recycleAll?.();
   }
 
   async provideInlineCompletionItems(

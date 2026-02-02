@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
-const MAX_BACKOFF_MS = 30_000;
-const MAX_DISMISSALS = 8;
+export const MAX_BACKOFF_MS = 30_000;
+export const MAX_DISMISSALS = 8;
 
 export class Debouncer {
   private timer: ReturnType<typeof setTimeout> | null = null;

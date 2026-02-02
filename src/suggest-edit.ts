@@ -1,9 +1,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
 import { Logger } from './utils/logger';
 import { UsageLedger } from './utils/usage-ledger';
-import { SYSTEM_PROMPT, buildEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
+import { CommandPool } from './providers/command-pool';
+import { buildFullEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
+import { getWorkspaceRoot } from './utils/workspace';
 
 const TIMEOUT_MS = 90_000;
 
@@ -24,20 +25,35 @@ export const correctedContentProvider: vscode.TextDocumentContentProvider = {
   },
 };
 
-export async function suggestEdit(logger: Logger, ledger?: UsageLedger): Promise<void> {
+export async function suggestEdit(
+  commandPool: CommandPool,
+  logger: Logger,
+  ledger?: UsageLedger,
+): Promise<void> {
   if (inFlight) {
+    vscode.window.setStatusBarMessage('Bespoke AI: Request already in progress', 2000);
     return;
   }
   inFlight = true;
   try {
-    await doSuggestEdit(logger, ledger);
+    await doSuggestEdit(commandPool, logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
-async function doSuggestEdit(logger: Logger, ledger?: UsageLedger): Promise<void> {
+async function doSuggestEdit(
+  commandPool: CommandPool,
+  logger: Logger,
+  ledger?: UsageLedger,
+): Promise<void> {
   logger.info('Suggest edit started');
+
+  // Check pool availability
+  if (!commandPool.isAvailable()) {
+    vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
+    return;
+  }
 
   // 1. Get active editor
   const editor = vscode.window.activeTextEditor;
@@ -61,139 +77,71 @@ async function doSuggestEdit(logger: Logger, ledger?: UsageLedger): Promise<void
   // 3. Store version for staleness check
   const documentVersion = editor.document.version;
 
-  // 4. Get visible text, build prompt
+  // 4. Get visible text, build full prompt
   const originalText = editor.document.getText(range);
-  const fileName = editor.document.fileName.split('/').pop() ?? 'unknown';
+  const fileName = path.basename(editor.document.fileName);
   const languageId = editor.document.languageId;
-  const userPrompt = buildEditPrompt(originalText, languageId, fileName);
+  const fullMessage = buildFullEditPrompt(originalText, languageId, fileName);
 
   logger.debug(
     `Suggest edit: ${fileName} | ${languageId} | lines ${startLine}-${endLine} | ${originalText.length} chars`,
   );
-  logger.trace(`Suggest edit prompt:\n${userPrompt}`);
+  logger.trace(`Suggest edit full prompt:\n${fullMessage}`);
 
-  // 5. Spawn claude with progress
+  // 5. Send to command pool with progress
   const startTime = Date.now();
-  const result = await vscode.window.withProgress(
+  const { text, meta } = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Bespoke AI: Suggesting edits...',
       cancellable: true,
     },
-    (_progress, token) => {
-      return new Promise<string | null>((resolve) => {
-        const child = spawn(
-          'claude',
-          [
-            '-p',
-            '--output-format',
-            'text',
-            '--max-turns',
-            '50',
-            '--no-session-persistence',
-            '--tools',
-            '',
-            '--system-prompt',
-            SYSTEM_PROMPT,
-          ],
-          {
-            stdio: ['pipe', 'pipe', 'pipe'],
-          },
-        );
+    async (_progress, token) => {
+      const controller = new AbortController();
+      token.onCancellationRequested(() => controller.abort());
 
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-
-        const settle = (value: string | null): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(timeout);
-          resolve(value);
-        };
-
-        child.stdout.on('data', (data: Buffer) => {
-          stdout += data.toString();
-        });
-
-        child.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
-        });
-
-        child.stdin.on('error', () => {});
-
-        const timeout = setTimeout(() => {
-          child.kill();
-          vscode.window.showWarningMessage('Bespoke AI: Suggest edits timed out.');
-          logger.error('claude process timed out');
-          settle(null);
-        }, TIMEOUT_MS);
-
-        token.onCancellationRequested(() => {
-          child.kill();
-          settle(null);
-        });
-
-        child.on('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'ENOENT') {
-            vscode.window.showWarningMessage(
-              'Bespoke AI: "claude" CLI not found. Install Claude Code and ensure it is in your PATH.',
-            );
-          } else {
-            vscode.window.showWarningMessage(`Bespoke AI: Failed to spawn claude: ${err.message}`);
-          }
-          logger.error('Failed to spawn claude', err);
-          settle(null);
-        });
-
-        child.on('close', (code) => {
-          if (code !== 0 && code !== null) {
-            logger.error(`claude exited with code ${code}: ${stderr}`);
-            vscode.window.showWarningMessage(
-              `Bespoke AI: claude exited with code ${code}. Check Output log for details.`,
-            );
-            settle(null);
-            return;
-          }
-          settle(stdout);
-        });
-
-        child.stdin.write(userPrompt);
-        child.stdin.end();
+      return commandPool.sendPrompt(fullMessage, {
+        timeoutMs: TIMEOUT_MS,
+        onCancel: controller.signal,
       });
     },
   );
 
   const durationMs = Date.now() - startTime;
 
-  if (result === null) {
+  if (text === null) {
     return;
   }
 
-  // Record in ledger
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  // Record in ledger with SDK metadata when available
+  const workspaceRoot = getWorkspaceRoot();
   const project = workspaceRoot ? path.basename(workspaceRoot) : '';
   ledger?.record({
     source: 'suggest-edit',
-    model: 'claude-cli',
+    model: commandPool.getCurrentModel(),
     project,
-    durationMs,
-    inputChars: userPrompt.length,
-    outputChars: result.length,
+    durationMs: meta?.durationMs ?? durationMs,
+    durationApiMs: meta?.durationApiMs,
+    inputTokens: meta?.inputTokens,
+    outputTokens: meta?.outputTokens,
+    cacheReadTokens: meta?.cacheReadTokens,
+    cacheCreationTokens: meta?.cacheCreationTokens,
+    costUsd: meta?.costUsd,
+    inputChars: fullMessage.length,
+    outputChars: text.length,
+    sessionId: meta?.sessionId,
   });
 
-  logger.trace(`Suggest edit raw response:\n${result}`);
+  logger.trace(`Suggest edit raw response:\n${text}`);
 
   // 6. Parse response
-  const corrected = parseEditResponse(result);
+  const corrected = parseEditResponse(text);
   if (corrected === null) {
     vscode.window.showWarningMessage(
       'Bespoke AI: Could not parse edit response. Check Output log for details.',
     );
     logger.error('Failed to parse suggest-edit response');
-    logger.trace(`Unparseable response:\n${result}`);
+    logger.trace(`Unparseable response:\n${text}`);
     return;
   }
 

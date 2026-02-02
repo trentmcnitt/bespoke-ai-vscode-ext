@@ -1,35 +1,43 @@
+/** SDK user message structure for type safety. */
+export interface SdkUserMessage {
+  type: 'user';
+  message: { role: 'user'; content: string };
+  parent_tool_use_id: null;
+  session_id: string;
+}
+
 export interface MessageChannel {
-  iterable: AsyncIterable<unknown>;
+  iterable: AsyncIterable<SdkUserMessage>;
   push(message: string): void;
   close(): void;
 }
 
 export function createMessageChannel(): MessageChannel {
-  let resolve: ((value: IteratorResult<unknown>) => void) | null = null;
+  let resolve: ((value: IteratorResult<SdkUserMessage>) => void) | null = null;
   let done = false;
-  const pending: unknown[] = [];
+  const pending: SdkUserMessage[] = [];
 
-  const iterable: AsyncIterable<unknown> = {
+  const iterable: AsyncIterable<SdkUserMessage> = {
     [Symbol.asyncIterator]() {
       return {
-        next(): Promise<IteratorResult<unknown>> {
+        next(): Promise<IteratorResult<SdkUserMessage>> {
           if (pending.length > 0) {
             return Promise.resolve({ value: pending.shift()!, done: false });
           }
           if (done) {
-            return Promise.resolve({ value: undefined, done: true });
+            return Promise.resolve({ value: undefined as unknown as SdkUserMessage, done: true });
           }
           return new Promise((r) => {
             resolve = r;
           });
         },
-        return(): Promise<IteratorResult<unknown>> {
+        return(): Promise<IteratorResult<SdkUserMessage>> {
           done = true;
           if (resolve) {
-            resolve({ value: undefined, done: true });
+            resolve({ value: undefined as unknown as SdkUserMessage, done: true });
             resolve = null;
           }
-          return Promise.resolve({ value: undefined, done: true });
+          return Promise.resolve({ value: undefined as unknown as SdkUserMessage, done: true });
         },
       };
     },
@@ -38,7 +46,11 @@ export function createMessageChannel(): MessageChannel {
   return {
     iterable,
     push(message: string) {
-      const msg = {
+      // Guard against push() after close()
+      if (done) {
+        return;
+      }
+      const msg: SdkUserMessage = {
         type: 'user' as const,
         message: { role: 'user' as const, content: message },
         parent_tool_use_id: null,
@@ -55,7 +67,7 @@ export function createMessageChannel(): MessageChannel {
     close() {
       done = true;
       if (resolve) {
-        resolve({ value: undefined, done: true });
+        resolve({ value: undefined as unknown as SdkUserMessage, done: true });
         resolve = null;
       }
     },

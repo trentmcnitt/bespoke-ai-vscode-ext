@@ -1,53 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildCommitPrompt,
-  getSystemPrompt,
+  buildFullCommitPrompt,
   parseCommitMessage,
   DEFAULT_SYSTEM_PROMPT,
 } from '../../utils/commit-message-utils';
-
-describe('buildCommitPrompt', () => {
-  const sampleDiff = `diff --git a/src/foo.ts b/src/foo.ts
-index 1234567..abcdefg 100644
---- a/src/foo.ts
-+++ b/src/foo.ts
-@@ -1,3 +1,4 @@
- function foo() {
-+  console.log('hello');
-   return 42;
- }`;
-
-  it('includes the diff wrapped in tags', () => {
-    const result = buildCommitPrompt(sampleDiff);
-    expect(result).toContain('<diff>');
-    expect(result).toContain('</diff>');
-    expect(result).toContain(sampleDiff);
-  });
-
-  it('does not include the system prompt', () => {
-    const result = buildCommitPrompt(sampleDiff);
-    expect(result).not.toContain('commit message generator');
-  });
-});
-
-describe('getSystemPrompt', () => {
-  it('returns the default when no custom prompt given', () => {
-    expect(getSystemPrompt()).toBe(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('returns the default when custom prompt is empty', () => {
-    expect(getSystemPrompt('')).toBe(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('returns the default when custom prompt is whitespace', () => {
-    expect(getSystemPrompt('   ')).toBe(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('returns the custom prompt when provided', () => {
-    const custom = 'Write a haiku about this diff.';
-    expect(getSystemPrompt(custom)).toBe(custom);
-  });
-});
 
 describe('parseCommitMessage', () => {
   it('returns trimmed stdout', () => {
@@ -79,5 +35,44 @@ describe('parseCommitMessage', () => {
     expect(parseCommitMessage('feat: add foo\n```\ndetails\n```')).toBe(
       'feat: add foo\n```\ndetails\n```',
     );
+  });
+});
+
+describe('buildFullCommitPrompt', () => {
+  const sampleDiff = `diff --git a/src/foo.ts b/src/foo.ts
++++ b/src/foo.ts
+@@ -1,3 +1,4 @@
++console.log('hello');`;
+
+  it('uses default instructions when no custom prompt', () => {
+    const result = buildFullCommitPrompt(sampleDiff);
+    expect(result).toContain('<instructions>');
+    expect(result).toContain('</instructions>');
+    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
+    expect(result).toContain('<diff>');
+    expect(result).toContain(sampleDiff);
+  });
+
+  it('respects custom system prompt', () => {
+    const custom = 'Write a haiku about this diff.';
+    const result = buildFullCommitPrompt(sampleDiff, custom);
+    expect(result).toContain(custom);
+    expect(result).not.toContain(DEFAULT_SYSTEM_PROMPT);
+  });
+
+  it('falls back to default when custom prompt is empty', () => {
+    const result = buildFullCommitPrompt(sampleDiff, '');
+    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
+  });
+
+  it('falls back to default when custom prompt is whitespace', () => {
+    const result = buildFullCommitPrompt(sampleDiff, '   ');
+    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
+  });
+
+  it('wraps diff in tags', () => {
+    const result = buildFullCommitPrompt(sampleDiff);
+    expect(result).toContain('<diff>');
+    expect(result).toContain('</diff>');
   });
 });

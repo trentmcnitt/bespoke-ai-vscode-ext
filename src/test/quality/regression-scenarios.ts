@@ -26,6 +26,8 @@ export interface RegressionScenario extends TestScenario {
   observedDate: string;
   /** What went wrong — guides the Layer 2 judge on what to watch for. */
   regression_notes: string;
+  /** Optional cross-reference to a GitHub issue or other tracking ID. */
+  issueRef?: string;
 }
 
 // ─── REGRESSION CASES ─────────────────────────────────────────────────

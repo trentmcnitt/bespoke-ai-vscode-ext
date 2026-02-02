@@ -195,18 +195,22 @@ Key modules, listed in request-flow order:
 
 - `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and eight commands. Watches for config changes and propagates via `updateConfig()`.
 
-- `src/commit-message.ts` — Generates commit messages via the Claude Code CLI (`claude -p`). Reads diffs from VS Code's built-in Git extension, spawns `claude` as a child process, and writes the result into the Source Control panel's commit message input box. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
+- `src/commit-message.ts` — Generates commit messages via the `CommandPool`. Reads diffs from VS Code's built-in Git extension, sends them to the pre-warmed command pool, and writes the result into the Source Control panel's commit message input box. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
 
-- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the Claude Code CLI (`claude -p`). Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
+- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `CommandPool`. Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates dismissal/acceptance detection → mode detection → context extraction → cache lookup → debounce (with adaptive back-off) → backend call → cache write. Tracks `lastOfferedCompletion` to detect whether the user accepted or dismissed the previous suggestion; acceptance resets back-off, dismissal increases it. Explicit triggers (`Invoke`) bypass back-off. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`.
+- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. Manages slot lifecycle (init → warmup → consume → reuse → recycle), circuit breaker, generation guards, single-waiter queue, warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
+
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 2-slot inline completion pool.
   - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
   - **Slot pool:** Manages a 2-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
   - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when both slots are busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request runs to completion regardless of cancellation signals.
+
+- `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 24 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
 
 - `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
 

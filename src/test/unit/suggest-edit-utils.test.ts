@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseEditResponse, buildEditPrompt } from '../../utils/suggest-edit-utils';
+import {
+  parseEditResponse,
+  buildEditPrompt,
+  buildFullEditPrompt,
+  SYSTEM_PROMPT,
+} from '../../utils/suggest-edit-utils';
 
 describe('parseEditResponse', () => {
   it('extracts text from <corrected> tags', () => {
@@ -54,6 +59,34 @@ describe('buildEditPrompt', () => {
   it('preserves text content exactly', () => {
     const text = '  indented\n\n  lines\n';
     const result = buildEditPrompt(text, 'plaintext', 'test.txt');
+    expect(result).toContain(text);
+  });
+});
+
+describe('buildFullEditPrompt', () => {
+  it('includes instructions tag with system prompt', () => {
+    const result = buildFullEditPrompt('hello world', 'markdown', 'readme.md');
+    expect(result).toContain('<instructions>');
+    expect(result).toContain('</instructions>');
+    expect(result).toContain(SYSTEM_PROMPT);
+  });
+
+  it('includes file metadata from buildEditPrompt', () => {
+    const result = buildFullEditPrompt('hello world', 'typescript', 'index.ts');
+    expect(result).toContain('<file_content');
+    expect(result).toContain('language="typescript"');
+    expect(result).toContain('name="index.ts"');
+  });
+
+  it('includes the text content', () => {
+    const text = 'const x = 1;';
+    const result = buildFullEditPrompt(text, 'typescript', 'index.ts');
+    expect(result).toContain(text);
+  });
+
+  it('preserves whitespace in content', () => {
+    const text = '  indented\n\n  lines\n';
+    const result = buildFullEditPrompt(text, 'plaintext', 'test.txt');
     expect(result).toContain(text);
   });
 });

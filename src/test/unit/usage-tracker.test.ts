@@ -207,5 +207,25 @@ describe('UsageTracker', () => {
       expect(snap.totalInputChars).toBe(0);
       expect(snap.totalOutputChars).toBe(0);
     });
+
+    it('preserves sessionStartTime (readonly, set at construction)', () => {
+      vi.setSystemTime(new Date('2025-06-15T12:00:00'));
+      const tracker = new UsageTracker();
+      const originalStartTime = tracker.getSnapshot().sessionStartTime;
+
+      // Advance time and record some usage
+      vi.advanceTimersByTime(60_000);
+      tracker.record('haiku');
+      tracker.record('sonnet');
+
+      // Reset the tracker
+      tracker.reset();
+
+      // sessionStartTime should be unchanged - it represents when the
+      // tracker was created, not when it was last reset
+      const snap = tracker.getSnapshot();
+      expect(snap.sessionStartTime).toBe(originalStartTime);
+      expect(snap.sessionStartTime).toBe(new Date('2025-06-15T12:00:00').getTime());
+    });
   });
 });
