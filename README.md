@@ -22,7 +22,7 @@ The mode is auto-detected but can be overridden via settings or the status bar m
 
 ### Backend
 
-**Claude Code** — via `@anthropic-ai/claude-agent-sdk`. The extension spawns Claude Code subprocesses and reuses them across multiple completions (2-slot rotating pool, up to 8 completions per slot before recycling). Uses a `>>>CURSOR<<<` marker approach with `<completion_start>` anchoring. Same prompt structure for prose and code — the model infers the content type.
+**Claude Code** — via `@anthropic-ai/claude-agent-sdk`. The extension spawns Claude Code subprocesses and reuses them across multiple completions (1-slot pool, up to 8 completions per slot before recycling). Uses a `>>>CURSOR<<<` marker approach with `<completion_start>` anchoring. Same prompt structure for prose and code — the model infers the content type.
 
 Requires the `claude` CLI to be installed. No API key needed (uses Claude Code subscription).
 
@@ -147,7 +147,7 @@ npm run test:quality   # LLM-as-judge quality tests (needs claude CLI)
 
 **Single backend.** Claude Code is the sole provider. Direct API providers (Anthropic, Ollama) were removed to simplify the architecture. See `API_RETURN_NOTES.md` for context on this decision and notes on potentially restoring them.
 
-**Session reuse.** Each Claude Code subprocess serves up to 8 completions before recycling. A 2-slot pool ensures one slot is always warming up while the other serves requests.
+**Session reuse.** Each Claude Code subprocess serves up to 8 completions before recycling via a 1-slot pool.
 
 **No streaming.** Ghost text must be returned as a complete string. The VS Code inline completion API doesn't support incremental rendering.
 

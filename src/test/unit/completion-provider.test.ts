@@ -134,56 +134,6 @@ describe('CompletionProvider', () => {
     vi.useRealTimers();
   });
 
-  describe('snooze functionality', () => {
-    it('returns null when snoozed', async () => {
-      const mockProvider = createMockProvider();
-      const provider = new CompletionProvider(makeConfig(), mockProvider, makeLogger());
-
-      provider.setSnoozed(true);
-
-      const document = createMockDocument('Hello world');
-      const position = { line: 0, character: 6 };
-      const context = createMockInlineContext(TriggerKind.Automatic);
-      const token = createMockToken();
-
-      const result = await provider.provideInlineCompletionItems(
-        document as any,
-        position as any,
-        context,
-        token as any,
-      );
-
-      expect(result).toBeNull();
-      expect(mockProvider.getCompletion).not.toHaveBeenCalled();
-    });
-
-    it('returns completions when not snoozed', async () => {
-      const mockProvider = createMockProvider();
-      const provider = new CompletionProvider(makeConfig(), mockProvider, makeLogger());
-
-      provider.setSnoozed(false);
-
-      const document = createMockDocument('Hello world');
-      const position = { line: 0, character: 6 };
-      const context = createMockInlineContext(TriggerKind.Invoke);
-      const token = createMockToken();
-
-      // Let the debounce complete
-      const resultPromise = provider.provideInlineCompletionItems(
-        document as any,
-        position as any,
-        context,
-        token as any,
-      );
-
-      await vi.advanceTimersByTimeAsync(1000);
-      const result = await resultPromise;
-
-      expect(result).not.toBeNull();
-      provider.dispose();
-    });
-  });
-
   describe('trigger mode handling', () => {
     it('ignores automatic triggers in manual mode', async () => {
       const mockProvider = createMockProvider();
@@ -224,7 +174,8 @@ describe('CompletionProvider', () => {
         token as any,
       );
 
-      await vi.advanceTimersByTimeAsync(1000);
+      // Manual trigger uses zero delay
+      await vi.advanceTimersByTimeAsync(0);
       const result = await resultPromise;
 
       expect(result).not.toBeNull();
@@ -248,7 +199,32 @@ describe('CompletionProvider', () => {
         token as any,
       );
 
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(8000);
+      const result = await resultPromise;
+
+      expect(result).not.toBeNull();
+      provider.dispose();
+    });
+
+    it('explicit trigger fires with zero delay', async () => {
+      const mockProvider = createMockProvider();
+      const config = makeConfig({ triggerMode: 'auto' });
+      const provider = new CompletionProvider(config, mockProvider, makeLogger());
+
+      const document = createMockDocument('Hello world');
+      const position = { line: 0, character: 6 };
+      const context = createMockInlineContext(TriggerKind.Invoke);
+      const token = createMockToken();
+
+      const resultPromise = provider.provideInlineCompletionItems(
+        document as any,
+        position as any,
+        context,
+        token as any,
+      );
+
+      // Zero delay for explicit trigger
+      await vi.advanceTimersByTimeAsync(0);
       const result = await resultPromise;
 
       expect(result).not.toBeNull();
@@ -336,7 +312,7 @@ describe('CompletionProvider', () => {
         token as any,
       );
 
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       const result = await resultPromise;
 
       expect(result).not.toBeNull();
@@ -361,7 +337,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise1;
 
       expect(mockProvider.getCompletion).toHaveBeenCalledTimes(1);
@@ -398,7 +374,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise1;
 
       expect(mockProvider.getCompletion).toHaveBeenCalledTimes(1);
@@ -406,7 +382,7 @@ describe('CompletionProvider', () => {
       // Clear cache
       provider.clearCache();
 
-      // Third call - should miss cache and call provider
+      // Second call - should miss cache and call provider
       const token3 = createMockToken();
       const resultPromise3 = provider.provideInlineCompletionItems(
         document as any,
@@ -414,122 +390,8 @@ describe('CompletionProvider', () => {
         context,
         token3 as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise3;
-
-      expect(mockProvider.getCompletion).toHaveBeenCalledTimes(2);
-      provider.dispose();
-    });
-  });
-
-  describe('dismissal/acceptance detection and adaptive back-off', () => {
-    it('resets back-off when completion is accepted', async () => {
-      const mockProvider = createMockProvider('completed text');
-      const provider = new CompletionProvider(makeConfig(), mockProvider, makeLogger());
-
-      // First completion
-      const document1 = createMockDocument('Hello ');
-      const position1 = { line: 0, character: 6 };
-      const context = createMockInlineContext(TriggerKind.Invoke);
-      const token1 = createMockToken();
-
-      const resultPromise1 = provider.provideInlineCompletionItems(
-        document1 as any,
-        position1 as any,
-        context,
-        token1 as any,
-      );
-      await vi.advanceTimersByTimeAsync(1000);
-      await resultPromise1;
-
-      // Simulate acceptance: document now contains the completion text at the offered position
-      const document2 = createMockDocument('Hello completed text');
-      // Override getText to return the completion text when asked for the completion range
-      document2.getText = vi.fn().mockImplementation((range?: any) => {
-        if (range) {
-          // Return the accepted completion text
-          return 'completed text';
-        }
-        return 'Hello completed text';
-      });
-
-      const position2 = { line: 0, character: 20 };
-      const token2 = createMockToken();
-
-      // Clear cache to ensure we go through full flow
-      provider.clearCache();
-
-      // Second request - should detect acceptance and reset back-off
-      const resultPromise2 = provider.provideInlineCompletionItems(
-        document2 as any,
-        position2 as any,
-        context,
-        token2 as any,
-      );
-      await vi.advanceTimersByTimeAsync(1000);
-      await resultPromise2;
-
-      // The acceptance detection happens internally; we verify by checking that
-      // the provider was called (meaning back-off didn't block it)
-      expect(mockProvider.getCompletion).toHaveBeenCalledTimes(2);
-      provider.dispose();
-    });
-
-    it('increases back-off when completion is dismissed', async () => {
-      const mockProvider = createMockProvider('completed text');
-      const provider = new CompletionProvider(
-        makeConfig({ debounceMs: 1000 }),
-        mockProvider,
-        makeLogger(),
-      );
-
-      // First completion
-      const document1 = createMockDocument('Hello ');
-      const position1 = { line: 0, character: 6 };
-      const context = createMockInlineContext(TriggerKind.Automatic);
-      const token1 = createMockToken();
-
-      const resultPromise1 = provider.provideInlineCompletionItems(
-        document1 as any,
-        position1 as any,
-        context,
-        token1 as any,
-      );
-      await vi.advanceTimersByTimeAsync(1000);
-      await resultPromise1;
-
-      // Simulate dismissal: document text is different from what was offered
-      const document2 = createMockDocument('Hello different');
-      // Override getText to NOT match the completion text
-      document2.getText = vi.fn().mockImplementation((range?: any) => {
-        if (range) {
-          return 'different'; // Different from offered "completed text"
-        }
-        return 'Hello different';
-      });
-
-      const position2 = { line: 0, character: 15 };
-      const token2 = createMockToken();
-
-      // Clear cache to ensure we test back-off, not cache
-      provider.clearCache();
-
-      // Second request - this triggers dismissal detection
-      // With back-off, the delay should be longer than base 1000ms
-      const resultPromise2 = provider.provideInlineCompletionItems(
-        document2 as any,
-        position2 as any,
-        context,
-        token2 as any,
-      );
-
-      // Advance by base delay - should NOT be resolved yet due to back-off
-      await vi.advanceTimersByTimeAsync(1000);
-      // Note: Due to the exponential back-off formula, 1 dismissal increases delay
-      // We can't easily verify the exact timing without exposing the debouncer,
-      // but we can verify the provider is eventually called
-      await vi.advanceTimersByTimeAsync(30000); // Advance by max back-off to ensure completion
-      await resultPromise2;
 
       expect(mockProvider.getCompletion).toHaveBeenCalledTimes(2);
       provider.dispose();
@@ -554,7 +416,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       const result = await resultPromise;
 
       expect(result).toBeNull();
@@ -582,7 +444,7 @@ describe('CompletionProvider', () => {
         context,
         token1 as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise1;
 
       expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
@@ -598,7 +460,7 @@ describe('CompletionProvider', () => {
         context,
         token2 as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise2;
 
       expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
@@ -606,8 +468,8 @@ describe('CompletionProvider', () => {
       // Clear cache again
       provider.clearCache();
 
-      // Advance past 60 seconds
-      await vi.advanceTimersByTimeAsync(60000);
+      // Advance past 60 seconds (must be > 60000, not ==)
+      await vi.advanceTimersByTimeAsync(61000);
 
       // Third error after 60s - should show toast
       const token3 = createMockToken();
@@ -617,7 +479,7 @@ describe('CompletionProvider', () => {
         context,
         token3 as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise3;
 
       expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(2);
@@ -690,7 +552,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       const result = await resultPromise;
 
       expect(result).toBeNull();
@@ -719,7 +581,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise;
 
       expect(onStart).toHaveBeenCalledTimes(1);
@@ -748,7 +610,7 @@ describe('CompletionProvider', () => {
         context,
         token as any,
       );
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
       await resultPromise;
 
       expect(onStart).toHaveBeenCalledTimes(1);

@@ -133,11 +133,12 @@ Profiles are named config presets stored in `bespokeAI.profiles`. Each profile i
 
 **Behavior:**
 
-- Clicking the status bar opens the unified menu (mode selection, profile switching, toggle enable, clear cache, open settings, open output log)
+- Clicking the status bar opens the unified menu (mode selection, model selection, profile switching, trigger mode toggle, enable/disable, suggest edits, clear cache, open settings, open output log)
 - The status bar shows a `$(loading~spin)` spinner while a completion request is in-flight
+- The status bar shows trigger mode: `$(zap)` for auto, `$(hand)` for manual, plus mode and model
 - Switching profiles auto-clears the completion cache
 - Profiles cannot override `enabled` or `activeProfile` (UX guards)
-- The status bar shows the shortened model name (e.g., `haiku`) and the tooltip includes the profile name when active
+- Disabling (`enabled: false`) is a hard kill — disposes both the completion pool and command pool. Re-enabling restarts them. Commit message and suggest-edit commands return early with a warning when disabled.
 
 **Example config:**
 
@@ -158,7 +159,7 @@ Profiles are named config presets stored in `bespokeAI.profiles`. Each profile i
 
 ### Request flow
 
-User types → VS Code calls `provideInlineCompletionItems` → dismissal/acceptance detection → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (1000ms base, adaptive back-off on dismissals) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
+User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (8000ms default, zero-delay for manual trigger) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
 
 ### Logging
 
@@ -199,22 +200,22 @@ Key modules, listed in request-flow order:
 
 - `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `CommandPool`. Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates dismissal/acceptance detection → mode detection → context extraction → cache lookup → debounce (with adaptive back-off) → backend call → cache write. Tracks `lastOfferedCompletion` to detect whether the user accepted or dismissed the previous suggestion; acceptance resets back-off, dismissal increases it. Explicit triggers (`Invoke`) bypass back-off. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`Invoke`) use zero-delay debounce for instant response. Adaptive back-off code is present but commented out. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
 - `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. Manages slot lifecycle (init → warmup → consume → reuse → recycle), circuit breaker, generation guards, single-waiter queue, warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
 
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 2-slot inline completion pool.
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
   - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
-  - **Slot pool:** Manages a 2-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
-  - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when both slots are busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request runs to completion regardless of cancellation signals.
+  - **Slot pool:** Manages a 1-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
+  - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when the slot is busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request runs to completion regardless of cancellation signals.
 
 - `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 24 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
 
 - `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
 
-- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. Supports adaptive back-off: `recordDismissal()` increases delay exponentially (up to 30s after 8 consecutive dismissals), `resetBackoff()` returns to base delay on acceptance. `debounce()` accepts an optional `overrideDelayMs` to bypass back-off for explicit triggers.
+- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. Adaptive back-off code is present but commented out. `debounce()` accepts an optional `overrideDelayMs` (used by explicit triggers with `0` for instant response).
 
 - `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Key built from mode + last 500 prefix chars + first 200 suffix chars.
 

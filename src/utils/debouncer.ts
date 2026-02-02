@@ -6,7 +6,7 @@ export const MAX_DISMISSALS = 8;
 export class Debouncer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private currentAbort: AbortController | null = null;
-  private dismissalCount = 0;
+  // private dismissalCount = 0;
 
   constructor(private delayMs: number) {}
 
@@ -14,32 +14,34 @@ export class Debouncer {
     this.delayMs = ms;
   }
 
-  /** Record a dismissal — increases back-off for the next debounce. */
-  recordDismissal(): void {
-    if (this.dismissalCount < MAX_DISMISSALS) {
-      this.dismissalCount++;
-    }
-  }
+  // --- Adaptive back-off (commented out — may restore later) ---
+  // /** Record a dismissal — increases back-off for the next debounce. */
+  // recordDismissal(): void {
+  //   if (this.dismissalCount < MAX_DISMISSALS) {
+  //     this.dismissalCount++;
+  //   }
+  // }
+  //
+  // /** Reset back-off to zero (called on acceptance). */
+  // resetBackoff(): void {
+  //   this.dismissalCount = 0;
+  // }
 
-  /** Reset back-off to zero (called on acceptance). */
-  resetBackoff(): void {
-    this.dismissalCount = 0;
-  }
-
-  /** Current effective delay based on dismissal count. */
+  /** Current effective delay — returns base delay (back-off disabled). */
   getCurrentDelay(): number {
-    if (this.dismissalCount === 0) {
-      return this.delayMs;
-    }
-    // delay = min(baseDelay * (MAX_BACKOFF / baseDelay) ^ (min(dismissals, 8) / 8), MAX_BACKOFF)
-    const ratio = MAX_BACKOFF_MS / this.delayMs;
-    const exponent = Math.min(this.dismissalCount, MAX_DISMISSALS) / MAX_DISMISSALS;
-    return Math.min(Math.round(this.delayMs * Math.pow(ratio, exponent)), MAX_BACKOFF_MS);
+    return this.delayMs;
+    // Back-off formula (disabled):
+    // if (this.dismissalCount === 0) {
+    //   return this.delayMs;
+    // }
+    // const ratio = MAX_BACKOFF_MS / this.delayMs;
+    // const exponent = Math.min(this.dismissalCount, MAX_DISMISSALS) / MAX_DISMISSALS;
+    // return Math.min(Math.round(this.delayMs * Math.pow(ratio, exponent)), MAX_BACKOFF_MS);
   }
 
-  get currentDismissalCount(): number {
-    return this.dismissalCount;
-  }
+  // get currentDismissalCount(): number {
+  //   return this.dismissalCount;
+  // }
 
   /**
    * Waits for the debounce period, then returns an AbortSignal for the HTTP request.

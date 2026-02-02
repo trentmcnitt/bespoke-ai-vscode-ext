@@ -33,11 +33,6 @@ let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
 
-// Snooze state
-let snoozeEndTime: number | null = null;
-let snoozeTimer: ReturnType<typeof setTimeout> | null = null;
-let snoozeStatusInterval: ReturnType<typeof setInterval> | null = null;
-
 export function activate(context: vscode.ExtensionContext) {
   logger = new Logger('Bespoke AI');
   context.subscriptions.push(logger);
@@ -262,31 +257,12 @@ export function activate(context: vscode.ExtensionContext) {
 
       const toggleItem: vscode.QuickPickItem = {
         label: config.enabled ? '$(debug-pause) Disable' : '$(debug-start) Enable',
+        description: config.enabled ? 'shuts down all AI features' : 'starts pools back up',
       };
       items.push(toggleItem);
       handlers.set(toggleItem, () => {
         ws.update('enabled', !config.enabled, vscode.ConfigurationTarget.Global);
       });
-
-      // Snooze / Wake
-      if (snoozeEndTime) {
-        const remaining = formatRemainingMinutes();
-        const wakeItem: vscode.QuickPickItem = {
-          label: `$(bell) Wake up (${remaining} remaining)`,
-        };
-        items.push(wakeItem);
-        handlers.set(wakeItem, () => {
-          cancelSnooze();
-        });
-      } else {
-        const snoozeItem: vscode.QuickPickItem = {
-          label: `$(bell-slash) Snooze (${config.snoozeDurationMinutes} min)`,
-        };
-        items.push(snoozeItem);
-        handlers.set(snoozeItem, () => {
-          startSnooze(config.snoozeDurationMinutes);
-        });
-      }
 
       const suggestEditItem: vscode.QuickPickItem = {
         label: '$(edit) Suggest Edits',
@@ -350,6 +326,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
+      if (!lastConfig.enabled) {
+        vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
+        return;
+      }
       await generateCommitMessage(commandPool, logger, usageLedger);
     }),
   );
@@ -367,6 +347,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.suggestEdit', async () => {
+      if (!lastConfig.enabled) {
+        vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
+        return;
+      }
       await suggestEdit(commandPool, logger, usageLedger);
     }),
   );
@@ -387,8 +371,30 @@ export function activate(context: vscode.ExtensionContext) {
         logger.setLevel(newConfig.logLevel);
         completionProvider.updateConfig(newConfig);
 
-        // Recycle pools when model changes
-        if (newConfig.claudeCode.model !== lastConfig.claudeCode.model) {
+        // Hard kill / restart pools when enabled changes
+        const enabledChanged = newConfig.enabled !== lastConfig.enabled;
+        if (enabledChanged) {
+          if (!newConfig.enabled) {
+            logger.info('Disabled — shutting down pools');
+            claudeCodeProvider.dispose();
+            commandPool.dispose();
+          } else {
+            logger.info('Enabled — restarting pools');
+            claudeCodeProvider.restart().catch((err) => {
+              logger.error(`Claude Code restart failed: ${err}`);
+            });
+            commandPool.restart().catch((err) => {
+              logger.error(`CommandPool restart failed: ${err}`);
+            });
+          }
+        }
+
+        // Recycle pools when model changes (skip if we just restarted — restart picks up new model)
+        if (
+          newConfig.enabled &&
+          !enabledChanged &&
+          newConfig.claudeCode.model !== lastConfig.claudeCode.model
+        ) {
           logger.info(`Model → ${newConfig.claudeCode.model} (recycling pools + clearing cache)`);
           completionProvider.clearCache();
           completionProvider.recyclePool().catch((err) => {
@@ -416,7 +422,7 @@ function loadConfig(): ExtensionConfig {
     enabled: ws.get<boolean>('enabled', true)!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
     triggerMode: ws.get<'auto' | 'manual'>('triggerMode', 'auto')!,
-    debounceMs: ws.get<number>('debounceMs', 1000)!,
+    debounceMs: ws.get<number>('debounceMs', 8000)!,
     prose: {
       maxTokens: ws.get<number>('prose.maxTokens', 100)!,
       temperature: ws.get<number>('prose.temperature', 0.7)!,
@@ -438,7 +444,6 @@ function loadConfig(): ExtensionConfig {
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
     activeProfile,
-    snoozeDurationMinutes: ws.get<number>('snoozeDurationMinutes', 10)!,
   };
 
   if (activeProfile) {
@@ -453,71 +458,19 @@ function loadConfig(): ExtensionConfig {
   return baseConfig;
 }
 
-function startSnooze(durationMinutes: number): void {
-  // Clear any existing snooze timers to avoid leaks
-  if (snoozeTimer) {
-    clearTimeout(snoozeTimer);
-  }
-  if (snoozeStatusInterval) {
-    clearInterval(snoozeStatusInterval);
-  }
-
-  snoozeEndTime = Date.now() + durationMinutes * 60_000;
-  completionProvider.setSnoozed(true);
-  logger.info(`Snoozed for ${durationMinutes} minutes`);
-
-  // Auto-wake timer
-  snoozeTimer = setTimeout(() => {
-    cancelSnooze();
-  }, durationMinutes * 60_000);
-
-  // Status bar update interval
-  snoozeStatusInterval = setInterval(() => {
-    updateStatusBar(lastConfig);
-  }, 30_000);
-
-  updateStatusBar(lastConfig);
-}
-
-function cancelSnooze(): void {
-  if (snoozeTimer) {
-    clearTimeout(snoozeTimer);
-    snoozeTimer = null;
-  }
-  if (snoozeStatusInterval) {
-    clearInterval(snoozeStatusInterval);
-    snoozeStatusInterval = null;
-  }
-  snoozeEndTime = null;
-  completionProvider.setSnoozed(false);
-  logger.info('Snooze cancelled — completions re-enabled');
-  updateStatusBar(lastConfig);
-}
-
-function formatRemainingMinutes(): string {
-  if (!snoozeEndTime) {
-    return '';
-  }
-  const remaining = Math.max(0, snoozeEndTime - Date.now());
-  const minutes = Math.ceil(remaining / 60_000);
-  return `${minutes}m`;
-}
-
 function updateStatusBar(config: ExtensionConfig) {
   lastConfig = config;
-  if (snoozeEndTime) {
-    const remaining = formatRemainingMinutes();
-    statusBarItem.text = `$(bell-slash) Snoozed (${remaining})`;
-    statusBarItem.tooltip = `Bespoke AI: Snoozed — ${remaining} remaining (click for menu)`;
-  } else if (!config.enabled) {
+  if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
     statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
   } else {
     const modelLabel = shortenModelName(config.claudeCode.model);
-    statusBarItem.text = `${MODE_ICONS[config.mode]} ${config.mode} | ${modelLabel}`;
+    const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
+    statusBarItem.text = `${triggerIcon} ${config.mode} | ${modelLabel}`;
 
+    const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
     const profileInfo = config.activeProfile ? `, profile: ${config.activeProfile}` : '';
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, claude-code (${config.claudeCode.model})${profileInfo} (click for menu)`;
+    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, claude-code (${config.claudeCode.model})${profileInfo} (click for menu)`;
   }
   statusBarItem.show();
 }
@@ -672,13 +625,5 @@ async function showUsageDetail(): Promise<void> {
 }
 
 export function deactivate() {
-  if (snoozeTimer) {
-    clearTimeout(snoozeTimer);
-    snoozeTimer = null;
-  }
-  if (snoozeStatusInterval) {
-    clearInterval(snoozeStatusInterval);
-    snoozeStatusInterval = null;
-  }
   completionProvider?.dispose();
 }

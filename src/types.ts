@@ -42,7 +42,6 @@ export interface ExtensionConfig {
   };
   logLevel: 'info' | 'debug' | 'trace';
   activeProfile: string;
-  snoozeDurationMinutes: number;
 }
 
 export interface ProfileOverrides {

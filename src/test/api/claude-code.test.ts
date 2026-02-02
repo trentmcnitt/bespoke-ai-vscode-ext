@@ -1,6 +1,6 @@
 /**
  * Integration test for ClaudeCodeProvider — exercises the real Agent SDK,
- * spawns actual claude subprocesses, and validates the 2-slot rotating pool.
+ * spawns actual claude subprocesses, and validates the 1-slot rotating pool.
  *
  * Requires: `claude` CLI installed + `@anthropic-ai/claude-agent-sdk`
  *

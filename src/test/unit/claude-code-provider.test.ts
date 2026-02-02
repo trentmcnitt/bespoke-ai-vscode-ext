@@ -61,15 +61,10 @@ describe('ClaudeCodeProvider', () => {
   describe('activation', () => {
     it('loads SDK and reports available after activation', async () => {
       const fakeStream0 = createFakeStream('');
-      const fakeStream1 = createFakeStream('');
 
-      let callCount = 0;
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        const stream = callCount === 0 ? fakeStream0 : fakeStream1;
-        callCount++;
-        // Consume the iterable to trigger message channel reads
-        consumeIterable(prompt, stream);
-        return stream.stream;
+        consumeIterable(prompt, fakeStream0);
+        return fakeStream0.stream;
       });
 
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
@@ -119,13 +114,10 @@ describe('ClaudeCodeProvider', () => {
       const badWarmup = '<output>garbage response</output>';
 
       // Attempt 1: slot 0 gets bad warmup → handleWarmupFailure kills all, schedules retry
-      // (slot 1 also gets killed before its warmup completes)
-      // Attempt 2 (retry): both slots get good warmups → pool recovers
+      // Attempt 2 (retry): slot 0 gets good warmup → pool recovers
       const streams = [
         createFakeStream([validCompletion], badWarmup), // attempt 1 slot 0
-        createFakeStream([validCompletion], goodWarmup), // attempt 1 slot 1 (killed)
         createFakeStream([validCompletion], goodWarmup), // attempt 2 slot 0
-        createFakeStream([validCompletion], goodWarmup), // attempt 2 slot 1
       ];
 
       let callCount = 0;
@@ -166,12 +158,10 @@ describe('ClaudeCodeProvider', () => {
     it('disables pool after two consecutive warmup failures', async () => {
       const badWarmup = '<output>garbage response</output>';
 
-      // All attempts return bad warmups
+      // All attempts return bad warmups (1 slot: attempt + retry = 2)
       const streams = [
         createFakeStream([], badWarmup), // attempt 1 slot 0 (fails)
-        createFakeStream([], badWarmup), // attempt 1 slot 1 (killed)
         createFakeStream([], badWarmup), // attempt 2 slot 0 (fails again)
-        createFakeStream([], badWarmup), // attempt 2 slot 1 (killed)
       ];
 
       let callCount = 0;
@@ -222,15 +212,12 @@ describe('ClaudeCodeProvider', () => {
       const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
       const validCompletion = `<output>${proseCS} went home.</output>`;
 
-      // First: all warmups fail → pool degrades
-      // Then: restart with good warmups → pool recovers
+      // First: warmup fails → pool degrades (1 slot: attempt + retry = 2)
+      // Then: restart with good warmup → pool recovers (1 slot)
       const streams = [
         createFakeStream([], badWarmup), // attempt 1 slot 0
-        createFakeStream([], badWarmup), // attempt 1 slot 1
         createFakeStream([], badWarmup), // retry slot 0
-        createFakeStream([], badWarmup), // retry slot 1
         createFakeStream([validCompletion], goodWarmup), // restart slot 0
-        createFakeStream([validCompletion], goodWarmup), // restart slot 1
       ];
 
       let callCount = 0;
@@ -274,12 +261,10 @@ describe('ClaudeCodeProvider', () => {
       const completion1 = `<output>${proseCS} ran away.</output>`;
       const completion2 = `<output>${proseCS} came back.</output>`;
 
-      // Initial activation streams + post-recycle streams
+      // Initial activation stream (1 slot) + post-recycle stream (1 slot)
       const streams = [
         createFakeStream([completion1]), // init slot 0
-        createFakeStream([completion1]), // init slot 1
         createFakeStream([completion2]), // recycled slot 0
-        createFakeStream([completion2]), // recycled slot 1
       ];
 
       let callCount = 0;
@@ -313,12 +298,10 @@ describe('ClaudeCodeProvider', () => {
       const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
       const completion = `<output>${proseCS} went home.</output>`;
 
-      // Initial activation streams (2) + recycleAll streams (2) = 4 total
+      // Initial activation stream (1) + recycleAll stream (1) = 2 total
       const streams = [
         createFakeStream([completion]), // init slot 0
-        createFakeStream([completion]), // init slot 1
         createFakeStream([completion]), // recycled slot 0
-        createFakeStream([completion]), // recycled slot 1
       ];
 
       let callCount = 0;
@@ -333,8 +316,8 @@ describe('ClaudeCodeProvider', () => {
       activeProvider = provider;
       await provider.activate('/test/workspace');
 
-      // Activation used 2 streams
-      expect(callCount).toBe(2);
+      // Activation used 1 stream
+      expect(callCount).toBe(1);
 
       // Recycle — old consumers will finalize asynchronously
       await provider.recycleAll();
@@ -342,8 +325,8 @@ describe('ClaudeCodeProvider', () => {
       // Allow microtasks to settle (stale consumers' finally blocks run)
       await new Promise((r) => setTimeout(r, 50));
 
-      // Should be exactly 4: 2 activation + 2 recycle. No extra spawns from stale consumers.
-      expect(callCount).toBe(4);
+      // Should be exactly 2: 1 activation + 1 recycle. No extra spawns from stale consumers.
+      expect(callCount).toBe(2);
     });
   });
 
@@ -399,11 +382,10 @@ describe('ClaudeCodeProvider', () => {
       // Waiter cancellation on dispose is tested here.
       // Full concurrent waiter behavior is validated by API integration tests.
       const fakeStream0 = createFakeStream(['result1']);
-      const fakeStream1 = createFakeStream(['result1']);
 
       let callCount = 0;
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        const stream = callCount === 0 ? fakeStream0 : fakeStream1;
+        const stream = fakeStream0;
         callCount++;
         consumeIterable(prompt, stream);
         return stream.stream;
@@ -413,21 +395,19 @@ describe('ClaudeCodeProvider', () => {
       activeProvider = provider;
       await provider.activate('/test/workspace');
 
-      // Make both slots busy
+      // Make the single slot busy
       const p1 = provider.getCompletion(makeProseContext(), new AbortController().signal);
-      const p2 = provider.getCompletion(makeCodeContext(), new AbortController().signal);
 
-      // Third request enters waiter path (both slots busy)
-      const p3 = provider.getCompletion(makeProseContext(), new AbortController().signal);
+      // Second request enters waiter path (slot busy)
+      const p2 = provider.getCompletion(makeCodeContext(), new AbortController().signal);
 
       // Dispose cancels the waiter and resolves in-flight deliverResult promises
       provider.dispose();
       activeProvider = null;
 
-      const [result1, result2, result3] = await Promise.all([p1, p2, p3]);
+      const [result1, result2] = await Promise.all([p1, p2]);
       expect(result1).toBeNull();
       expect(result2).toBeNull();
-      expect(result3).toBeNull();
     });
   });
 });

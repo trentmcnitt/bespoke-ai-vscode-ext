@@ -22,7 +22,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
   mode: 'auto',
   triggerMode: 'auto',
-  debounceMs: 1000,
+  debounceMs: 8000,
   prose: {
     maxTokens: 100,
     temperature: 0.7,
@@ -41,7 +41,6 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   claudeCode: { model: 'haiku', models: ['haiku', 'sonnet', 'opus'] },
   logLevel: 'info',
   activeProfile: '',
-  snoozeDurationMinutes: 10,
 };
 
 export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
@@ -150,7 +149,7 @@ export function makeLedger(dir?: string): { ledger: UsageLedger; filePath: strin
 export function assertWarmupValid(getTrace: (label: string) => string | undefined): void {
   const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
 
-  for (const slotIndex of [0, 1]) {
+  for (const slotIndex of [0]) {
     const raw = getTrace(`warmup ← recv (slot ${slotIndex})`);
     if (raw === undefined) {
       continue;

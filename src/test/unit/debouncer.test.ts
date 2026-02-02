@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Debouncer, MAX_BACKOFF_MS, MAX_DISMISSALS } from '../../utils/debouncer';
+import { Debouncer } from '../../utils/debouncer';
 import { createMockToken } from '../helpers';
 
 describe('Debouncer', () => {
@@ -161,121 +161,41 @@ describe('Debouncer', () => {
     });
   });
 
-  describe('adaptive back-off', () => {
-    it('returns base delay with zero dismissals', () => {
+  describe('getCurrentDelay (back-off disabled)', () => {
+    it('returns base delay', () => {
       const debouncer = new Debouncer(1000);
       expect(debouncer.getCurrentDelay()).toBe(1000);
     });
 
-    it('increases delay after recordDismissal()', () => {
+    it('returns updated delay after setDelay', () => {
       const debouncer = new Debouncer(1000);
-      debouncer.recordDismissal();
-      expect(debouncer.getCurrentDelay()).toBeGreaterThan(1000);
+      debouncer.setDelay(5000);
+      expect(debouncer.getCurrentDelay()).toBe(5000);
     });
+  });
 
-    it('follows the exponential formula for known dismissal counts', () => {
-      const debouncer = new Debouncer(1000);
-
-      // Verify monotonically increasing delays and known boundary values
-      const delays: number[] = [];
-      for (let i = 0; i <= MAX_DISMISSALS; i++) {
-        delays.push(debouncer.getCurrentDelay());
-        debouncer.recordDismissal();
-      }
-
-      // Boundaries
-      expect(delays[0]).toBe(1000);
-      expect(delays[MAX_DISMISSALS]).toBe(MAX_BACKOFF_MS);
-
-      // Monotonically increasing
-      for (let i = 1; i < delays.length; i++) {
-        expect(delays[i]).toBeGreaterThan(delays[i - 1]);
-      }
-
-      // Midpoint (4 dismissals) should be sqrt(30)*1000 ≈ 5477
-      expect(delays[4]).toBeGreaterThan(5400);
-      expect(delays[4]).toBeLessThan(5550);
-    });
-
-    it(`caps at MAX_BACKOFF_MS (${MAX_BACKOFF_MS}) after ${MAX_DISMISSALS} dismissals`, () => {
-      const debouncer = new Debouncer(1000);
-      for (let i = 0; i < 10; i++) {
-        debouncer.recordDismissal();
-      }
-      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
-    });
-
-    it('resets to base delay after resetBackoff()', () => {
-      const debouncer = new Debouncer(1000);
-      debouncer.recordDismissal();
-      debouncer.recordDismissal();
-      debouncer.recordDismissal();
-      expect(debouncer.getCurrentDelay()).toBeGreaterThan(1000);
-
-      debouncer.resetBackoff();
-      expect(debouncer.getCurrentDelay()).toBe(1000);
-      expect(debouncer.currentDismissalCount).toBe(0);
-    });
-
-    it('scales with a different base delay', () => {
-      const debouncer = new Debouncer(500);
-      expect(debouncer.getCurrentDelay()).toBe(500);
-
-      // After MAX_DISMISSALS dismissals, still caps at MAX_BACKOFF_MS
-      for (let i = 0; i < MAX_DISMISSALS; i++) {
-        debouncer.recordDismissal();
-      }
-      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
-    });
-
-    it('uses back-off delay in debounce()', async () => {
-      const debouncer = new Debouncer(1000);
-
-      // Add 1 dismissal → ~1534ms
-      debouncer.recordDismissal();
-      const effectiveDelay = debouncer.getCurrentDelay();
+  describe('overrideDelayMs', () => {
+    it('overrideDelayMs bypasses base delay', async () => {
+      const debouncer = new Debouncer(8000);
 
       const token = createMockToken();
       let resolved = false;
-      debouncer.debounce(token as any).then(() => {
+      // Use overrideDelayMs to fire immediately
+      debouncer.debounce(token as any, 0).then(() => {
         resolved = true;
       });
 
-      // Not resolved at base delay
-      vi.advanceTimersByTime(1000);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(resolved).toBe(false);
-
-      // Resolved at effective delay
-      vi.advanceTimersByTime(effectiveDelay - 1000);
       await vi.advanceTimersByTimeAsync(0);
       expect(resolved).toBe(true);
 
       debouncer.dispose();
     });
 
-    it('does not increment beyond MAX_DISMISSALS', () => {
-      const debouncer = new Debouncer(1000);
-      for (let i = 0; i < 20; i++) {
-        debouncer.recordDismissal();
-      }
-      expect(debouncer.currentDismissalCount).toBe(MAX_DISMISSALS);
-      expect(debouncer.getCurrentDelay()).toBe(MAX_BACKOFF_MS);
-    });
-
-    it('overrideDelayMs bypasses back-off delay', async () => {
-      const debouncer = new Debouncer(1000);
-
-      // Add several dismissals to increase back-off
-      for (let i = 0; i < 5; i++) {
-        debouncer.recordDismissal();
-      }
-      const backoffDelay = debouncer.getCurrentDelay();
-      expect(backoffDelay).toBeGreaterThan(1000);
+    it('overrideDelayMs uses specified delay', async () => {
+      const debouncer = new Debouncer(8000);
 
       const token = createMockToken();
       let resolved = false;
-      // Use overrideDelayMs to bypass the back-off
       debouncer.debounce(token as any, 100).then(() => {
         resolved = true;
       });
@@ -285,7 +205,7 @@ describe('Debouncer', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(resolved).toBe(false);
 
-      // Should be resolved at override delay, not backoff delay
+      // Should be resolved at override delay
       vi.advanceTimersByTime(1);
       await vi.advanceTimersByTimeAsync(0);
       expect(resolved).toBe(true);
@@ -293,4 +213,16 @@ describe('Debouncer', () => {
       debouncer.dispose();
     });
   });
+
+  // --- Adaptive back-off tests (commented out — back-off is disabled) ---
+  // describe('adaptive back-off', () => {
+  //   it('returns base delay with zero dismissals', () => { ... });
+  //   it('increases delay after recordDismissal()', () => { ... });
+  //   it('follows the exponential formula for known dismissal counts', () => { ... });
+  //   it('caps at MAX_BACKOFF_MS after MAX_DISMISSALS dismissals', () => { ... });
+  //   it('resets to base delay after resetBackoff()', () => { ... });
+  //   it('scales with a different base delay', () => { ... });
+  //   it('uses back-off delay in debounce()', () => { ... });
+  //   it('does not increment beyond MAX_DISMISSALS', () => { ... });
+  // });
 });

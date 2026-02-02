@@ -242,7 +242,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   private config: ExtensionConfig;
   private workspaceRoot = '';
 
-  constructor(config: ExtensionConfig, logger: Logger, poolSize: number = 2) {
+  constructor(config: ExtensionConfig, logger: Logger, poolSize: number = 1) {
     super(logger, poolSize);
     this.config = config;
   }

@@ -2,7 +2,7 @@
  * Slot endurance tests — validate that a single provider remains reliable
  * across many sequential completions, including across the recycle boundary.
  *
- * These tests use a single ClaudeCodeProvider instance (default 2-slot pool)
+ * These tests use a single ClaudeCodeProvider instance (default 1-slot pool)
  * and fire completions sequentially, tracking per-request latency and success.
  *
  * Run: npm run test:api

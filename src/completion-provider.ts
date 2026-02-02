@@ -26,11 +26,10 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private config: ExtensionConfig;
   private logger: Logger;
   private tracker?: UsageTracker;
-  private snoozed = false;
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
-  private lastOfferedCompletion: { text: string; line: number; character: number } | null = null;
+  // private lastOfferedCompletion: { text: string; line: number; character: number } | null = null;
 
   constructor(
     config: ExtensionConfig,
@@ -58,13 +57,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.provider.updateConfig?.(config);
   }
 
-  setSnoozed(snoozed: boolean): void {
-    this.snoozed = snoozed;
-  }
-
   clearCache(): void {
     this.cache.clear();
-    this.lastOfferedCompletion = null;
+    // this.lastOfferedCompletion = null;
     this.logger.info('Cache cleared');
   }
 
@@ -78,7 +73,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     inlineContext: vscode.InlineCompletionContext,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | null> {
-    if (!this.config.enabled || this.snoozed) {
+    if (!this.config.enabled) {
       return null;
     }
 
@@ -90,35 +85,33 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       return null;
     }
 
-    // Dismissal / acceptance detection for adaptive back-off
-    if (this.lastOfferedCompletion) {
-      const offered = this.lastOfferedCompletion;
-      this.lastOfferedCompletion = null;
+    // --- Dismissal / acceptance detection (commented out — back-off disabled) ---
+    // if (this.lastOfferedCompletion) {
+    //   const offered = this.lastOfferedCompletion;
+    //   this.lastOfferedCompletion = null;
+    //
+    //   const textAfterOffer = document.getText(
+    //     new vscode.Range(
+    //       new vscode.Position(offered.line, offered.character),
+    //       document.positionAt(
+    //         document.offsetAt(new vscode.Position(offered.line, offered.character)) +
+    //           offered.text.length,
+    //       ),
+    //     ),
+    //   );
+    //
+    //   if (textAfterOffer === offered.text) {
+    //     this.debouncer.resetBackoff();
+    //     this.logger.debug('Completion accepted — back-off reset');
+    //   } else {
+    //     this.debouncer.recordDismissal();
+    //     this.logger.debug(
+    //       `Completion dismissed — back-off level ${this.debouncer.currentDismissalCount}, next delay ${this.debouncer.getCurrentDelay()}ms`,
+    //     );
+    //   }
+    // }
 
-      const textAfterOffer = document.getText(
-        new vscode.Range(
-          new vscode.Position(offered.line, offered.character),
-          document.positionAt(
-            document.offsetAt(new vscode.Position(offered.line, offered.character)) +
-              offered.text.length,
-          ),
-        ),
-      );
-
-      if (textAfterOffer === offered.text) {
-        // Accepted — reset back-off
-        this.debouncer.resetBackoff();
-        this.logger.debug('Completion accepted — back-off reset');
-      } else {
-        // Dismissed — increase back-off
-        this.debouncer.recordDismissal();
-        this.logger.debug(
-          `Completion dismissed — back-off level ${this.debouncer.currentDismissalCount}, next delay ${this.debouncer.getCurrentDelay()}ms`,
-        );
-      }
-    }
-
-    // Explicit triggers skip back-off
+    // Explicit triggers use zero delay
     const isExplicitTrigger =
       inlineContext.triggerKind === vscode.InlineCompletionTriggerKind.Invoke;
 
@@ -163,19 +156,16 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.trace(
         `returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`,
       );
-      this.lastOfferedCompletion = {
-        text: cached,
-        line: position.line,
-        character: position.character,
-      };
+      // this.lastOfferedCompletion = {
+      //   text: cached,
+      //   line: position.line,
+      //   character: position.character,
+      // };
       return [item];
     }
 
-    // Debounce — explicit triggers use base delay, ignoring back-off
-    const signal = await this.debouncer.debounce(
-      token,
-      isExplicitTrigger ? this.config.debounceMs : undefined,
-    );
+    // Debounce — explicit triggers fire immediately (zero delay)
+    const signal = await this.debouncer.debounce(token, isExplicitTrigger ? 0 : undefined);
     if (!signal || token.isCancellationRequested) {
       this.logger.trace(`#${reqId} debounce cancelled`);
       return null;
@@ -237,11 +227,11 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.trace(
         `returning completion: insertText=${JSON.stringify(result.slice(0, 50))}... range=${position.line}:${position.character}`,
       );
-      this.lastOfferedCompletion = {
-        text: result,
-        line: position.line,
-        character: position.character,
-      };
+      // this.lastOfferedCompletion = {
+      //   text: result,
+      //   line: position.line,
+      //   character: position.character,
+      // };
       return [item];
     } catch (err: unknown) {
       this.logger.error(`✗ #${reqId} | claude-code error`, err);
