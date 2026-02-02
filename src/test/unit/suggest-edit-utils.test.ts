@@ -40,7 +40,9 @@ describe('parseEditResponse', () => {
 describe('buildEditPrompt', () => {
   it('includes file metadata in XML structure', () => {
     const result = buildEditPrompt('hello world', 'markdown', 'readme.md');
-    expect(result).toBe('<file language="markdown" name="readme.md">\nhello world\n</file>');
+    expect(result).toBe(
+      '<file_content language="markdown" name="readme.md">\nhello world\n</file_content>',
+    );
   });
 
   it('includes language and file name attributes', () => {

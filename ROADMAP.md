@@ -4,31 +4,33 @@ Feature roadmap for Bespoke AI. Informed by the competitive landscape analysis i
 
 ## At a Glance
 
-| Feature                     | Status    |
-| --------------------------- | --------- |
-| inline completions          | **Now**   |
-| Global usage ledger         | Planned   |
-| Custom instructions file    | Planned   |
-| Open-tab context            | Planned   |
-| Snooze suggestions          | Planned   |
-| Partial accept analytics    | Planned   |
-| Stream-time filtering       | Exploring |
-| Generator reuse             | Exploring |
-| LSP-based context           | Exploring |
-| Persistent cache            | Exploring |
-| Session self-correction     | Exploring |
-| FIM template library        | Exploring |
-| NES / next edit suggestions | Deferred  |
-| Chat (sidebar / inline)     | Deferred  |
-| Agent mode                  | Deferred  |
-| Code review                 | Deferred  |
-| Terminal integration        | Deferred  |
-| Vision / image input        | Deferred  |
-| Workspace indexing / RAG    | Deferred  |
-| MCP support                 | Deferred  |
-| Code actions / lightbulb    | Deferred  |
-| Rename suggestions          | Deferred  |
-| Test generation             | Deferred  |
+| Feature                     | Status      |
+| --------------------------- | ----------- |
+| Inline completions          | Implemented |
+| Commit message generator    | Implemented |
+| Suggest Edits               | Implemented |
+| Global usage ledger         | Implemented |
+| Custom instructions file    | Planned     |
+| Open-tab context            | Planned     |
+| Snooze suggestions          | Implemented |
+| Partial accept analytics    | Planned     |
+| Stream-time filtering       | Exploring   |
+| Generator reuse             | Exploring   |
+| LSP-based context           | Exploring   |
+| Persistent cache            | Exploring   |
+| Session self-correction     | Exploring   |
+| FIM template library        | Exploring   |
+| NES / next edit suggestions | Deferred    |
+| Chat (sidebar / inline)     | Deferred    |
+| Agent mode                  | Deferred    |
+| Code review                 | Deferred    |
+| Terminal integration        | Deferred    |
+| Vision / image input        | Deferred    |
+| Workspace indexing / RAG    | Deferred    |
+| MCP support                 | Deferred    |
+| Code actions / lightbulb    | Deferred    |
+| Rename suggestions          | Deferred    |
+| Test generation             | Deferred    |
 
 ---
 
@@ -66,14 +68,6 @@ Include content from neighboring open files in the completion prompt. Copilot sa
 
 **Reference:** Continue.dev's `extensions/vscode/src/util/ideUtils.ts` for tab enumeration.
 
-### Snooze Suggestions
-
-Temporarily disable completions with auto-re-enable. A small quality-of-life feature.
-
-- Add a "Snooze" option to the status bar menu (5-minute increments)
-- Set a timer that re-enables completions when it expires
-- Show remaining snooze time in the status bar tooltip
-
 ### Partial Accept Analytics
 
 VS Code handles word-by-word acceptance automatically, but we could track it.
@@ -87,36 +81,6 @@ VS Code handles word-by-word acceptance automatically, but we could track it.
 ## Exploring
 
 Features we're interested in but need more investigation before committing.
-
-### Global Usage Ledger (Cross-Project)
-
-Persistent, cross-project record of every Claude Code API call — total calls, input/output tokens, and cost estimates. The Claude Code backend is being used for rapid-fire autocomplete, which is not how it was designed. We need visibility into actual consumption across all projects.
-
-**Current state:**
-
-- `UsageTracker` is session-scoped and in-memory — resets on VS Code restart, tracks per-project only
-- Tracks completion counts and input/output character counts (no token-level data from Claude Code SDK)
-- The Claude Code provider's `consumeStream` only reads `result`-type messages; other SDK stream messages (which may carry usage data) are silently ignored
-
-**What's needed:**
-
-- A persistent store (file-based, e.g., JSON or SQLite in `~/.bespokeai/usage-ledger.json`) that accumulates across projects and sessions
-- Each entry: timestamp, project (workspace root), backend, model, call count, input/output tokens, estimated cost
-- A read command or dashboard — could be a VS Code command that shows a summary, or just a CLI-readable file
-- Aggregation views: daily totals, per-project breakdown, per-model breakdown, running monthly total
-
-**Token tracking challenge for Claude Code:**
-
-- The Agent SDK spawns `claude` as a subprocess. The `result`-type messages include the completion text but it's unclear whether the stream also emits messages with token counts.
-- Need to investigate what other message types the SDK stream emits (currently all non-`result` messages are ignored in `consumeStream`). There may be `usage` or `system` messages with token data.
-- If the SDK doesn't provide token counts, alternatives: (a) estimate from character count using a rough chars-per-token ratio, (b) inspect the `claude` CLI's own usage reporting, (c) count calls only and skip token granularity for this backend.
-- Claude Code subscription is flat-rate, so cost estimation is less relevant here than for the Anthropic API — but call volume still matters for rate limiting and fair use.
-
-**Storage location:**
-
-- `~/.bespokeai/usage-ledger.json` (or similar) — global, outside any project
-- Append-only with periodic compaction (roll daily entries into summaries after N days)
-- Must handle concurrent writes from multiple VS Code windows
 
 ### Stream-Time Filtering
 

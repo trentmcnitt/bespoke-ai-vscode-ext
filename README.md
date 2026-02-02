@@ -34,7 +34,7 @@ User types
   → Detect mode (prose/code)
   → Extract prefix + suffix from document
   → Check LRU cache (50 entries, 5min TTL)
-  → Debounce (300ms default)
+  → Debounce (1000ms base, adaptive back-off on dismissals)
   → Acquire a slot from the session pool
   → Build prompt with >>>CURSOR<<< marker
   → Get completion from Claude Code

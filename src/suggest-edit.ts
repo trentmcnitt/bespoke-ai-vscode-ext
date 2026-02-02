@@ -1,6 +1,8 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import { Logger } from './utils/logger';
+import { UsageLedger } from './utils/usage-ledger';
 import { SYSTEM_PROMPT, buildEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
 
 const TIMEOUT_MS = 90_000;
@@ -22,19 +24,19 @@ export const correctedContentProvider: vscode.TextDocumentContentProvider = {
   },
 };
 
-export async function suggestEdit(logger: Logger): Promise<void> {
+export async function suggestEdit(logger: Logger, ledger?: UsageLedger): Promise<void> {
   if (inFlight) {
     return;
   }
   inFlight = true;
   try {
-    await doSuggestEdit(logger);
+    await doSuggestEdit(logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
-async function doSuggestEdit(logger: Logger): Promise<void> {
+async function doSuggestEdit(logger: Logger, ledger?: UsageLedger): Promise<void> {
   logger.info('Suggest edit started');
 
   // 1. Get active editor
@@ -71,6 +73,7 @@ async function doSuggestEdit(logger: Logger): Promise<void> {
   logger.trace(`Suggest edit prompt:\n${userPrompt}`);
 
   // 5. Spawn claude with progress
+  const startTime = Date.now();
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -163,9 +166,23 @@ async function doSuggestEdit(logger: Logger): Promise<void> {
     },
   );
 
+  const durationMs = Date.now() - startTime;
+
   if (result === null) {
     return;
   }
+
+  // Record in ledger
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const project = workspaceRoot ? path.basename(workspaceRoot) : '';
+  ledger?.record({
+    source: 'suggest-edit',
+    model: 'claude-cli',
+    project,
+    durationMs,
+    inputChars: userPrompt.length,
+    outputChars: result.length,
+  });
 
   logger.trace(`Suggest edit raw response:\n${result}`);
 

@@ -9,7 +9,7 @@
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
-import { makeConfig, makeLogger } from '../helpers';
+import { makeConfig, makeLogger, makeCapturingLogger, assertWarmupValid } from '../helpers';
 import {
   getApiRunDir,
   buildApiResult,
@@ -64,6 +64,13 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
     provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
     await provider.activate(CWD);
     expect(provider.isAvailable()).toBe(true);
+  }, 60_000);
+
+  it('warmup response is valid', async () => {
+    const { logger, getTrace } = makeCapturingLogger();
+    provider = new ClaudeCodeProvider(makeRealConfig(), logger);
+    await provider.activate(CWD);
+    assertWarmupValid(getTrace);
   }, 60_000);
 
   it('returns a prose completion', async () => {

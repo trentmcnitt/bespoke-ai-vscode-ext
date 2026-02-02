@@ -7,6 +7,7 @@ export function applyProfile(base: ExtensionConfig, profile: ProfileOverrides): 
   return {
     ...base,
     ...(profile.mode !== undefined && { mode: profile.mode }),
+    ...(profile.triggerMode !== undefined && { triggerMode: profile.triggerMode }),
     ...(profile.debounceMs !== undefined && { debounceMs: profile.debounceMs }),
     ...(profile.logLevel !== undefined && { logLevel: profile.logLevel }),
     claudeCode: { ...base.claudeCode, ...profile.claudeCode },

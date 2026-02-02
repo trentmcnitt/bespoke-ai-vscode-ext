@@ -17,6 +17,7 @@ export interface CompletionProvider {
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';
+  triggerMode: 'auto' | 'manual';
   debounceMs: number;
   prose: {
     maxTokens: number;
@@ -39,10 +40,12 @@ export interface ExtensionConfig {
   };
   logLevel: 'info' | 'debug' | 'trace';
   activeProfile: string;
+  snoozeDurationMinutes: number;
 }
 
 export interface ProfileOverrides {
   mode?: 'auto' | 'prose' | 'code';
+  triggerMode?: 'auto' | 'manual';
   debounceMs?: number;
   logLevel?: 'info' | 'debug' | 'trace';
   claudeCode?: Partial<ExtensionConfig['claudeCode']>;

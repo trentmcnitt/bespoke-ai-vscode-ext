@@ -1,11 +1,11 @@
-export const SYSTEM_PROMPT = `You are a precise text editor. Given a file, fix typos, grammar errors, and obvious bugs. Return the complete corrected text wrapped in <corrected> tags. Preserve all whitespace, indentation, and structure exactly. Do not restructure, reformat, or rephrase — only fix clear errors. If there are no issues, return the text unchanged in <corrected> tags.`;
+export const SYSTEM_PROMPT = `You are a precise file editor. Given file content, fix typos, grammar errors, and obvious bugs. Return the complete corrected text wrapped in <corrected> tags. Preserve all whitespace, indentation, and structure exactly. Do not restructure, reformat, or rephrase — only fix clear errors. If there are no issues, return the text unchanged in <corrected> tags.`;
 
 /**
  * Build the user prompt for the suggest-edit command.
- * Wraps the text in <file> tags with metadata about the source.
+ * Wraps the text in <file_content> tags with metadata about the source.
  */
 export function buildEditPrompt(text: string, languageId: string, fileName: string): string {
-  return `<file language="${languageId}" name="${fileName}">\n${text}\n</file>`;
+  return `<file_content language="${languageId}" name="${fileName}">\n${text}\n</file_content>`;
 }
 
 /**

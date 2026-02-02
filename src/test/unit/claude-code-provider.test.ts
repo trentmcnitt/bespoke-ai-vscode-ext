@@ -5,8 +5,16 @@ import {
   extractCompletionStart,
   stripCompletionStart,
   buildFillMessage,
+  WARMUP_PREFIX,
+  WARMUP_SUFFIX,
 } from '../../providers/claude-code';
 import { makeConfig, makeProseContext, makeCodeContext, makeLogger } from '../helpers';
+
+/** Build a realistic warmup response that passes validation. */
+function makeWarmupResponse(): string {
+  const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
+  return `<output>${completionStart}four</output>`;
+}
 
 // Mock the SDK dynamic import
 const mockQueryFn = vi.fn();
@@ -30,11 +38,12 @@ const activeFakeStreams: ReturnType<typeof makeFakeStream>[] = [];
  * until signalPush() is called. After all messages are consumed, blocks
  * indefinitely (like the real SDK stream) until terminate() is called.
  */
-function makeFakeStream(completionTexts: string | string[]) {
+function makeFakeStream(completionTexts: string | string[], warmupResponse?: string) {
   const texts = Array.isArray(completionTexts) ? completionTexts : [completionTexts];
+  const warmupResult = warmupResponse ?? makeWarmupResponse();
   const messages = [
     // Warmup result (first turn response)
-    { type: 'result', subtype: 'success', result: '{"status":"ready"}' },
+    { type: 'result', subtype: 'success', result: warmupResult },
     // Real completion results
     ...texts.map((t) => ({ type: 'result', subtype: 'success', result: t })),
   ];
@@ -149,16 +158,8 @@ describe('ClaudeCodeProvider', () => {
       expect(provider.isAvailable()).toBe(true);
     });
 
-    it('reports unavailable when SDK import fails', async () => {
-      // Override the mock to simulate import failure
-      mockQueryFn.mockImplementation(() => {
-        throw new Error('SDK not found');
-      });
-
+    it('reports unavailable before activation', () => {
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
-
-      // We need to test the actual loadSdk path — but the mock is at module level.
-      // Instead, test that without activation, provider is not available.
       expect(provider.isAvailable()).toBe(false);
     });
   });
@@ -177,6 +178,294 @@ describe('ClaudeCodeProvider', () => {
       // Should not throw
       provider.dispose();
       expect(provider.isAvailable()).toBe(false);
+    });
+  });
+
+  describe('warmup validation', () => {
+    it('retries once on warmup failure then recovers', async () => {
+      vi.useFakeTimers();
+
+      const goodWarmup = makeWarmupResponse();
+      const proseCtx = makeProseContext();
+      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
+      const validCompletion = `<output>${proseCS} went home.</output>`;
+      const badWarmup = '<output>garbage response</output>';
+
+      // Attempt 1: slot 0 gets bad warmup → handleWarmupFailure kills all, schedules retry
+      // (slot 1 also gets killed before its warmup completes)
+      // Attempt 2 (retry): both slots get good warmups → pool recovers
+      const streams = [
+        makeFakeStream([validCompletion], badWarmup), // attempt 1 slot 0
+        makeFakeStream([validCompletion], goodWarmup), // attempt 1 slot 1 (killed)
+        makeFakeStream([validCompletion], goodWarmup), // attempt 2 slot 0
+        makeFakeStream([validCompletion], goodWarmup), // attempt 2 slot 1
+      ];
+
+      let callCount = 0;
+      const errorLogs: string[] = [];
+      const infoLogs: string[] = [];
+      const logger = makeLogger();
+      logger.error = (msg: string) => {
+        errorLogs.push(msg);
+      };
+      logger.info = (msg: string) => {
+        infoLogs.push(msg);
+      };
+
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = streams[callCount];
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), logger);
+      activeProvider = provider;
+      await provider.activate('/test/workspace');
+
+      // First attempt failed — error logged, retry scheduled
+      expect(errorLogs.some((m) => m.includes('warmup failed on slot'))).toBe(true);
+      expect(infoLogs.some((m) => m.includes('retrying'))).toBe(true);
+
+      // Advance timer to trigger the retry setTimeout
+      await vi.advanceTimersByTimeAsync(0);
+
+      // After retry, pool should be available
+      const result = await provider.getCompletion(proseCtx, new AbortController().signal);
+      expect(result).not.toBeNull();
+      expect(result).toContain('went home.');
+
+      vi.useRealTimers();
+    });
+
+    it('disables pool after two consecutive warmup failures', async () => {
+      vi.useFakeTimers();
+
+      const badWarmup = '<output>garbage response</output>';
+
+      // All attempts return bad warmups
+      const streams = [
+        makeFakeStream([], badWarmup), // attempt 1 slot 0 (fails)
+        makeFakeStream([], badWarmup), // attempt 1 slot 1 (killed)
+        makeFakeStream([], badWarmup), // attempt 2 slot 0 (fails again)
+        makeFakeStream([], badWarmup), // attempt 2 slot 1 (killed)
+      ];
+
+      let callCount = 0;
+      const errorLogs: string[] = [];
+      let poolDegraded = false;
+      const logger = makeLogger();
+      logger.error = (msg: string) => {
+        errorLogs.push(msg);
+      };
+
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = streams[callCount];
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), logger);
+      activeProvider = provider;
+      provider.onPoolDegraded = () => {
+        poolDegraded = true;
+      };
+      await provider.activate('/test/workspace');
+
+      // Advance timer to trigger the retry
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Second failure should have fired the callback
+      expect(poolDegraded).toBe(true);
+      expect(errorLogs.some((m) => m.includes('autocomplete disabled'))).toBe(true);
+      expect(provider.isAvailable()).toBe(false);
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('restart', () => {
+    it('recovers pool after degradation', async () => {
+      vi.useFakeTimers();
+
+      const badWarmup = '<output>garbage response</output>';
+      const goodWarmup = makeWarmupResponse();
+      const proseCtx = makeProseContext();
+      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
+      const validCompletion = `<output>${proseCS} went home.</output>`;
+
+      // First: all warmups fail → pool degrades
+      // Then: restart with good warmups → pool recovers
+      const streams = [
+        makeFakeStream([], badWarmup), // attempt 1 slot 0
+        makeFakeStream([], badWarmup), // attempt 1 slot 1
+        makeFakeStream([], badWarmup), // retry slot 0
+        makeFakeStream([], badWarmup), // retry slot 1
+        makeFakeStream([validCompletion], goodWarmup), // restart slot 0
+        makeFakeStream([validCompletion], goodWarmup), // restart slot 1
+      ];
+
+      let callCount = 0;
+      let poolDegraded = false;
+
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = streams[callCount];
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
+      provider.onPoolDegraded = () => {
+        poolDegraded = true;
+      };
+      await provider.activate('/test/workspace');
+
+      // Advance to trigger retry
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Pool should be degraded
+      expect(poolDegraded).toBe(true);
+      expect(provider.isAvailable()).toBe(false);
+
+      // Restart should recover
+      await provider.restart();
+
+      expect(provider.isAvailable()).toBe(true);
+      const result = await provider.getCompletion(proseCtx, new AbortController().signal);
+      expect(result).not.toBeNull();
+      expect(result).toContain('went home.');
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('recycleAll', () => {
+    it('reinitializes all slots with fresh sessions', async () => {
+      const proseCtx = makeProseContext();
+      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
+      const completion1 = `<output>${proseCS} ran away.</output>`;
+      const completion2 = `<output>${proseCS} came back.</output>`;
+
+      // Initial activation streams + post-recycle streams
+      const streams = [
+        makeFakeStream([completion1]), // init slot 0
+        makeFakeStream([completion1]), // init slot 1
+        makeFakeStream([completion2]), // recycled slot 0
+        makeFakeStream([completion2]), // recycled slot 1
+      ];
+
+      let callCount = 0;
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = streams[callCount];
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
+      await provider.activate('/test/workspace');
+
+      // Get a completion before recycle
+      const result1 = await provider.getCompletion(proseCtx, new AbortController().signal);
+      expect(result1).toContain('ran away.');
+
+      // Recycle and verify new sessions are used
+      await provider.recycleAll();
+      expect(provider.isAvailable()).toBe(true);
+
+      const result2 = await provider.getCompletion(proseCtx, new AbortController().signal);
+      expect(result2).toContain('came back.');
+    });
+  });
+
+  describe('stale consumer guard', () => {
+    it('stale consumer does not trigger extra recycleSlot after recycleAll', async () => {
+      const proseCtx = makeProseContext();
+      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
+      const completion = `<output>${proseCS} went home.</output>`;
+
+      // Initial activation streams (2) + recycleAll streams (2) = 4 total
+      const streams = [
+        makeFakeStream([completion]), // init slot 0
+        makeFakeStream([completion]), // init slot 1
+        makeFakeStream([completion]), // recycled slot 0
+        makeFakeStream([completion]), // recycled slot 1
+      ];
+
+      let callCount = 0;
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const stream = streams[callCount];
+        callCount++;
+        consumeIterable(prompt, stream);
+        return stream.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
+      await provider.activate('/test/workspace');
+
+      // Activation used 2 streams
+      expect(callCount).toBe(2);
+
+      // Recycle — old consumers will finalize asynchronously
+      await provider.recycleAll();
+
+      // Allow microtasks to settle (stale consumers' finally blocks run)
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Should be exactly 4: 2 activation + 2 recycle. No extra spawns from stale consumers.
+      expect(callCount).toBe(4);
+    });
+  });
+
+  describe('rapid-recycle circuit breaker', () => {
+    it('marks slot dead after rapid consecutive recycles', async () => {
+      const errorLogs: string[] = [];
+      const logger = makeLogger();
+      logger.error = (msg: string) => {
+        errorLogs.push(msg);
+      };
+
+      // Each stream: passes warmup, then immediately ends (done: true after
+      // warmup). This triggers consumeStream's finally → recycleSlot, which
+      // spawns another initSlot → consumeStream cycle. With Date.now mocked
+      // to a constant, all recycles appear instant and the breaker fires.
+      let poolDegraded = false;
+
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const fake = makeFakeStream([]);
+        // Terminate immediately after warmup — the stream ends, triggering recycleSlot
+        consumeIterable(prompt, fake);
+        setTimeout(() => fake.terminate(), 0);
+        return fake.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), logger, 1);
+      activeProvider = provider;
+      provider.onPoolDegraded = () => {
+        poolDegraded = true;
+      };
+
+      // Stub Date.now to a constant so all recycles appear rapid
+      vi.spyOn(Date, 'now').mockReturnValue(1000);
+
+      await provider.activate('/test/workspace');
+
+      // Allow the recycle chain to run: recycleSlot → setTimeout(0) → initSlot →
+      // warmup → stream ends → recycleSlot → ... Each cycle involves real timeouts
+      // and async microtasks. Wait long enough for the chain to hit the limit.
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      expect(poolDegraded).toBe(true);
+      expect(errorLogs.some((m) => m.includes('circuit breaker'))).toBe(true);
+
+      vi.restoreAllMocks();
     });
   });
 
@@ -206,17 +495,14 @@ describe('ClaudeCodeProvider', () => {
       // Third request enters waiter path (both slots busy)
       const p3 = provider.getCompletion(makeProseContext(), new AbortController().signal);
 
-      // Dispose cancels the waiter
+      // Dispose cancels the waiter and resolves in-flight deliverResult promises
       provider.dispose();
       activeProvider = null;
 
-      const result3 = await p3;
+      const [result1, result2, result3] = await Promise.all([p1, p2, p3]);
+      expect(result1).toBeNull();
+      expect(result2).toBeNull();
       expect(result3).toBeNull();
-
-      // p1/p2 hold references to old resultPromises that will never resolve
-      // (dispose nulled deliverResult). Don't await them — let GC handle it.
-      void p1;
-      void p2;
     });
   });
 });

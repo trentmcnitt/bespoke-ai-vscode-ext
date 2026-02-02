@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
 import { ExtensionConfig, ProfileOverrides } from './types';
 import { CompletionProvider } from './completion-provider';
 import { ClaudeCodeProvider } from './providers/claude-code';
@@ -8,6 +10,7 @@ import { applyProfile } from './utils/profile';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
 import { UsageTracker } from './utils/usage-tracker';
+import { UsageLedger } from './utils/usage-ledger';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -25,6 +28,12 @@ let currentProfile = '';
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
+let usageLedger: UsageLedger;
+
+// Snooze state
+let snoozeEndTime: number | null = null;
+let snoozeTimer: ReturnType<typeof setTimeout> | null = null;
+let snoozeStatusInterval: ReturnType<typeof setInterval> | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   logger = new Logger('Bespoke AI');
@@ -37,11 +46,31 @@ export function activate(context: vscode.ExtensionContext) {
 
   usageTracker = new UsageTracker();
 
+  usageLedger = new UsageLedger(
+    path.join(os.homedir(), '.bespokeai', 'usage-ledger.jsonl'),
+    logger,
+  );
+  context.subscriptions.push({ dispose: () => usageLedger.dispose() });
+
   claudeCodeProvider = new ClaudeCodeProvider(config, logger);
+  claudeCodeProvider.setLedger(usageLedger);
   context.subscriptions.push({ dispose: () => claudeCodeProvider.dispose() });
 
   // Activate Claude Code provider with workspace root (async, non-blocking)
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+
+  claudeCodeProvider.onPoolDegraded = async () => {
+    const action = await vscode.window.showErrorMessage(
+      'Bespoke AI: Autocomplete unavailable — warmup validation failed after retry.',
+      'Restart',
+    );
+    if (action === 'Restart') {
+      claudeCodeProvider.restart().catch((err) => {
+        logger.error(`Claude Code restart failed: ${err}`);
+      });
+    }
+  };
+
   claudeCodeProvider.activate(workspaceRoot).catch((err) => {
     logger.error(`Claude Code activation failed: ${err}`);
   });
@@ -157,6 +186,20 @@ export function activate(context: vscode.ExtensionContext) {
         });
       }
 
+      // --- Model section ---
+      items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
+      for (const model of config.claudeCode.models) {
+        const isCurrent = config.claudeCode.model === model;
+        const item: vscode.QuickPickItem = {
+          label: `$(server) ${model}`,
+          description: isCurrent ? '(current)' : '',
+        };
+        items.push(item);
+        handlers.set(item, () => {
+          ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
+        });
+      }
+
       // --- Profile section (only if profiles exist) ---
       const profiles = ws.get<Record<string, ProfileOverrides>>('profiles', {})!;
       const profileNames = Object.keys(profiles);
@@ -188,6 +231,19 @@ export function activate(context: vscode.ExtensionContext) {
       // --- Actions section ---
       items.push({ label: 'Actions', kind: vscode.QuickPickItemKind.Separator });
 
+      const triggerItem: vscode.QuickPickItem = {
+        label: config.triggerMode === 'auto' ? '$(zap) Auto-trigger' : '$(zap) On-demand',
+        description:
+          config.triggerMode === 'auto'
+            ? 'click to switch to on-demand'
+            : 'click to switch to auto',
+      };
+      items.push(triggerItem);
+      handlers.set(triggerItem, () => {
+        const next = config.triggerMode === 'auto' ? 'manual' : 'auto';
+        ws.update('triggerMode', next, vscode.ConfigurationTarget.Global);
+      });
+
       const toggleItem: vscode.QuickPickItem = {
         label: config.enabled ? '$(debug-pause) Disable' : '$(debug-start) Enable',
       };
@@ -195,6 +251,26 @@ export function activate(context: vscode.ExtensionContext) {
       handlers.set(toggleItem, () => {
         ws.update('enabled', !config.enabled, vscode.ConfigurationTarget.Global);
       });
+
+      // Snooze / Wake
+      if (snoozeEndTime) {
+        const remaining = formatRemainingMinutes();
+        const wakeItem: vscode.QuickPickItem = {
+          label: `$(bell) Wake up (${remaining} remaining)`,
+        };
+        items.push(wakeItem);
+        handlers.set(wakeItem, () => {
+          cancelSnooze();
+        });
+      } else {
+        const snoozeItem: vscode.QuickPickItem = {
+          label: `$(bell-slash) Snooze (${config.snoozeDurationMinutes} min)`,
+        };
+        items.push(snoozeItem);
+        handlers.set(snoozeItem, () => {
+          startSnooze(config.snoozeDurationMinutes);
+        });
+      }
 
       const suggestEditItem: vscode.QuickPickItem = {
         label: '$(edit) Suggest Edits',
@@ -258,7 +334,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
-      await generateCommitMessage(logger);
+      await generateCommitMessage(logger, usageLedger);
     }),
   );
 
@@ -275,7 +351,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.suggestEdit', async () => {
-      await suggestEdit(logger);
+      await suggestEdit(logger, usageLedger);
     }),
   );
 
@@ -291,8 +367,18 @@ export function activate(context: vscode.ExtensionContext) {
           currentProfile = newConfig.activeProfile;
         }
 
+        // Propagate config before recycling so initSlot uses the new model
         logger.setLevel(newConfig.logLevel);
         completionProvider.updateConfig(newConfig);
+
+        // Recycle pool when model changes
+        if (newConfig.claudeCode.model !== lastConfig.claudeCode.model) {
+          logger.info(`Model → ${newConfig.claudeCode.model} (recycling pool + clearing cache)`);
+          completionProvider.clearCache();
+          completionProvider.recyclePool().catch((err) => {
+            logger.error(`Pool recycle failed: ${err}`);
+          });
+        }
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
       }
@@ -312,7 +398,8 @@ function loadConfig(): ExtensionConfig {
   const baseConfig: ExtensionConfig = {
     enabled: ws.get<boolean>('enabled', true)!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
-    debounceMs: ws.get<number>('debounceMs', 300)!,
+    triggerMode: ws.get<'auto' | 'manual'>('triggerMode', 'auto')!,
+    debounceMs: ws.get<number>('debounceMs', 1000)!,
     prose: {
       maxTokens: ws.get<number>('prose.maxTokens', 100)!,
       temperature: ws.get<number>('prose.temperature', 0.7)!,
@@ -334,6 +421,7 @@ function loadConfig(): ExtensionConfig {
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
     activeProfile,
+    snoozeDurationMinutes: ws.get<number>('snoozeDurationMinutes', 10)!,
   };
 
   if (activeProfile) {
@@ -348,9 +436,63 @@ function loadConfig(): ExtensionConfig {
   return baseConfig;
 }
 
+function startSnooze(durationMinutes: number): void {
+  // Clear any existing snooze timers to avoid leaks
+  if (snoozeTimer) {
+    clearTimeout(snoozeTimer);
+  }
+  if (snoozeStatusInterval) {
+    clearInterval(snoozeStatusInterval);
+  }
+
+  snoozeEndTime = Date.now() + durationMinutes * 60_000;
+  completionProvider.setSnoozed(true);
+  logger.info(`Snoozed for ${durationMinutes} minutes`);
+
+  // Auto-wake timer
+  snoozeTimer = setTimeout(() => {
+    cancelSnooze();
+  }, durationMinutes * 60_000);
+
+  // Status bar update interval
+  snoozeStatusInterval = setInterval(() => {
+    updateStatusBar(lastConfig);
+  }, 30_000);
+
+  updateStatusBar(lastConfig);
+}
+
+function cancelSnooze(): void {
+  if (snoozeTimer) {
+    clearTimeout(snoozeTimer);
+    snoozeTimer = null;
+  }
+  if (snoozeStatusInterval) {
+    clearInterval(snoozeStatusInterval);
+    snoozeStatusInterval = null;
+  }
+  snoozeEndTime = null;
+  completionProvider.setSnoozed(false);
+  logger.info('Snooze cancelled — completions re-enabled');
+  updateStatusBar(lastConfig);
+}
+
+function formatRemainingMinutes(): string {
+  if (!snoozeEndTime) {
+    return '';
+  }
+  const remaining = Math.max(0, snoozeEndTime - Date.now());
+  const minutes = Math.ceil(remaining / 60_000);
+  return `${minutes}m`;
+}
+
 function updateStatusBar(config: ExtensionConfig) {
   lastConfig = config;
-  if (!config.enabled) {
+  if (snoozeEndTime) {
+    const remaining = formatRemainingMinutes();
+    statusBarItem.text = `$(bell-slash) Snoozed (${remaining})`;
+    statusBarItem.tooltip = `Bespoke AI: Snoozed — ${remaining} remaining (click for menu)`;
+  } else if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
     statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
   } else {
@@ -397,9 +539,20 @@ function formatCharCount(count: number): string {
   return String(count);
 }
 
+function formatCost(usd: number): string {
+  if (usd === 0) {
+    return '$0.00';
+  }
+  if (usd < 0.01) {
+    return `$${usd.toFixed(4)}`;
+  }
+  return `$${usd.toFixed(2)}`;
+}
+
 async function showUsageDetail(): Promise<void> {
   const snap = usageTracker.getSnapshot();
   const sessionDuration = formatDuration(Date.now() - snap.sessionStartTime);
+  const ledgerSummary = usageLedger.getSummary();
 
   const items: vscode.QuickPickItem[] = [];
 
@@ -418,7 +571,7 @@ async function showUsageDetail(): Promise<void> {
     items.push({ label: `$(error) ${snap.errors} errors` });
   }
 
-  // Requests by model
+  // Requests by model (session)
   const modelEntries = Object.entries(snap.byModel);
   if (modelEntries.length > 0) {
     items.push({ label: 'Requests by Model', kind: vscode.QuickPickItemKind.Separator });
@@ -427,7 +580,7 @@ async function showUsageDetail(): Promise<void> {
     }
   }
 
-  // Character counts
+  // Character counts (session)
   const totalChars = snap.totalInputChars + snap.totalOutputChars;
   if (totalChars > 0) {
     items.push({ label: 'Characters', kind: vscode.QuickPickItemKind.Separator });
@@ -437,12 +590,78 @@ async function showUsageDetail(): Promise<void> {
     });
   }
 
+  // Persistent stats from ledger
+  const { today, thisWeek, thisMonth } = ledgerSummary;
+  if (today.requests > 0 || thisWeek.requests > 0 || thisMonth.requests > 0) {
+    items.push({ label: 'Persistent Stats', kind: vscode.QuickPickItemKind.Separator });
+
+    items.push({
+      label: `$(calendar) Today: ${today.requests} requests`,
+      description: today.startups > 0 ? `${today.startups} startups` : '',
+    });
+    if (today.inputTokens > 0 || today.outputTokens > 0) {
+      items.push({
+        label: `  $(arrow-up) ${formatCharCount(today.inputTokens)} in`,
+        description: `$(arrow-down) ${formatCharCount(today.outputTokens)} out`,
+      });
+    }
+    if (today.costUsd > 0) {
+      items.push({ label: `  $(credit-card) ${formatCost(today.costUsd)}` });
+    }
+
+    items.push({
+      label: `$(calendar) This week: ${thisWeek.requests} requests`,
+      description: thisWeek.startups > 0 ? `${thisWeek.startups} startups` : '',
+    });
+    if (thisWeek.costUsd > 0) {
+      items.push({ label: `  $(credit-card) ${formatCost(thisWeek.costUsd)}` });
+    }
+
+    items.push({
+      label: `$(calendar) This month: ${thisMonth.requests} requests`,
+      description: thisMonth.startups > 0 ? `${thisMonth.startups} startups` : '',
+    });
+    if (thisMonth.costUsd > 0) {
+      items.push({ label: `  $(credit-card) ${formatCost(thisMonth.costUsd)}` });
+    }
+  }
+
+  // Per-model breakdown from ledger
+  const ledgerModels = Object.entries(ledgerSummary.byModel);
+  if (ledgerModels.length > 0) {
+    items.push({
+      label: 'All-Time by Model',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const [model, stats] of ledgerModels.sort((a, b) => b[1].requests - a[1].requests)) {
+      const desc = [
+        stats.inputTokens > 0 ? `${formatCharCount(stats.inputTokens)} in` : '',
+        stats.outputTokens > 0 ? `${formatCharCount(stats.outputTokens)} out` : '',
+        stats.costUsd > 0 ? formatCost(stats.costUsd) : '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+      items.push({
+        label: `$(server) ${model}: ${stats.requests} requests`,
+        description: desc,
+      });
+    }
+  }
+
   await vscode.window.showQuickPick(items, {
     title: 'Bespoke AI — Usage Details',
-    placeHolder: 'Session usage statistics',
+    placeHolder: 'Session and persistent usage statistics',
   });
 }
 
 export function deactivate() {
+  if (snoozeTimer) {
+    clearTimeout(snoozeTimer);
+    snoozeTimer = null;
+  }
+  if (snoozeStatusInterval) {
+    clearInterval(snoozeStatusInterval);
+    snoozeStatusInterval = null;
+  }
   completionProvider?.dispose();
 }

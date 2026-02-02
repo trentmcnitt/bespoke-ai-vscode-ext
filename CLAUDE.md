@@ -158,7 +158,7 @@ Profiles are named config presets stored in `bespokeAI.profiles`. Each profile i
 
 ### Request flow
 
-User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (300ms) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
+User types → VS Code calls `provideInlineCompletionItems` → dismissal/acceptance detection → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (1000ms base, adaptive back-off on dismissals) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
 
 ### Logging
 
@@ -199,18 +199,18 @@ Key modules, listed in request-flow order:
 
 - `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the Claude Code CLI (`claude -p`). Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates dismissal/acceptance detection → mode detection → context extraction → cache lookup → debounce (with adaptive back-off) → backend call → cache write. Tracks `lastOfferedCompletion` to detect whether the user accepted or dismissed the previous suggestion; acceptance resets back-off, dismissal increases it. Explicit triggers (`Invoke`) bypass back-off. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
 - `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`.
   - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
-  - **Slot pool:** Manages a 2-slot reusable session pool. Each slot handles up to 24 completions before recycling (one subprocess serves N requests).
+  - **Slot pool:** Manages a 2-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
   - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when both slots are busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request runs to completion regardless of cancellation signals.
 
 - `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
 
-- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests.
+- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. Supports adaptive back-off: `recordDismissal()` increases delay exponentially (up to 30s after 8 consecutive dismissals), `resetBackoff()` returns to base delay on acceptance. `debounce()` accepts an optional `overrideDelayMs` to bypass back-off for explicit triggers.
 
 - `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Key built from mode + last 500 prefix chars + first 200 suffix chars.
 
@@ -223,6 +223,8 @@ Key modules, listed in request-flow order:
 - `src/utils/profile.ts` — `applyProfile()` pure function. Deep-merges `ProfileOverrides` over a base `ExtensionConfig`.
 
 - `src/utils/usage-tracker.ts` — Tracks per-session completion counts, character counts, cache hits/misses, errors, and burst detection.
+
+- `src/utils/usage-ledger.ts` — Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
 
 - `src/scripts/dump-prompts.ts` — Utility script (`npm run dump-prompts`) that renders exact prompt strings for prose and code modes.
 
@@ -250,7 +252,7 @@ After Layer 2 evaluation, report the results to the user. Do not attempt fixes u
 
 ### Unit tests
 
-Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger), `makeCapturingLogger()` (captures `traceBlock` calls for inspecting raw output), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext`), and `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger).
+Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger), `makeCapturingLogger()` (captures `traceBlock` calls for inspecting raw output), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext`), `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger), and `makeLedger()` (creates a `UsageLedger` backed by a temp directory).
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 

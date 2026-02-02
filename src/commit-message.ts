@@ -1,6 +1,8 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import { Logger } from './utils/logger';
+import { UsageLedger } from './utils/usage-ledger';
 import {
   buildCommitPrompt,
   getSystemPrompt,
@@ -12,19 +14,19 @@ const TIMEOUT_MS = 60_000;
 
 let inFlight = false;
 
-export async function generateCommitMessage(logger: Logger): Promise<void> {
+export async function generateCommitMessage(logger: Logger, ledger?: UsageLedger): Promise<void> {
   if (inFlight) {
     return;
   }
   inFlight = true;
   try {
-    await doGenerateCommitMessage(logger);
+    await doGenerateCommitMessage(logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
-async function doGenerateCommitMessage(logger: Logger): Promise<void> {
+async function doGenerateCommitMessage(logger: Logger, ledger?: UsageLedger): Promise<void> {
   logger.info('Commit message generation started');
 
   // 1. Get Git API
@@ -122,6 +124,7 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
   logger.trace(`Commit message user prompt:\n${userPrompt}`);
 
   // 6. Spawn claude with progress
+  const startTime = Date.now();
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -216,9 +219,23 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
     },
   );
 
+  const durationMs = Date.now() - startTime;
+
   if (result === null) {
     return;
   }
+
+  // Record in ledger
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const project = workspaceRoot ? path.basename(workspaceRoot) : '';
+  ledger?.record({
+    source: 'commit-message',
+    model: 'claude-cli',
+    project,
+    durationMs,
+    inputChars: userPrompt.length,
+    outputChars: result.length,
+  });
 
   logger.trace(`Commit message raw response:\n${result}`);
 

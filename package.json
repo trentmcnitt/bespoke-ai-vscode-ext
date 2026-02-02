@@ -86,10 +86,19 @@
           "default": "auto",
           "description": "Completion mode (auto detects based on file type)"
         },
+        "bespokeAI.triggerMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "default": "auto",
+          "description": "Trigger mode: auto fires completions on typing, manual requires explicit trigger (Ctrl+L)"
+        },
         "bespokeAI.debounceMs": {
           "type": "number",
-          "default": 300,
-          "description": "Delay in milliseconds before triggering completion"
+          "default": 1000,
+          "description": "Base delay in milliseconds before triggering completion. Increases automatically when completions are dismissed consecutively (up to 30s after 8 dismissals). Resets on acceptance."
         },
         "bespokeAI.logLevel": {
           "type": "string",
@@ -203,6 +212,13 @@
                   "code"
                 ]
               },
+              "triggerMode": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "manual"
+                ]
+              },
               "debounceMs": {
                 "type": "number"
               },
@@ -281,6 +297,11 @@
           "type": "string",
           "default": "",
           "description": "Name of the active profile (empty = use base settings)"
+        },
+        "bespokeAI.snoozeDurationMinutes": {
+          "type": "number",
+          "default": 10,
+          "description": "Duration in minutes for snooze (temporary disable with auto-re-enable)"
         },
         "bespokeAI.commitMessage.systemPrompt": {
           "type": "string",
