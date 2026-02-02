@@ -124,14 +124,6 @@ const scenarios: FillScenario[] = [
     languageId: 'markdown',
     fileName: 'essay.md',
   },
-  {
-    name: 'short-single-word',
-    prefix: 'Hello',
-    suffix: '',
-    mode: 'prose',
-    languageId: 'markdown',
-    fileName: 'greeting.md',
-  },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────────────

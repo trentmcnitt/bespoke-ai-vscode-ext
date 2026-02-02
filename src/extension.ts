@@ -6,6 +6,7 @@ import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
 import { generateCommitMessage } from './commit-message';
+import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
 import { UsageTracker } from './utils/usage-tracker';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
@@ -195,6 +196,14 @@ export function activate(context: vscode.ExtensionContext) {
         ws.update('enabled', !config.enabled, vscode.ConfigurationTarget.Global);
       });
 
+      const suggestEditItem: vscode.QuickPickItem = {
+        label: '$(edit) Suggest Edits',
+      };
+      items.push(suggestEditItem);
+      handlers.set(suggestEditItem, () => {
+        vscode.commands.executeCommand('bespoke-ai.suggestEdit');
+      });
+
       const clearCacheItem: vscode.QuickPickItem = {
         label: '$(trash) Clear Cache',
       };
@@ -250,6 +259,23 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.generateCommitMessage', async () => {
       await generateCommitMessage(logger);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      'bespoke-edit-original',
+      originalContentProvider,
+    ),
+    vscode.workspace.registerTextDocumentContentProvider(
+      'bespoke-edit-corrected',
+      correctedContentProvider,
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.suggestEdit', async () => {
+      await suggestEdit(logger);
     }),
   );
 

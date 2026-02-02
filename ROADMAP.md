@@ -164,7 +164,7 @@ SQLite-backed LRU cache that survives editor restarts. Currently our cache is in
 
 ### Session Self-Correction (Claude Code)
 
-Since the Claude Code backend reuses the same session for up to 24 completions per slot, we have a conversational channel where we can provide corrective feedback when the model drifts from the expected format. The model already sees its own prior responses in context — a targeted correction message could steer it back on track.
+Since the Claude Code backend reuses the same session for up to 8 completions per slot, we have a conversational channel where we can provide corrective feedback when the model drifts from the expected format. The model already sees its own prior responses in context — a targeted correction message could steer it back on track.
 
 **Detectable failure modes (signals already exist in the code):**
 

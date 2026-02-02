@@ -637,3 +637,91 @@ export const edgeCaseScenarios: TestScenario[] = [
     },
   },
 ];
+
+// ─── REUSE QUALITY SCENARIOS ─────────────────────────────────────────
+//
+// These scenarios are run through a shared provider that has already
+// served several completions on the same slot. They test whether
+// quality degrades when the session has accumulated prior context.
+//
+// The "priming" completions are simple throwaway requests. The reuse
+// scenarios below are the ones that get quality-judged in Layer 2.
+
+/** Simple contexts used to "prime" the slot before the real scenarios. */
+export const reusePrimingContexts: Array<{
+  prefix: string;
+  suffix: string;
+  languageId: string;
+  fileName: string;
+  mode: 'prose' | 'code';
+}> = [
+  {
+    prefix: 'The sun was setting over the',
+    suffix: '',
+    languageId: 'markdown',
+    fileName: 'notes.md',
+    mode: 'prose',
+  },
+  {
+    prefix: 'function double(n) { return ',
+    suffix: ' }',
+    languageId: 'javascript',
+    fileName: 'math.js',
+    mode: 'code',
+  },
+  {
+    prefix: 'The primary benefit of caching is',
+    suffix: '',
+    languageId: 'markdown',
+    fileName: 'doc.md',
+    mode: 'prose',
+  },
+  {
+    prefix: 'const sorted = items.sort((a, b) => ',
+    suffix: ');\n',
+    languageId: 'typescript',
+    fileName: 'utils.ts',
+    mode: 'code',
+  },
+  {
+    prefix: 'In conclusion, the evidence strongly suggests that',
+    suffix: '',
+    languageId: 'markdown',
+    fileName: 'essay.md',
+    mode: 'prose',
+  },
+];
+
+/** Scenarios run after priming — these get Layer 2 evaluation. */
+export const reuseQualityScenarios: TestScenario[] = [
+  {
+    id: 'reuse-prose-after-priming',
+    description: 'Prose completion after 5 prior completions on the same slot',
+    mode: 'prose',
+    languageId: 'markdown',
+    fileName: 'article.md',
+    prefix:
+      'The research team published their findings in the March issue of the journal. Their most surprising discovery was that',
+    suffix: ' This finding contradicts decades of conventional wisdom in the field.',
+    requirements: {
+      must_not_include: ['```', '##'],
+      quality_notes:
+        'This scenario runs on a slot that has already served 5 completions. Quality should be indistinguishable from a fresh slot. Should bridge naturally between prefix and suffix with a plausible scientific finding.',
+    },
+  },
+  {
+    id: 'reuse-code-after-priming',
+    description: 'Code completion after 5 prior completions on the same slot',
+    mode: 'code',
+    languageId: 'typescript',
+    fileName: 'handlers.ts',
+    prefix:
+      'async function validateInput(data: unknown): Promise<boolean> {\n  if (typeof data !== "object" || data === null) return false;\n  ',
+    suffix: '\n}',
+    requirements: {
+      must_not_include: ['```', 'async function validateInput'],
+      quality_notes:
+        'This scenario runs on a slot that has already served 5 completions. Quality should be indistinguishable from a fresh slot. Should add validation logic (type checks, field checks, etc.). Valid TypeScript.',
+    },
+  },
+];

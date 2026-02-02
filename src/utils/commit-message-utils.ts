@@ -1,8 +1,4 @@
-export const DEFAULT_SYSTEM_PROMPT =
-  'You are a commit message generator. Given a git diff, write a concise conventional commit message. ' +
-  'Output ONLY the commit message, nothing else. Use the imperative mood. ' +
-  'The first line should be a short summary (max 72 chars). ' +
-  'If the change warrants it, add a blank line followed by a longer description.';
+export const DEFAULT_SYSTEM_PROMPT = `You are a commit message generator. Given a git diff, write a concise conventional commit message. Output ONLY the commit message, nothing else. Use the imperative mood. The first line should be a short summary (max 72 chars). If the change warrants it, add a blank line followed by a longer description.`;
 
 /**
  * Build the user prompt piped to `claude -p` via stdin.

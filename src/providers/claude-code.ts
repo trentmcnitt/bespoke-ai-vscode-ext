@@ -247,25 +247,33 @@ interface Slot {
 }
 
 export class ClaudeCodeProvider implements CompletionProvider {
-  /** Recycle a slot after this many completions (warmup=1, maxTurns=50, leaves headroom). */
-  static readonly MAX_REUSES = 24;
+  /** Recycle a slot after this many completions (warmup=1, maxTurns=50). */
+  static readonly MAX_REUSES = 8;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private queryFn: ((...args: any[]) => any) | null = null;
   private sdkAvailable: boolean | null = null;
-  private slots: [Slot, Slot] = [
-    { state: 'dead', channel: null, resultPromise: null, deliverResult: null, resultCount: 0 },
-    { state: 'dead', channel: null, resultPromise: null, deliverResult: null, resultCount: 0 },
-  ];
+  private slots: Slot[];
   private nextSlot = 0;
   private workspaceRoot = '';
   /** Single-waiter queue: only one request can wait for a slot at a time. */
   private pendingWaiter: ((index: number | null) => void) | null = null;
+  private _warmupResolvers: ((() => void) | null)[];
 
   constructor(
     private config: ExtensionConfig,
     private logger: Logger,
-  ) {}
+    private poolSize: number = 2,
+  ) {
+    this.slots = Array.from({ length: poolSize }, () => ({
+      state: 'dead' as SlotState,
+      channel: null,
+      resultPromise: null,
+      deliverResult: null,
+      resultCount: 0,
+    }));
+    this._warmupResolvers = Array.from({ length: poolSize }, () => null);
+  }
 
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
@@ -281,9 +289,9 @@ export class ClaudeCodeProvider implements CompletionProvider {
     }
 
     this.logger.info('Claude Code: initializing pool...');
-    await Promise.all([this.initSlot(0), this.initSlot(1)]);
+    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
 
-    this.logger.info('Claude Code: pool ready (2 slots)');
+    this.logger.info(`Claude Code: pool ready (${this.poolSize} slots)`);
   }
 
   isAvailable(): boolean {
@@ -364,11 +372,11 @@ export class ClaudeCodeProvider implements CompletionProvider {
    */
   private async acquireSlot(): Promise<number | null> {
     // Fast path: find an available slot
-    for (let i = 0; i < 2; i++) {
-      const idx = (this.nextSlot + i) % 2;
+    for (let i = 0; i < this.slots.length; i++) {
+      const idx = (this.nextSlot + i) % this.slots.length;
       if (this.slots[idx].state === 'available') {
         this.slots[idx].state = 'busy';
-        this.nextSlot = (idx + 1) % 2;
+        this.nextSlot = (idx + 1) % this.slots.length;
         return idx;
       }
     }
@@ -379,7 +387,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
     }
 
     this.logger.trace(
-      `waiting for slot (slot0=${this.slots[0].state}, slot1=${this.slots[1].state})`,
+      `waiting for slot (${this.slots.map((s, i) => `slot${i}=${s.state}`).join(', ')})`,
     );
 
     return new Promise<number | null>((resolve) => {
@@ -409,7 +417,7 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.pendingWaiter(null);
       this.pendingWaiter = null;
     }
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       slot.state = 'dead';
       slot.channel?.close();
@@ -519,8 +527,6 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this._warmupResolvers[index] = resolve;
     });
   }
-
-  private _warmupResolvers: ((() => void) | null)[] = [null, null];
 
   /**
    * Background consumer loop. Eats the warmup result, then loops delivering

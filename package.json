@@ -45,6 +45,10 @@
         "command": "bespoke-ai.generateCommitMessage",
         "title": "Bespoke AI: Generate Commit Message",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "bespoke-ai.suggestEdit",
+        "title": "Bespoke AI: Suggest Edits"
       }
     ],
     "menus": {

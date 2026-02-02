@@ -137,10 +137,10 @@ async function doGenerateCommitMessage(logger: Logger): Promise<void> {
             '--output-format',
             'text',
             '--max-turns',
-            '1',
+            '50',
             '--no-session-persistence',
             '--tools',
-            '', // No tools needed — diff is piped via stdin
+            '',
             '--system-prompt',
             systemPrompt, // Replace default ~33K token prompt with focused one
           ],

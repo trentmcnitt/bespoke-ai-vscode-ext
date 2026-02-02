@@ -13,14 +13,20 @@
  * Model override:
  *   QUALITY_TEST_MODEL=sonnet   — override model
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
-import { CompletionContext, CompletionProvider } from '../../types';
+import { CompletionContext } from '../../types';
 import { makeConfig, makeCapturingLogger } from '../helpers';
 import { TestScenario } from './judge';
-import { proseScenarios, codeScenarios, edgeCaseScenarios } from './scenarios';
+import {
+  proseScenarios,
+  codeScenarios,
+  edgeCaseScenarios,
+  reusePrimingContexts,
+  reuseQualityScenarios,
+} from './scenarios';
 import { regressionScenarios } from './regression-scenarios';
 
 // ─── Backend selection ───────────────────────────────────────────────
@@ -126,29 +132,57 @@ function saveScenarioOutput(result: GenerationResult): void {
   );
 }
 
+// ─── Per-scenario isolated provider ─────────────────────────────────
+
+async function generateWithFreshProvider(scenario: TestScenario): Promise<GenerationResult> {
+  const config = makeCompletionConfig();
+  const capturing = makeCapturingLogger();
+  const cc = new ClaudeCodeProvider(config, capturing.logger, 1);
+  const cwd = path.resolve(__dirname, '..', '..', '..');
+
+  const ctx: CompletionContext = {
+    prefix: scenario.prefix,
+    suffix: scenario.suffix,
+    languageId: scenario.languageId,
+    fileName: scenario.fileName,
+    filePath: `/${scenario.fileName}`,
+    mode: scenario.mode,
+  };
+
+  const start = Date.now();
+  try {
+    await cc.activate(cwd);
+    const ac = new AbortController();
+    const completion = await cc.getCompletion(ctx, ac.signal);
+    const result: GenerationResult = {
+      scenario,
+      completion,
+      rawResponse: capturing.getTrace('← raw'),
+      durationMs: Date.now() - start,
+    };
+    saveScenarioOutput(result);
+    return result;
+  } catch (err) {
+    const result: GenerationResult = {
+      scenario,
+      completion: null,
+      durationMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    saveScenarioOutput(result);
+    return result;
+  } finally {
+    cc.dispose();
+  }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () => {
-  let provider: CompletionProvider;
-  let claudeCodeInstance: ClaudeCodeProvider | null = null;
-  let getTrace: (label: string) => string | undefined;
-
-  beforeAll(async () => {
-    fs.mkdirSync(RUN_DIR, { recursive: true });
-    const config = makeCompletionConfig();
-    const capturing = makeCapturingLogger();
-    getTrace = capturing.getTrace;
-
-    const cc = new ClaudeCodeProvider(config, capturing.logger);
-    const cwd = path.resolve(__dirname, '..', '..', '..');
-    await cc.activate(cwd);
-    claudeCodeInstance = cc;
-    provider = cc;
-  });
+  // Ensure output directory exists before any concurrent test writes
+  fs.mkdirSync(RUN_DIR, { recursive: true });
 
   afterAll(() => {
-    claudeCodeInstance?.dispose();
-
     if (results.length === 0) return;
 
     // Write summary
@@ -215,72 +249,105 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     console.log('='.repeat(70) + '\n');
   });
 
-  // Helper to run a single scenario
-  async function generateCompletion(scenario: TestScenario): Promise<GenerationResult> {
-    const ctx: CompletionContext = {
-      prefix: scenario.prefix,
-      suffix: scenario.suffix,
-      languageId: scenario.languageId,
-      fileName: scenario.fileName,
-      filePath: `/${scenario.fileName}`,
-      mode: scenario.mode,
-    };
-
-    const start = Date.now();
-    try {
-      const ac = new AbortController();
-      const completion = await provider.getCompletion(ctx, ac.signal);
-      const result: GenerationResult = {
-        scenario,
-        completion,
-        rawResponse: getTrace('← raw'),
-        durationMs: Date.now() - start,
-      };
-      saveScenarioOutput(result);
-      return result;
-    } catch (err) {
-      const result: GenerationResult = {
-        scenario,
-        completion: null,
-        durationMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
-      };
-      saveScenarioOutput(result);
-      return result;
-    }
-  }
-
   // Structural checks (Layer 1): just verify we got something
   describe('prose scenarios', () => {
-    it.each(proseScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
-      const result = await generateCompletion(scenario);
-      results.push(result);
-      // Layer 1: completion was generated without throwing
-      expect(result.error).toBeUndefined();
-    });
+    it.concurrent.each(proseScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        // Layer 1: completion was generated without throwing
+        expect(result.error).toBeUndefined();
+      },
+    );
   });
 
   describe('code scenarios', () => {
-    it.each(codeScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
-      const result = await generateCompletion(scenario);
-      results.push(result);
-      expect(result.error).toBeUndefined();
-    });
+    it.concurrent.each(codeScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
   });
 
   describe('edge cases', () => {
-    it.each(edgeCaseScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
-      const result = await generateCompletion(scenario);
-      results.push(result);
-      expect(result.error).toBeUndefined();
-    });
+    it.concurrent.each(edgeCaseScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
   });
 
   describe('regression cases', () => {
-    it.each(regressionScenarios.map((s) => [s.id, s] as const))('%s', async (_id, scenario) => {
-      const result = await generateCompletion(scenario);
-      results.push(result);
-      expect(result.error).toBeUndefined();
-    });
+    it.concurrent.each(regressionScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('reuse quality (shared provider)', () => {
+    // These scenarios share ONE provider instance. The slot serves
+    // 5 priming completions first, then the real quality scenarios.
+    // This tests whether accumulated session context degrades quality.
+    it('reuse scenarios after priming', async () => {
+      const config = makeCompletionConfig();
+      const capturing = makeCapturingLogger();
+      // Single slot — forces all completions through the same subprocess
+      const cc = new ClaudeCodeProvider(config, capturing.logger, 1);
+      const cwd = path.resolve(__dirname, '..', '..', '..');
+
+      try {
+        await cc.activate(cwd);
+
+        // Phase 1: Priming — send throwaway completions to fill the slot
+        for (const prime of reusePrimingContexts) {
+          const ctx: CompletionContext = {
+            prefix: prime.prefix,
+            suffix: prime.suffix,
+            languageId: prime.languageId,
+            fileName: prime.fileName,
+            filePath: `/${prime.fileName}`,
+            mode: prime.mode,
+          };
+          await cc.getCompletion(ctx, new AbortController().signal);
+        }
+
+        // Phase 2: Quality scenarios — these get saved and Layer 2 judged
+        for (const scenario of reuseQualityScenarios) {
+          const ctx: CompletionContext = {
+            prefix: scenario.prefix,
+            suffix: scenario.suffix,
+            languageId: scenario.languageId,
+            fileName: scenario.fileName,
+            filePath: `/${scenario.fileName}`,
+            mode: scenario.mode,
+          };
+
+          const start = Date.now();
+          const completion = await cc.getCompletion(ctx, new AbortController().signal);
+          const result: GenerationResult = {
+            scenario,
+            completion,
+            rawResponse: capturing.getTrace('← raw'),
+            durationMs: Date.now() - start,
+          };
+          saveScenarioOutput(result);
+          results.push(result);
+          expect(result.completion).toBeTruthy();
+        }
+      } finally {
+        cc.dispose();
+      }
+    }, 180_000); // 3 min — priming + quality scenarios
   });
 });
