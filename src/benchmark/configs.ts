@@ -3,6 +3,9 @@ import { BenchmarkConfig } from './types';
 /**
  * Named config presets for parameter sweep benchmarking.
  *
+ * NOTE: These configs are Anthropic-specific and need updating for the Claude Code backend.
+ * The benchmark runner is currently non-functional — see runner.ts.
+ *
  * Each preset defines a label, description, and partial ExtensionConfig overrides.
  * The runner deep-merges these over the base config from makeConfig(), so only
  * the swept parameter needs to be specified — defaults fill in the rest.

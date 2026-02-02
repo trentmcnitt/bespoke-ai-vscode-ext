@@ -10,8 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionMode } from '../../types';
-import { makeConfig } from '../helpers';
-import { Logger } from '../../utils/logger';
+import { makeConfig, makeLogger } from '../helpers';
 import {
   getApiRunDir,
   buildApiResult,
@@ -139,7 +138,6 @@ const scenarios: FillScenario[] = [
 
 function makeRealConfig() {
   const config = makeConfig();
-  config.backend = 'claude-code';
   config.claudeCode.model = 'haiku';
   config.prose.maxTokens = 60;
   config.code.maxTokens = 60;
@@ -158,21 +156,7 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
   const results: ApiResult[] = [];
 
   beforeAll(async () => {
-    const logger: Logger = {
-      setLevel: () => {},
-      info: () => {},
-      debug: () => {},
-      trace: () => {},
-      error: (...args: unknown[]) => {
-        console.error(String(args[0]));
-      },
-      show: () => {},
-      dispose: () => {},
-      traceBlock: () => {},
-      traceInline: () => {},
-    } as unknown as Logger;
-
-    provider = new ClaudeCodeProvider(makeRealConfig(), logger);
+    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
     await provider.activate(CWD);
   }, 60_000);
 

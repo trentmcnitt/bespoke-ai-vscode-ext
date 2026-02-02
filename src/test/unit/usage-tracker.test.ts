@@ -12,8 +12,8 @@ describe('UsageTracker', () => {
   describe('record and totalToday', () => {
     it('increments count on record', () => {
       const tracker = new UsageTracker();
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
+      tracker.record('haiku');
+      tracker.record('haiku');
       expect(tracker.getSnapshot().totalToday).toBe(2);
     });
 
@@ -25,7 +25,7 @@ describe('UsageTracker', () => {
       beforeMidnight.setHours(23, 59, 0, 0);
       vi.setSystemTime(beforeMidnight);
 
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
+      tracker.record('haiku');
       expect(tracker.getSnapshot().totalToday).toBe(1);
 
       // Advance past midnight
@@ -42,7 +42,7 @@ describe('UsageTracker', () => {
 
       // Record 10 requests
       for (let i = 0; i < 10; i++) {
-        tracker.record('anthropic', 'claude-haiku-4-5-20251001');
+        tracker.record('haiku');
       }
 
       // 10 requests in 5-min window → 2.0/min
@@ -53,9 +53,9 @@ describe('UsageTracker', () => {
       const tracker = new UsageTracker(60_000); // 1-minute window
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
+      tracker.record('haiku');
+      tracker.record('haiku');
+      tracker.record('haiku');
 
       // 3 requests in 1-min window → 3.0/min
       expect(tracker.getSnapshot().ratePerMinute).toBe(3);
@@ -66,44 +66,18 @@ describe('UsageTracker', () => {
     });
   });
 
-  describe('byBackend', () => {
-    it('tracks per-backend counts', () => {
-      const tracker = new UsageTracker();
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('ollama', 'qwen2.5:3b');
-      tracker.record('claude-code', 'haiku');
-      tracker.record('claude-code', 'haiku');
-      tracker.record('claude-code', 'haiku');
-
-      const snap = tracker.getSnapshot();
-      expect(snap.byBackend.anthropic).toBe(2);
-      expect(snap.byBackend.ollama).toBe(1);
-      expect(snap.byBackend['claude-code']).toBe(3);
-    });
-
-    it('omits backends with zero requests', () => {
-      const tracker = new UsageTracker();
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-
-      const snap = tracker.getSnapshot();
-      expect(snap.byBackend.anthropic).toBe(1);
-      expect(snap.byBackend.ollama).toBeUndefined();
-    });
-  });
-
   describe('byModel', () => {
     it('tracks per-model counts', () => {
       const tracker = new UsageTracker();
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('anthropic', 'claude-sonnet-4-20250514');
-      tracker.record('ollama', 'qwen2.5:3b');
+      tracker.record('haiku');
+      tracker.record('haiku');
+      tracker.record('sonnet');
+      tracker.record('opus');
 
       const snap = tracker.getSnapshot();
-      expect(snap.byModel['claude-haiku-4-5-20251001']).toBe(2);
-      expect(snap.byModel['claude-sonnet-4-20250514']).toBe(1);
-      expect(snap.byModel['qwen2.5:3b']).toBe(1);
+      expect(snap.byModel['haiku']).toBe(2);
+      expect(snap.byModel['sonnet']).toBe(1);
+      expect(snap.byModel['opus']).toBe(1);
     });
   });
 
@@ -113,7 +87,7 @@ describe('UsageTracker', () => {
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
       for (let i = 0; i < 9; i++) {
-        tracker.record('anthropic', 'model');
+        tracker.record('haiku');
       }
       expect(tracker.getSnapshot().isBurst).toBe(false);
     });
@@ -123,7 +97,7 @@ describe('UsageTracker', () => {
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
       for (let i = 0; i < 10; i++) {
-        tracker.record('anthropic', 'model');
+        tracker.record('haiku');
       }
       expect(tracker.getSnapshot().isBurst).toBe(true);
     });
@@ -133,7 +107,7 @@ describe('UsageTracker', () => {
       vi.setSystemTime(new Date('2025-06-15T12:00:00'));
 
       for (let i = 0; i < 15; i++) {
-        tracker.record('anthropic', 'model');
+        tracker.record('haiku');
       }
       expect(tracker.getSnapshot().isBurst).toBe(true);
     });
@@ -170,86 +144,34 @@ describe('UsageTracker', () => {
   describe('error tracking', () => {
     it('records error count without double-counting requests', () => {
       const tracker = new UsageTracker();
-      // Errors are counted separately — the request itself is tracked via record()
       tracker.recordError();
       tracker.recordError();
 
       const snap = tracker.getSnapshot();
       expect(snap.errors).toBe(2);
-      // Errors don't add to totalToday — that happens via the normal record() path
       expect(snap.totalToday).toBe(0);
     });
   });
 
-  describe('token tracking', () => {
-    it('accumulates token counts', () => {
+  describe('character tracking', () => {
+    it('accumulates input and output characters', () => {
       const tracker = new UsageTracker();
-      tracker.recordTokens('claude-haiku-4-5-20251001', 100, 50, 200, 0);
-      tracker.recordTokens('claude-haiku-4-5-20251001', 150, 30, 0, 100);
+      tracker.record('haiku', 500, 50);
+      tracker.record('haiku', 1000, 100);
 
       const snap = tracker.getSnapshot();
-      expect(snap.tokens.input).toBe(250);
-      expect(snap.tokens.output).toBe(80);
-      expect(snap.tokens.cacheRead).toBe(200);
-      expect(snap.tokens.cacheWrite).toBe(100);
-    });
-  });
-
-  describe('cost estimation', () => {
-    it('estimates cost for haiku model', () => {
-      const tracker = new UsageTracker();
-      // 1M input tokens at $0.80/MTok = $0.80
-      tracker.recordTokens('claude-haiku-4-5-20251001', 1_000_000, 0, 0, 0);
-
-      const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(0.8);
+      expect(snap.totalInputChars).toBe(1500);
+      expect(snap.totalOutputChars).toBe(150);
     });
 
-    it('estimates cost for output tokens', () => {
+    it('handles record without character counts', () => {
       const tracker = new UsageTracker();
-      // 1M output tokens at $4.00/MTok = $4.00
-      tracker.recordTokens('claude-haiku-4-5-20251001', 0, 1_000_000, 0, 0);
+      tracker.record('haiku');
 
       const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(4);
-    });
-
-    it('estimates cost for cache read tokens', () => {
-      const tracker = new UsageTracker();
-      // 1M cache read tokens at $0.08/MTok = $0.08
-      tracker.recordTokens('claude-haiku-4-5-20251001', 0, 0, 1_000_000, 0);
-
-      const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(0.08);
-    });
-
-    it('uses sonnet pricing for sonnet models', () => {
-      const tracker = new UsageTracker();
-      // 1M input tokens at $3.00/MTok = $3.00
-      tracker.recordTokens('claude-sonnet-4-20250514', 1_000_000, 0, 0, 0);
-
-      const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(3);
-    });
-
-    it('falls back to haiku pricing for unknown models', () => {
-      const tracker = new UsageTracker();
-      // 1M input tokens at $0.80/MTok (haiku fallback) = $0.80
-      tracker.recordTokens('unknown-model', 1_000_000, 0, 0, 0);
-
-      const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(0.8);
-    });
-
-    it('accumulates cost across multiple calls', () => {
-      const tracker = new UsageTracker();
-      // 100K input at haiku rate: $0.08
-      tracker.recordTokens('claude-haiku-4-5-20251001', 100_000, 0, 0, 0);
-      // 10K output at haiku rate: $0.04
-      tracker.recordTokens('claude-haiku-4-5-20251001', 0, 10_000, 0, 0);
-
-      const snap = tracker.getSnapshot();
-      expect(snap.estimatedCostUsd).toBe(0.12);
+      expect(snap.totalInputChars).toBe(0);
+      expect(snap.totalOutputChars).toBe(0);
+      expect(snap.totalToday).toBe(1);
     });
   });
 
@@ -266,26 +188,24 @@ describe('UsageTracker', () => {
   describe('reset', () => {
     it('clears everything', () => {
       const tracker = new UsageTracker();
-      tracker.record('anthropic', 'claude-haiku-4-5-20251001');
-      tracker.record('ollama', 'qwen2.5:3b');
+      tracker.record('haiku', 500, 50);
+      tracker.record('sonnet', 1000, 100);
       tracker.recordCacheHit();
       tracker.recordCacheMiss();
       tracker.recordError();
-      tracker.recordTokens('claude-haiku-4-5-20251001', 100, 50, 200, 0);
       tracker.reset();
 
       const snap = tracker.getSnapshot();
       expect(snap.totalToday).toBe(0);
       expect(snap.ratePerMinute).toBe(0);
-      expect(snap.byBackend).toEqual({});
       expect(snap.byModel).toEqual({});
       expect(snap.isBurst).toBe(false);
       expect(snap.cacheHits).toBe(0);
       expect(snap.cacheMisses).toBe(0);
       expect(snap.cacheHitRate).toBe(0);
       expect(snap.errors).toBe(0);
-      expect(snap.tokens).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-      expect(snap.estimatedCostUsd).toBe(0);
+      expect(snap.totalInputChars).toBe(0);
+      expect(snap.totalOutputChars).toBe(0);
     });
   });
 });

@@ -10,7 +10,7 @@ describe('shortenModelName', () => {
     expect(shortenModelName('claude-sonnet-4-20250514')).toBe('sonnet-4');
   });
 
-  it('leaves Ollama model names unchanged', () => {
+  it('leaves non-Claude model names unchanged', () => {
     expect(shortenModelName('qwen2.5:3b')).toBe('qwen2.5:3b');
   });
 

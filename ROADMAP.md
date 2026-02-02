@@ -29,7 +29,6 @@ Feature roadmap for Bespoke AI. Informed by the competitive landscape analysis i
 | Code actions / lightbulb    | Deferred  |
 | Rename suggestions          | Deferred  |
 | Test generation             | Deferred  |
-| Stream-time filtering       | Exploring |
 
 ---
 
@@ -96,7 +95,7 @@ Persistent, cross-project record of every Claude Code API call — total calls, 
 **Current state:**
 
 - `UsageTracker` is session-scoped and in-memory — resets on VS Code restart, tracks per-project only
-- The Anthropic provider gets token counts from the API response (`usage.input_tokens`/`usage.output_tokens`)
+- Tracks completion counts and input/output character counts (no token-level data from Claude Code SDK)
 - The Claude Code provider's `consumeStream` only reads `result`-type messages; other SDK stream messages (which may carry usage data) are silently ignored
 
 **What's needed:**
@@ -126,7 +125,7 @@ Stop generation early at suffix overlap or repetition instead of waiting for the
 - Currently, post-processing runs after the full response is received
 - Stream-time filtering would operate on the raw stream, character-by-character
 - Key transforms: stop at suffix match, stop at line repetition, stop at function boundaries
-- Only applicable to streaming backends (Anthropic API, Ollama). Claude Code delivers complete results.
+- Only applicable to streaming backends — Claude Code delivers complete results, so this is deferred until API providers are restored. See `API_RETURN_NOTES.md`.
 - Risk: Continue.dev's stream transforms are a major source of their bugs (premature truncation, #3994)
 
 **Reference:** Continue.dev's `core/autocomplete/filtering/streamTransforms/`.
@@ -137,7 +136,7 @@ Reuse an in-flight LLM stream when the user types characters that match the begi
 
 - When a new request arrives and the previous stream's output starts with the new prefix, continue consuming that stream instead of cancelling
 - Reduces redundant API calls for rapid typing that gets past the debouncer
-- Only applicable to streaming backends (Anthropic, Ollama). Claude Code's subprocess model doesn't support this well.
+- Only applicable to streaming backends — Claude Code's subprocess model doesn't support this. Deferred until API providers are restored. See `API_RETURN_NOTES.md`.
 - Trade-off: 300ms debounce already prevents most double-triggers, limiting the benefit
 
 **Reference:** Continue.dev's `core/autocomplete/generation/CompletionStreamer.ts`.
@@ -191,11 +190,7 @@ Since the Claude Code backend reuses the same session for up to 24 completions p
 
 ### FIM Template Library
 
-Expand Ollama backend with model-specific FIM prompt templates for optimal completion quality across different local models.
-
-- Currently Ollama uses native FIM mode for code (model applies its own tokens) and raw mode for prose
-- A template library would let us format FIM prompts correctly for models that don't have native FIM support
-- Only matters if we want to support a wider range of local models
+Model-specific FIM prompt templates for optimal completion quality across different local models. Only relevant if API providers (especially Ollama) are restored. See `API_RETURN_NOTES.md`.
 
 **Reference:** Continue.dev's `core/autocomplete/templating/AutocompleteTemplate.ts` (13+ model families).
 

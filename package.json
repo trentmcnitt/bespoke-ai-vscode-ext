@@ -1,8 +1,8 @@
 {
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
-  "description": "Inline ghost-text completions for prose and code using Claude or Ollama",
-  "version": "0.2.2",
+  "description": "Inline ghost-text completions for prose and code using Claude Code",
+  "version": "0.3.0",
   "publisher": "trenthm",
   "icon": "images/icon.png",
   "engines": {
@@ -72,16 +72,6 @@
           "default": true,
           "description": "Enable or disable inline completions"
         },
-        "bespokeAI.backend": {
-          "type": "string",
-          "enum": [
-            "claude-code",
-            "anthropic",
-            "ollama"
-          ],
-          "default": "claude-code",
-          "description": "Backend provider for completions"
-        },
         "bespokeAI.mode": {
           "type": "string",
           "enum": [
@@ -106,66 +96,6 @@
           ],
           "default": "info",
           "description": "Logging verbosity in the Output channel"
-        },
-        "bespokeAI.anthropic.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Anthropic API key for Claude completions"
-        },
-        "bespokeAI.anthropic.model": {
-          "type": "string",
-          "default": "claude-haiku-4-5-20251001",
-          "description": "Anthropic model to use. See anthropic.models for available options."
-        },
-        "bespokeAI.anthropic.models": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "claude-haiku-4-5-20251001",
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514"
-          ],
-          "description": "Available Anthropic models. The active model is set in anthropic.model."
-        },
-        "bespokeAI.anthropic.useCaching": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable prompt caching for cost savings"
-        },
-        "bespokeAI.anthropic.apiCallsEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable direct Anthropic API calls (uncheck to prevent billing)"
-        },
-        "bespokeAI.ollama.endpoint": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "description": "Ollama API endpoint URL"
-        },
-        "bespokeAI.ollama.model": {
-          "type": "string",
-          "default": "qwen2.5:3b",
-          "description": "Ollama model to use. See ollama.models for available options."
-        },
-        "bespokeAI.ollama.models": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "qwen2.5:3b",
-            "qwen2.5-coder:3b",
-            "llama3.2:3b",
-            "deepseek-coder-v2:latest"
-          ],
-          "description": "Available Ollama models. The active model is set in ollama.model."
-        },
-        "bespokeAI.ollama.raw": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use raw mode (bypasses chat template, for base models)"
         },
         "bespokeAI.claudeCode.model": {
           "type": "string",
@@ -254,77 +184,13 @@
           "default": 2500,
           "description": "Number of suffix characters (after cursor) to include for code context"
         },
-        "bespokeAI.oracle.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable context oracle for richer completions (requires claude CLI + Agent SDK)"
-        },
-        "bespokeAI.oracle.debounceMs": {
-          "type": "number",
-          "default": 2000,
-          "description": "Delay after file events before triggering oracle analysis"
-        },
-        "bespokeAI.oracle.briefTtlMs": {
-          "type": "number",
-          "default": 300000,
-          "description": "Context brief expiry in milliseconds"
-        },
-        "bespokeAI.oracle.model": {
-          "type": "string",
-          "default": "sonnet",
-          "description": "Model for oracle analysis session"
-        },
-        "bespokeAI.oracle.allowedTools": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "Read",
-            "Grep",
-            "Glob"
-          ],
-          "description": "Tools the oracle agent can use"
-        },
         "bespokeAI.profiles": {
           "type": "object",
-          "default": {
-            "haiku-fast": {
-              "anthropic": {
-                "model": "claude-haiku-4-5-20251001",
-                "useCaching": true
-              },
-              "prose": {
-                "maxTokens": 80,
-                "temperature": 0.7,
-                "stopSequences": [
-                  "---",
-                  "##"
-                ],
-                "contextChars": 2000,
-                "suffixChars": 2500
-              },
-              "code": {
-                "maxTokens": 200,
-                "temperature": 0.2,
-                "stopSequences": [],
-                "contextChars": 4000,
-                "suffixChars": 2500
-              }
-            }
-          },
-          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings. The default 'haiku-fast' profile is a template showing all overridable fields.",
+          "default": {},
+          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings.",
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "backend": {
-                "type": "string",
-                "enum": [
-                  "claude-code",
-                  "anthropic",
-                  "ollama"
-                ]
-              },
               "mode": {
                 "type": "string",
                 "enum": [
@@ -343,34 +209,6 @@
                   "debug",
                   "trace"
                 ]
-              },
-              "anthropic": {
-                "type": "object",
-                "properties": {
-                  "model": {
-                    "type": "string"
-                  },
-                  "useCaching": {
-                    "type": "boolean"
-                  },
-                  "apiCallsEnabled": {
-                    "type": "boolean"
-                  }
-                }
-              },
-              "ollama": {
-                "type": "object",
-                "properties": {
-                  "endpoint": {
-                    "type": "string"
-                  },
-                  "model": {
-                    "type": "string"
-                  },
-                  "raw": {
-                    "type": "boolean"
-                  }
-                }
               },
               "prose": {
                 "type": "object",
@@ -421,29 +259,6 @@
                   },
                   "suffixChars": {
                     "type": "number"
-                  }
-                }
-              },
-              "oracle": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "debounceMs": {
-                    "type": "number"
-                  },
-                  "briefTtlMs": {
-                    "type": "number"
-                  },
-                  "model": {
-                    "type": "string"
-                  },
-                  "allowedTools": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
                   }
                 }
               },
@@ -499,6 +314,7 @@
     ]
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
@@ -512,9 +328,7 @@
     "typescript": "^5.3.0",
     "vitest": "^4.0.18"
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0"
-  },
+  "dependencies": {},
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.77"
   }

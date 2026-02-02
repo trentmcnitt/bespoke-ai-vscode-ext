@@ -23,34 +23,34 @@ This document maps every significant AI code completion product and their featur
 
 ## Bespoke AI Current State
 
-| Feature                         | Status                                                     |
-| ------------------------------- | ---------------------------------------------------------- |
-| Inline completions (ghost text) | Yes — single-line and multi-line                           |
-| Fill-in-the-Middle (FIM)        | Yes (Claude Code uses hole marker; Ollama uses native FIM) |
-| Prose mode                      | Yes — auto-detects prose vs code by languageId             |
-| Multi-backend                   | Yes — Anthropic API, Claude Code CLI, Ollama               |
-| Partial accept (word-by-word)   | Yes (built into VS Code — no extension work needed)        |
-| Next edit suggestions           | No                                                         |
-| Chat                            | No                                                         |
-| Agent mode                      | No                                                         |
-| Code actions / lightbulb        | No                                                         |
-| Code review                     | No                                                         |
-| Terminal integration            | No                                                         |
-| Commit message generation       | Yes (via Claude Code CLI)                                  |
-| Test generation                 | No                                                         |
-| Documentation generation        | Partial (works via inline completion on `/**`)             |
-| Rename suggestions              | No                                                         |
-| Context from open tabs          | No (planned)                                               |
-| Workspace indexing              | No                                                         |
-| Custom instructions file        | No (uses CLAUDE.md differently)                            |
-| MCP support                     | No                                                         |
-| Vision / image input            | No                                                         |
-| Post-processing pipeline        | Yes (prefix/suffix overlap trimming)                       |
-| LRU cache                       | Yes (50 entries, 5-min TTL)                                |
-| Debouncing                      | Yes (300ms, AbortSignal-aware)                             |
-| Profiles                        | Yes (named config presets with deep merge)                 |
-| Usage tracking                  | Yes (per-session counts + cost estimates)                  |
-| Benchmarking                    | Yes (automated parameter sweep + LLM-as-judge)             |
+| Feature                         | Status                                              |
+| ------------------------------- | --------------------------------------------------- |
+| Inline completions (ghost text) | Yes — single-line and multi-line                    |
+| Fill-in-the-Middle (FIM)        | Yes (Claude Code uses hole marker)                  |
+| Prose mode                      | Yes — auto-detects prose vs code by languageId      |
+| Backend                         | Claude Code CLI (single backend)                    |
+| Partial accept (word-by-word)   | Yes (built into VS Code — no extension work needed) |
+| Next edit suggestions           | No                                                  |
+| Chat                            | No                                                  |
+| Agent mode                      | No                                                  |
+| Code actions / lightbulb        | No                                                  |
+| Code review                     | No                                                  |
+| Terminal integration            | No                                                  |
+| Commit message generation       | Yes (via Claude Code CLI)                           |
+| Test generation                 | No                                                  |
+| Documentation generation        | Partial (works via inline completion on `/**`)      |
+| Rename suggestions              | No                                                  |
+| Context from open tabs          | No (planned)                                        |
+| Workspace indexing              | No                                                  |
+| Custom instructions file        | No (uses CLAUDE.md differently)                     |
+| MCP support                     | No                                                  |
+| Vision / image input            | No                                                  |
+| Post-processing pipeline        | Yes (prefix/suffix overlap trimming)                |
+| LRU cache                       | Yes (50 entries, 5-min TTL)                         |
+| Debouncing                      | Yes (300ms, AbortSignal-aware)                      |
+| Profiles                        | Yes (named config presets with deep merge)          |
+| Usage tracking                  | Yes (per-session counts + character tracking)       |
+| Benchmarking                    | Yes (automated parameter sweep + LLM-as-judge)      |
 
 ---
 
@@ -95,7 +95,7 @@ The core autocomplete experience — ghost text suggestions as you type.
 
 | Product            | Sidebar Chat  | Inline Chat | Agent Mode                | MCP Support        | Multi-Model      |
 | ------------------ | ------------- | ----------- | ------------------------- | ------------------ | ---------------- |
-| **Bespoke AI**     | No            | No          | No                        | No                 | Yes (3 backends) |
+| **Bespoke AI**     | No            | No          | No                        | No                 | No (Claude Code) |
 | **GitHub Copilot** | Yes           | Yes         | Yes (+ coding agent)      | Yes                | Yes (10+ models) |
 | **Cursor**         | Yes           | Yes (Cmd+K) | Yes (+ background agents) | Yes                | Yes              |
 | **Windsurf**       | Yes (Cascade) | —           | Yes (3 modes)             | Yes                | Yes (BYOK)       |
@@ -159,7 +159,7 @@ The core autocomplete experience — ghost text suggestions as you type.
 
 | Product            | Type         | Fully Local        | Self-Host      | Air-Gapped | No Telemetry        | License     |
 | ------------------ | ------------ | ------------------ | -------------- | ---------- | ------------------- | ----------- |
-| **Bespoke AI**     | Extension    | Yes (Ollama)       | N/A            | Partial    | Yes                 | Proprietary |
+| **Bespoke AI**     | Extension    | No                 | N/A            | No         | Yes                 | Proprietary |
 | **GitHub Copilot** | Extension    | No                 | No             | No         | No                  | Proprietary |
 | **Cursor**         | IDE          | No                 | No             | No         | Opt-in Privacy Mode | Proprietary |
 | **Windsurf**       | IDE + Ext    | Enterprise         | Enterprise VPC | Enterprise | Opt-in              | Proprietary |
@@ -419,7 +419,6 @@ The core autocomplete experience — ghost text suggestions as you type.
 
 See the [Current State table](#bespoke-ai-current-state) for the full list. Notable capabilities relative to the field:
 
-- **Context oracle** — agent-powered file analysis (imports, types, patterns) for smarter completions. A novel approach, though most tools achieve similar results via workspace indexing or open-tab analysis.
 - **Prose mode auto-detection** — no other tool has this, but the practical advantage is mild.
 - **Automated quality benchmarking** — LLM-as-judge parameter sweeps. Useful internally; closed-source products likely have similar QA.
 

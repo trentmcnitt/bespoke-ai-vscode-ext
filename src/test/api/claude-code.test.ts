@@ -33,7 +33,6 @@ try {
 
 function makeRealConfig() {
   const config = makeConfig();
-  config.backend = 'claude-code';
   config.claudeCode.model = 'haiku';
   config.prose.maxTokens = 50;
   config.code.maxTokens = 50;

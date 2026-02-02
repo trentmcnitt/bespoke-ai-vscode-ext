@@ -10,80 +10,47 @@
  * After generation completes, the afterAll hook prints instructions
  * for Claude to begin Layer 2 (semantic quality) validation.
  *
- * Backend selection:
- *   QUALITY_TEST_BACKEND=claude-code  (default) — uses Claude Code SDK, no API key needed
- *   QUALITY_TEST_BACKEND=anthropic               — uses direct Anthropic API, needs ANTHROPIC_API_KEY
- *
  * Model override:
- *   QUALITY_TEST_MODEL=claude-sonnet-4-20250514   — override model (anthropic backend)
- *   QUALITY_TEST_MODEL=sonnet                     — override model (claude-code backend)
+ *   QUALITY_TEST_MODEL=sonnet   — override model
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AnthropicProvider } from '../../providers/anthropic';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
-import { CompletionContext, CompletionProvider, Backend } from '../../types';
-import { makeConfig, makeCapturingLogger, loadApiKey } from '../helpers';
+import { CompletionContext, CompletionProvider } from '../../types';
+import { makeConfig, makeCapturingLogger } from '../helpers';
 import { TestScenario } from './judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from './scenarios';
 import { regressionScenarios } from './regression-scenarios';
 
 // ─── Backend selection ───────────────────────────────────────────────
 
-const backend = (process.env.QUALITY_TEST_BACKEND ?? 'claude-code') as Backend;
-const apiKey = loadApiKey();
-
-// Check if the selected backend can run
 let canRun = false;
 let skipReason = '';
 
-if (backend === 'claude-code') {
-  try {
-    const sdk = await import('@anthropic-ai/claude-agent-sdk');
-    const queryFn = sdk.query ?? sdk.default?.query;
-    canRun = typeof queryFn === 'function';
-    if (!canRun) {
-      skipReason = 'Agent SDK does not export query()';
-    }
-  } catch {
-    canRun = false;
-    skipReason = 'Agent SDK not available (npm install @anthropic-ai/claude-agent-sdk)';
-  }
-} else if (backend === 'anthropic') {
-  canRun = apiKey.length > 0;
+try {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  const queryFn = sdk.query ?? sdk.default?.query;
+  canRun = typeof queryFn === 'function';
   if (!canRun) {
-    skipReason = 'ANTHROPIC_API_KEY not set';
+    skipReason = 'Agent SDK does not export query()';
   }
-} else {
-  skipReason = `Unsupported backend: ${backend}`;
+} catch {
+  canRun = false;
+  skipReason = 'Agent SDK not available (npm install @anthropic-ai/claude-agent-sdk)';
 }
 
 function makeCompletionConfig() {
   const config = makeConfig();
-  config.backend = backend;
-
-  if (backend === 'anthropic') {
-    config.anthropic.apiKey = apiKey;
-    config.anthropic.useCaching = false;
-    if (process.env.QUALITY_TEST_MODEL) {
-      config.anthropic.model = process.env.QUALITY_TEST_MODEL;
-    }
-  } else if (backend === 'claude-code') {
-    if (process.env.QUALITY_TEST_MODEL) {
-      config.claudeCode.model = process.env.QUALITY_TEST_MODEL;
-    }
+  if (process.env.QUALITY_TEST_MODEL) {
+    config.claudeCode.model = process.env.QUALITY_TEST_MODEL;
   }
-
   return config;
 }
 
 function getModelName(): string {
   const config = makeCompletionConfig();
-  if (backend === 'claude-code') {
-    return `claude-code/${config.claudeCode.model}`;
-  }
-  return config.anthropic.model;
+  return `claude-code/${config.claudeCode.model}`;
 }
 
 // ─── Output management ──────────────────────────────────────────────
@@ -150,7 +117,7 @@ function saveScenarioOutput(result: GenerationResult): void {
         completionLength: result.completion?.length ?? 0,
         error: result.error ?? null,
         generatedAt: new Date().toISOString(),
-        backend,
+        backend: 'claude-code',
         model: getModelName(),
       },
       null,
@@ -161,7 +128,7 @@ function saveScenarioOutput(result: GenerationResult): void {
 
 // ─── Tests ──────────────────────────────────────────────────────────
 
-describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () => {
+describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () => {
   let provider: CompletionProvider;
   let claudeCodeInstance: ClaudeCodeProvider | null = null;
   let getTrace: (label: string) => string | undefined;
@@ -172,15 +139,11 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
     const capturing = makeCapturingLogger();
     getTrace = capturing.getTrace;
 
-    if (backend === 'claude-code') {
-      const cc = new ClaudeCodeProvider(config, capturing.logger);
-      const cwd = path.resolve(__dirname, '..', '..', '..');
-      await cc.activate(cwd);
-      claudeCodeInstance = cc;
-      provider = cc;
-    } else {
-      provider = new AnthropicProvider(config, capturing.logger);
-    }
+    const cc = new ClaudeCodeProvider(config, capturing.logger);
+    const cwd = path.resolve(__dirname, '..', '..', '..');
+    await cc.activate(cwd);
+    claudeCodeInstance = cc;
+    provider = cc;
   });
 
   afterAll(() => {
@@ -195,7 +158,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
 
     const summary = {
       timestamp,
-      backend,
+      backend: 'claude-code',
       model: getModelName(),
       totalScenarios: results.length,
       generated,
@@ -231,7 +194,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${backend}]`, () =>
     console.log('\n' + '='.repeat(70));
     console.log('  LAYER 1 COMPLETE — LAYER 2 VALIDATION REQUIRED');
     console.log('='.repeat(70));
-    console.log(`\n  Backend:   ${backend}`);
+    console.log(`\n  Backend:   claude-code`);
     console.log(`  Model:     ${getModelName()}`);
     console.log(`  Generated: ${generated}/${results.length} completions (${nulls} null)`);
     console.log(`  Duration:  ${(totalMs / 1000).toFixed(1)}s total`);

@@ -1,12 +1,11 @@
 import * as vscode from 'vscode';
-import { ExtensionConfig, Backend, ProfileOverrides } from './types';
+import { ExtensionConfig, ProfileOverrides } from './types';
 import { CompletionProvider } from './completion-provider';
-import { ProviderRouter } from './providers/provider-router';
+import { ClaudeCodeProvider } from './providers/claude-code';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { applyProfile } from './utils/profile';
 import { generateCommitMessage } from './commit-message';
-import { ContextOracle } from './oracle/context-oracle';
 import { UsageTracker } from './utils/usage-tracker';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
@@ -17,25 +16,13 @@ const MODE_ICONS: Record<string, string> = {
   code: '$(code)',
 };
 
-function getActiveModel(config: ExtensionConfig): string {
-  switch (config.backend) {
-    case 'anthropic':
-      return config.anthropic.model;
-    case 'ollama':
-      return config.ollama.model;
-    case 'claude-code':
-      return config.claudeCode.model;
-  }
-}
-
 let statusBarItem: vscode.StatusBarItem;
 let completionProvider: CompletionProvider;
-let providerRouter: ProviderRouter;
+let claudeCodeProvider: ClaudeCodeProvider;
 let logger: Logger;
 let currentProfile = '';
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
-let oracle: ContextOracle;
 let usageTracker: UsageTracker;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -49,24 +36,16 @@ export function activate(context: vscode.ExtensionContext) {
 
   usageTracker = new UsageTracker();
 
-  oracle = new ContextOracle(config.oracle, logger);
-  oracle.activate(context);
-  context.subscriptions.push({ dispose: () => oracle.dispose() });
-
-  providerRouter = new ProviderRouter(config, logger, (filePath) => oracle.getBrief(filePath));
-  context.subscriptions.push({ dispose: () => providerRouter.dispose() });
-
-  providerRouter.setTokenUsageCallback((model, input, output, cacheRead, cacheWrite) => {
-    usageTracker.recordTokens(model, input, output, cacheRead, cacheWrite);
-  });
+  claudeCodeProvider = new ClaudeCodeProvider(config, logger);
+  context.subscriptions.push({ dispose: () => claudeCodeProvider.dispose() });
 
   // Activate Claude Code provider with workspace root (async, non-blocking)
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-  providerRouter.activateClaudeCode(workspaceRoot).catch((err) => {
+  claudeCodeProvider.activate(workspaceRoot).catch((err) => {
     logger.error(`Claude Code activation failed: ${err}`);
   });
 
-  completionProvider = new CompletionProvider(config, providerRouter, logger, usageTracker);
+  completionProvider = new CompletionProvider(config, claudeCodeProvider, logger, usageTracker);
 
   completionProvider.setRequestCallbacks(
     () => {
@@ -287,7 +266,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         logger.setLevel(newConfig.logLevel);
-        oracle.updateConfig(newConfig.oracle);
         completionProvider.updateConfig(newConfig);
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
@@ -295,53 +273,20 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // Warn if no API key when using Anthropic (not needed for claude-code backend)
-  if (config.backend === 'anthropic' && !config.anthropic.apiKey) {
-    logger.info('No Anthropic API key configured');
-    vscode.window.showWarningMessage(
-      'Bespoke AI: No Anthropic API key configured. Set it in Settings → Bespoke AI → Anthropic: Api Key.',
-    );
-  }
-
   logger.info(
-    `Activated | ${config.backend} | profile=${config.activeProfile || '(none)'} | logLevel=${config.logLevel}`,
+    `Activated | claude-code | profile=${config.activeProfile || '(none)'} | logLevel=${config.logLevel}`,
   );
 }
 
 function loadConfig(): ExtensionConfig {
   const ws = vscode.workspace.getConfiguration('bespokeAI');
 
-  const apiKey = ws.get<string>('anthropic.apiKey', '');
-
   const activeProfile = ws.get<string>('activeProfile', '')!;
 
   const baseConfig: ExtensionConfig = {
     enabled: ws.get<boolean>('enabled', true)!,
-    backend: ws.get<Backend>('backend', 'claude-code')!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
     debounceMs: ws.get<number>('debounceMs', 300)!,
-    anthropic: {
-      apiKey,
-      model: ws.get<string>('anthropic.model', 'claude-haiku-4-5-20251001')!,
-      models: ws.get<string[]>('anthropic.models', [
-        'claude-haiku-4-5-20251001',
-        'claude-sonnet-4-20250514',
-        'claude-opus-4-20250514',
-      ])!,
-      useCaching: ws.get<boolean>('anthropic.useCaching', true)!,
-      apiCallsEnabled: ws.get<boolean>('anthropic.apiCallsEnabled', true)!,
-    },
-    ollama: {
-      endpoint: ws.get<string>('ollama.endpoint', 'http://localhost:11434')!,
-      model: ws.get<string>('ollama.model', 'qwen2.5:3b')!,
-      models: ws.get<string[]>('ollama.models', [
-        'qwen2.5:3b',
-        'qwen2.5-coder:3b',
-        'llama3.2:3b',
-        'deepseek-coder-v2:latest',
-      ])!,
-      raw: ws.get<boolean>('ollama.raw', true)!,
-    },
     prose: {
       maxTokens: ws.get<number>('prose.maxTokens', 100)!,
       temperature: ws.get<number>('prose.temperature', 0.7)!,
@@ -363,13 +308,6 @@ function loadConfig(): ExtensionConfig {
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
     activeProfile,
-    oracle: {
-      enabled: ws.get<boolean>('oracle.enabled', false)!,
-      debounceMs: ws.get<number>('oracle.debounceMs', 2000)!,
-      briefTtlMs: ws.get<number>('oracle.briefTtlMs', 300000)!,
-      model: ws.get<string>('oracle.model', 'sonnet')!,
-      allowedTools: ws.get<string[]>('oracle.allowedTools', ['Read', 'Grep', 'Glob'])!,
-    },
   };
 
   if (activeProfile) {
@@ -390,12 +328,11 @@ function updateStatusBar(config: ExtensionConfig) {
     statusBarItem.text = '$(circle-slash) AI Off';
     statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
   } else {
-    const activeModel = getActiveModel(config);
-    const modelLabel = shortenModelName(activeModel);
+    const modelLabel = shortenModelName(config.claudeCode.model);
     statusBarItem.text = `${MODE_ICONS[config.mode]} ${config.mode} | ${modelLabel}`;
 
     const profileInfo = config.activeProfile ? `, profile: ${config.activeProfile}` : '';
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.backend} (${activeModel})${profileInfo} (click for menu)`;
+    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, claude-code (${config.claudeCode.model})${profileInfo} (click for menu)`;
   }
   statusBarItem.show();
 }
@@ -407,7 +344,7 @@ function updateStatusBarSpinner(spinning: boolean) {
   }
 
   if (spinning) {
-    const modelLabel = shortenModelName(getActiveModel(config));
+    const modelLabel = shortenModelName(config.claudeCode.model);
     statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
   } else {
     updateStatusBar(config);
@@ -424,12 +361,12 @@ function formatDuration(ms: number): string {
   return `${minutes}m`;
 }
 
-function formatTokenCount(count: number): string {
+function formatCharCount(count: number): string {
   if (count >= 1_000_000) {
     return `${(count / 1_000_000).toFixed(1)}M`;
   }
   if (count >= 1_000) {
-    return `${(count / 1_000).toFixed(0)}K`;
+    return `${(count / 1_000).toFixed(1)}K`;
   }
   return String(count);
 }
@@ -464,20 +401,14 @@ async function showUsageDetail(): Promise<void> {
     }
   }
 
-  // API cost
-  const totalTokens =
-    snap.tokens.input + snap.tokens.output + snap.tokens.cacheRead + snap.tokens.cacheWrite;
-  if (totalTokens > 0) {
-    items.push({ label: 'API Cost (Anthropic)', kind: vscode.QuickPickItemKind.Separator });
+  // Character counts
+  const totalChars = snap.totalInputChars + snap.totalOutputChars;
+  if (totalChars > 0) {
+    items.push({ label: 'Characters', kind: vscode.QuickPickItemKind.Separator });
     items.push({
-      label: `$(credit-card) Tokens: ${formatTokenCount(snap.tokens.input)} in / ${formatTokenCount(snap.tokens.output)} out`,
+      label: `$(file) Input: ${formatCharCount(snap.totalInputChars)}`,
+      description: `Output: ${formatCharCount(snap.totalOutputChars)}`,
     });
-    if (snap.tokens.cacheRead > 0 || snap.tokens.cacheWrite > 0) {
-      items.push({
-        label: `$(credit-card) Cache: ${formatTokenCount(snap.tokens.cacheRead)} read / ${formatTokenCount(snap.tokens.cacheWrite)} write`,
-      });
-    }
-    items.push({ label: `$(credit-card) Estimated cost: $${snap.estimatedCostUsd.toFixed(2)}` });
   }
 
   await vscode.window.showQuickPick(items, {

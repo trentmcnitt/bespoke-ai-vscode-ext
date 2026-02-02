@@ -1,16 +1,26 @@
 import * as vscode from 'vscode';
-import { CompletionContext, ExtensionConfig } from './types';
+import {
+  CompletionContext,
+  CompletionProvider as ICompletionProvider,
+  ExtensionConfig,
+} from './types';
 import { ModeDetector } from './mode-detector';
-import { ProviderRouter } from './providers/provider-router';
 import { buildDocumentContext } from './utils/context-builder';
 import { LRUCache } from './utils/cache';
 import { Debouncer } from './utils/debouncer';
 import { Logger, generateRequestId } from './utils/logger';
 import { UsageTracker } from './utils/usage-tracker';
 
+/** Characters that suppress auto-completion when they are the last typed character.
+ * In prose mode, these typically end a thought or open a new context where triggering
+ * is unwanted. In code mode, many of these (., (, {, :, etc.) are useful trigger points
+ * so only a conservative subset is suppressed. */
+const PROSE_SUPPRESS_AFTER = new Set(['.', '?', '!', ';', '(', '[', '{', '"', "'", '`', ':', ',']);
+const CODE_SUPPRESS_AFTER = new Set([';']);
+
 export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private modeDetector: ModeDetector;
-  private router: ProviderRouter;
+  private provider: ICompletionProvider;
   private cache: LRUCache;
   private debouncer: Debouncer;
   private config: ExtensionConfig;
@@ -22,13 +32,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
   constructor(
     config: ExtensionConfig,
-    router: ProviderRouter,
+    provider: ICompletionProvider,
     logger: Logger,
     tracker?: UsageTracker,
   ) {
     this.config = config;
     this.modeDetector = new ModeDetector();
-    this.router = router;
+    this.provider = provider;
     this.cache = new LRUCache();
     this.debouncer = new Debouncer(config.debounceMs);
     this.logger = logger;
@@ -43,17 +53,8 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
     this.debouncer.setDelay(config.debounceMs);
-    this.router.updateConfig(config);
-  }
-
-  private getActiveModel(): string {
-    switch (this.config.backend) {
-      case 'anthropic':
-        return this.config.anthropic.model;
-      case 'ollama':
-        return this.config.ollama.model;
-      case 'claude-code':
-        return this.config.claudeCode.model;
+    if ('updateConfig' in this.provider) {
+      (this.provider as { updateConfig(c: ExtensionConfig): void }).updateConfig(config);
     }
   }
 
@@ -88,9 +89,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     }
 
     // Suppress after punctuation that typically ends a thought or opens a new context
-    const suppressAfter = new Set(['.', '?', '!', ';', '(', '[', '{', '"', "'", '`', ':', ',']);
+    const suppressSet = mode === 'code' ? CODE_SUPPRESS_AFTER : PROSE_SUPPRESS_AFTER;
     const lastChar = docContext.prefix.slice(-1);
-    if (suppressAfter.has(lastChar)) {
+    if (suppressSet.has(lastChar)) {
       return null;
     }
 
@@ -123,19 +124,18 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       return null;
     }
 
-    // Check backend availability
-    if (!this.router.isBackendAvailable(this.config.backend)) {
+    // Check provider availability
+    if (!this.provider.isAvailable()) {
       return null;
     }
 
     // Get completion from provider
-    const provider = this.router.getProvider(this.config.backend);
     const startTime = Date.now();
 
     // Log request start with structured format
     this.logger.requestStart(reqId, {
       mode,
-      backend: this.config.backend,
+      backend: 'claude-code',
       file: docContext.fileName,
       prefixLen: docContext.prefix.length,
       suffixLen: docContext.suffix.length,
@@ -150,7 +150,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.tracker?.recordCacheMiss();
     this.onRequestStart?.();
     try {
-      const result = await provider.getCompletion(completionContext, signal);
+      const result = await this.provider.getCompletion(completionContext, signal);
       const durationMs = Date.now() - startTime;
 
       if (!result || token.isCancellationRequested) {
@@ -171,7 +171,8 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       });
 
       // Record successful completion in usage tracker
-      this.tracker?.record(this.config.backend, this.getActiveModel());
+      const inputChars = docContext.prefix.length + docContext.suffix.length;
+      this.tracker?.record(this.config.claudeCode.model, inputChars, result.length);
 
       // Cache and return
       this.cache.set(cacheKey, result);
@@ -181,13 +182,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       );
       return [item];
     } catch (err: unknown) {
-      this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);
+      this.logger.error(`✗ #${reqId} | claude-code error`, err);
       this.tracker?.recordError();
       const now = Date.now();
       if (now - this.lastErrorToastTime > 60_000) {
         this.lastErrorToastTime = now;
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Bespoke AI: ${this.config.backend} error — ${msg}`);
+        vscode.window.showErrorMessage(`Bespoke AI: claude-code error — ${msg}`);
       }
       return null;
     } finally {

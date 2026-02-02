@@ -1,6 +1,10 @@
 /**
  * Benchmark runner — full automated pipeline.
  *
+ * NOTE: Benchmark runner currently non-functional — needs rewrite for Claude Code backend.
+ * The Anthropic/Ollama providers have been removed. This file retains the pipeline
+ * structure for future adaptation to Claude Code or restored API providers.
+ *
  * Standalone script (run via `npx tsx` or `npm run benchmark`).
  * Generates K completions per scenario, evaluates each with J judges,
  * aggregates scores, writes to ledger, and generates a comparison report.
@@ -14,10 +18,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { AnthropicProvider } from '../providers/anthropic';
-import { OllamaProvider } from '../providers/ollama';
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
-import { makeConfig, makeLogger } from '../test/helpers';
+import { makeConfig } from '../test/helpers';
 import { TestScenario } from '../test/quality/judge';
 import { proseScenarios, codeScenarios, edgeCaseScenarios } from '../test/quality/scenarios';
 import { regressionScenarios } from '../test/quality/regression-scenarios';
@@ -71,29 +73,17 @@ function parseRunParams(): RunParams {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function resolveConfig(benchConfig: BenchmarkConfig, apiKey: string): ExtensionConfig {
-  const config = makeConfig(benchConfig.overrides);
-  config.anthropic.apiKey = apiKey;
-  return config;
+function resolveConfig(benchConfig: BenchmarkConfig, _apiKey: string): ExtensionConfig {
+  return makeConfig(benchConfig.overrides);
 }
 
 function getModelName(config: ExtensionConfig): string {
-  switch (config.backend) {
-    case 'anthropic':
-      return config.anthropic.model;
-    case 'ollama':
-      return config.ollama.model;
-    case 'claude-code':
-      return config.claudeCode.model;
-  }
+  return config.claudeCode.model;
 }
 
-function createProvider(config: ExtensionConfig): CompletionProvider {
-  const logger = makeLogger();
-  if (config.backend === 'ollama') {
-    return new OllamaProvider(config, logger);
-  }
-  return new AnthropicProvider(config, logger);
+function createProvider(_config: ExtensionConfig): CompletionProvider {
+  // TODO: Rewrite for Claude Code backend
+  throw new Error('Benchmark runner needs rewrite for Claude Code backend');
 }
 
 function stddev(values: number[]): number {
@@ -308,9 +298,8 @@ async function main() {
     const configDir = path.join(runDir, benchConfig.label);
     fs.mkdirSync(configDir, { recursive: true });
 
-    // Save resolved config (redacted)
-    const sanitizedConfig = { ...config, anthropic: { ...config.anthropic, apiKey: '(redacted)' } };
-    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(sanitizedConfig, null, 2));
+    // Save resolved config
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(config, null, 2));
 
     // ── Layer 1: Generate K completions per scenario ──
     console.log('  Layer 1: Generating completions...');
@@ -402,7 +391,7 @@ async function main() {
     const entry: ConfigLedgerEntry = {
       label: benchConfig.label,
       model: getModelName(config),
-      backend: config.backend,
+      backend: 'claude-code',
       overrides: benchConfig.overrides,
       scenarioCount: ALL_SCENARIOS.length,
       successCount,

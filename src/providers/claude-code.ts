@@ -102,7 +102,7 @@ Rules:
 
 Output Requirements:
 - Wrap response in <output> tags
-- No unnecssary code fences, commentary, or meta-text
+- No unnecessary code fences, commentary, or meta-text
 - Preserve whitespace exactly — <completion_start> may include spaces or newlines
 
 How much to output:
@@ -343,7 +343,8 @@ export class ClaudeCodeProvider implements CompletionProvider {
       this.logger.traceBlock('← stripped', stripped);
     }
 
-    // Run standard post-processing
+    // Run standard post-processing. Prefix is undefined because the completion start
+    // has already been stripped — trimPrefixOverlap has no prefix to compare against.
     const result = postProcessCompletion(stripped, undefined, context.suffix);
 
     if (result !== stripped) {

@@ -7,22 +7,8 @@ export function loadApiKey(): string {
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
-  backend: 'claude-code',
   mode: 'auto',
   debounceMs: 300,
-  anthropic: {
-    apiKey: 'test-key',
-    model: 'claude-haiku-4-5-20251001',
-    models: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
-    useCaching: false,
-    apiCallsEnabled: true,
-  },
-  ollama: {
-    endpoint: 'http://localhost:11434',
-    model: 'qwen2.5:3b',
-    models: ['qwen2.5:3b', 'qwen2.5-coder:3b', 'llama3.2:3b', 'deepseek-coder-v2:latest'],
-    raw: true,
-  },
   prose: {
     maxTokens: 100,
     temperature: 0.7,
@@ -41,25 +27,15 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   claudeCode: { model: 'haiku', models: ['haiku', 'sonnet', 'opus'] },
   logLevel: 'info',
   activeProfile: '',
-  oracle: {
-    enabled: false,
-    debounceMs: 2000,
-    briefTtlMs: 300000,
-    model: 'sonnet',
-    allowedTools: ['Read', 'Grep', 'Glob'],
-  },
 };
 
 export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
   return {
     ...DEFAULT_CONFIG,
     ...overrides,
-    anthropic: { ...DEFAULT_CONFIG.anthropic, ...overrides.anthropic },
-    ollama: { ...DEFAULT_CONFIG.ollama, ...overrides.ollama },
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
-    oracle: { ...DEFAULT_CONFIG.oracle, ...overrides.oracle },
   };
 }
 
