@@ -22,17 +22,11 @@ export interface ExtensionConfig {
   triggerMode: 'auto' | 'manual';
   debounceMs: number;
   prose: {
-    maxTokens: number;
-    temperature: number;
-    stopSequences: string[];
     contextChars: number;
     suffixChars: number;
     fileTypes: string[];
   };
   code: {
-    maxTokens: number;
-    temperature: number;
-    stopSequences: string[];
     contextChars: number;
     suffixChars: number;
   };
@@ -41,15 +35,4 @@ export interface ExtensionConfig {
     models: string[];
   };
   logLevel: 'info' | 'debug' | 'trace';
-  activeProfile: string;
-}
-
-export interface ProfileOverrides {
-  mode?: 'auto' | 'prose' | 'code';
-  triggerMode?: 'auto' | 'manual';
-  debounceMs?: number;
-  logLevel?: 'info' | 'debug' | 'trace';
-  claudeCode?: Partial<ExtensionConfig['claudeCode']>;
-  prose?: Partial<ExtensionConfig['prose']>;
-  code?: Partial<ExtensionConfig['code']>;
 }

@@ -52,7 +52,7 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | ------------ | ---------------------------------- | -------- | ----------------------------------------- |
 | `enabled`    | boolean                            | `true`   | Master on/off toggle                      |
 | `mode`       | `"auto"` \| `"prose"` \| `"code"`  | `"auto"` | Completion mode (auto-detects by default) |
-| `debounceMs` | number                             | `1000`   | Delay before triggering a completion      |
+| `debounceMs` | number                             | `8000`   | Delay before triggering a completion      |
 | `logLevel`   | `"info"` \| `"debug"` \| `"trace"` | `"info"` | Logging verbosity in the Output channel   |
 
 ### Claude Code
@@ -64,33 +64,18 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 ### Prose Mode
 
-| Setting               | Type     | Default                     | Description                               |
-| --------------------- | -------- | --------------------------- | ----------------------------------------- |
-| `prose.maxTokens`     | number   | `100`                       | Max tokens per completion                 |
-| `prose.temperature`   | number   | `0.7`                       | Sampling temperature                      |
-| `prose.stopSequences` | string[] | `["---", "##"]`             | Stop sequences                            |
-| `prose.contextChars`  | number   | `2000`                      | Prefix context window (characters)        |
-| `prose.suffixChars`   | number   | `2500`                      | Suffix context window (characters)        |
-| `prose.fileTypes`     | string[] | `["markdown", "plaintext"]` | Additional language IDs to treat as prose |
+| Setting              | Type     | Default                     | Description                               |
+| -------------------- | -------- | --------------------------- | ----------------------------------------- |
+| `prose.contextChars` | number   | `2000`                      | Prefix context window (characters)        |
+| `prose.suffixChars`  | number   | `2500`                      | Suffix context window (characters)        |
+| `prose.fileTypes`    | string[] | `["markdown", "plaintext"]` | Additional language IDs to treat as prose |
 
 ### Code Mode
 
-| Setting              | Type     | Default | Description                        |
-| -------------------- | -------- | ------- | ---------------------------------- |
-| `code.maxTokens`     | number   | `256`   | Max tokens per completion          |
-| `code.temperature`   | number   | `0.2`   | Sampling temperature               |
-| `code.stopSequences` | string[] | `[]`    | Stop sequences                     |
-| `code.contextChars`  | number   | `4000`  | Prefix context window (characters) |
-| `code.suffixChars`   | number   | `2500`  | Suffix context window (characters) |
-
-### Profiles
-
-Named config presets that deep-merge over base settings. See `CLAUDE.md` for details.
-
-| Setting         | Type   | Default | Description                   |
-| --------------- | ------ | ------- | ----------------------------- |
-| `profiles`      | object | `{}`    | Named config profiles         |
-| `activeProfile` | string | `""`    | Active profile (empty = base) |
+| Setting             | Type   | Default | Description                        |
+| ------------------- | ------ | ------- | ---------------------------------- |
+| `code.contextChars` | number | `4000`  | Prefix context window (characters) |
+| `code.suffixChars`  | number | `2500`  | Suffix context window (characters) |
 
 ## Commands & Keybindings
 
@@ -100,7 +85,6 @@ Named config presets that deep-merge over base settings. See `CLAUDE.md` for det
 | `Bespoke AI: Toggle Enabled`          | —          | Toggle the extension on/off         |
 | `Bespoke AI: Cycle Mode`              | —          | Cycle through auto → prose → code   |
 | `Bespoke AI: Clear Completion Cache`  | —          | Clear the LRU cache                 |
-| `Bespoke AI: Select Profile`          | —          | Switch between config profiles      |
 | `Bespoke AI: Show Menu`               | —          | Status bar menu (click status bar)  |
 | `Bespoke AI: Generate Commit Message` | —          | AI-generated commit message via SCM |
 

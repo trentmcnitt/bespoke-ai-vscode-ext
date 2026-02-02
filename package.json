@@ -34,10 +34,6 @@
         "title": "Bespoke AI: Clear Completion Cache"
       },
       {
-        "command": "bespoke-ai.selectProfile",
-        "title": "Bespoke AI: Select Profile"
-      },
-      {
         "command": "bespoke-ai.showMenu",
         "title": "Bespoke AI: Show Menu"
       },
@@ -127,27 +123,6 @@
           ],
           "description": "Available Claude Code models. The active model is set in claudeCode.model."
         },
-        "bespokeAI.prose.maxTokens": {
-          "type": "number",
-          "default": 100,
-          "description": "Maximum tokens for prose completions"
-        },
-        "bespokeAI.prose.temperature": {
-          "type": "number",
-          "default": 0.7,
-          "description": "Temperature for prose completions"
-        },
-        "bespokeAI.prose.stopSequences": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "---",
-            "##"
-          ],
-          "description": "Stop sequences for prose completions"
-        },
         "bespokeAI.prose.contextChars": {
           "type": "number",
           "default": 2000,
@@ -169,24 +144,6 @@
           ],
           "description": "Language IDs treated as prose"
         },
-        "bespokeAI.code.maxTokens": {
-          "type": "number",
-          "default": 256,
-          "description": "Maximum tokens for code completions"
-        },
-        "bespokeAI.code.temperature": {
-          "type": "number",
-          "default": 0.2,
-          "description": "Temperature for code completions"
-        },
-        "bespokeAI.code.stopSequences": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Stop sequences for code completions"
-        },
         "bespokeAI.code.contextChars": {
           "type": "number",
           "default": 4000,
@@ -196,107 +153,6 @@
           "type": "number",
           "default": 2500,
           "description": "Number of suffix characters (after cursor) to include for code context"
-        },
-        "bespokeAI.profiles": {
-          "type": "object",
-          "default": {},
-          "description": "Named config profiles. Each key is a profile name, value is partial config to merge over base settings.",
-          "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "auto",
-                  "prose",
-                  "code"
-                ]
-              },
-              "triggerMode": {
-                "type": "string",
-                "enum": [
-                  "auto",
-                  "manual"
-                ]
-              },
-              "debounceMs": {
-                "type": "number"
-              },
-              "logLevel": {
-                "type": "string",
-                "enum": [
-                  "info",
-                  "debug",
-                  "trace"
-                ]
-              },
-              "prose": {
-                "type": "object",
-                "properties": {
-                  "maxTokens": {
-                    "type": "number"
-                  },
-                  "temperature": {
-                    "type": "number"
-                  },
-                  "stopSequences": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "contextChars": {
-                    "type": "number"
-                  },
-                  "suffixChars": {
-                    "type": "number"
-                  },
-                  "fileTypes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                }
-              },
-              "code": {
-                "type": "object",
-                "properties": {
-                  "maxTokens": {
-                    "type": "number"
-                  },
-                  "temperature": {
-                    "type": "number"
-                  },
-                  "stopSequences": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "contextChars": {
-                    "type": "number"
-                  },
-                  "suffixChars": {
-                    "type": "number"
-                  }
-                }
-              },
-              "claudeCode": {
-                "type": "object",
-                "properties": {
-                  "model": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "bespokeAI.activeProfile": {
-          "type": "string",
-          "default": "",
-          "description": "Name of the active profile (empty = use base settings)"
         },
         "bespokeAI.commitMessage.systemPrompt": {
           "type": "string",

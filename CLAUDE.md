@@ -35,10 +35,10 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 | Symptom source      | Action                                                      |
 | ------------------- | ----------------------------------------------------------- |
 | Prompt construction | Fix in `buildFillMessage()` or the system prompt            |
-| Model output        | Adjust prompt, temperature, stop sequences                  |
+| Model output        | Adjust prompt or system prompt                              |
 | Post-processing     | Review `post-process.ts` pipeline (last resort — see below) |
 
-**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, assistant-turn prefix, stop sequences, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes.
+**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, assistant-turn prefix, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes.
 
 **Why post-processing is risky:** Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing unpredictable ghost text the user didn't ask for. Edge cases compound — each post-processing step interacts with every other step and with every possible completion the model might produce. The result is brittle behavior that's hard to diagnose because the user sees ghost text that doesn't match what the model actually returned.
 
@@ -58,7 +58,7 @@ When fixing a completion bug, consider also adding the failing case as a regress
 These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
 
 - Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
-- The cache clears automatically on profile switch but not on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
+- The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values. Invalid settings pass through to the backend without checking.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
 
@@ -115,45 +115,7 @@ Adding or modifying a VS Code setting requires coordinated changes to:
 | 3    | `src/extension.ts`    | Read it in `loadConfig()`                                                             |
 | 4    | `src/test/helpers.ts` | Add default value in `DEFAULT_CONFIG`                                                 |
 | 5    | (varies)              | Use the new field in the relevant component(s)                                        |
-| 6    | `src/types.ts`        | If profile-overridable: add to `ProfileOverrides`                                     |
-| 7    | `package.json`        | If profile-overridable: add to `profiles` → `additionalProperties` schema             |
-| 8    | (varies)              | If it should apply without restart: propagate via `CompletionProvider.updateConfig()` |
-
-Steps 6–8 apply only when relevant (profile support, hot-reload).
-
-## Profiles
-
-Profiles are named config presets stored in `bespokeAI.profiles`. Each profile is a partial config that deep-merges over the base settings. The active profile is set via `bespokeAI.activeProfile` (empty string = no profile, use base settings).
-
-**Commands:**
-
-- `Bespoke AI: Show Menu` — Unified dropdown menu (mode, profile, actions) — status bar click target
-- `Bespoke AI: Select Profile` — Dropdown UI to switch profiles (or select "(none)" for base settings)
-- `Bespoke AI: Clear Completion Cache` — Manually clear the LRU cache
-
-**Behavior:**
-
-- Clicking the status bar opens the unified menu (mode selection, model selection, profile switching, trigger mode toggle, enable/disable, suggest edits, clear cache, open settings, open output log)
-- The status bar shows a `$(loading~spin)` spinner while a completion request is in-flight
-- The status bar shows trigger mode: `$(zap)` for auto, `$(hand)` for manual, plus mode and model
-- Switching profiles auto-clears the completion cache
-- Profiles cannot override `enabled` or `activeProfile` (UX guards)
-- Disabling (`enabled: false`) is a hard kill — disposes both the completion pool and command pool. Re-enabling restarts them. Commit message and suggest-edit commands return early with a warning when disabled.
-
-**Example config:**
-
-```json
-"bespokeAI.profiles": {
-  "sonnet-quality": {
-    "claudeCode": { "model": "sonnet" },
-    "prose": { "temperature": 0.5, "maxTokens": 200 }
-  },
-  "opus-creative": {
-    "claudeCode": { "model": "opus" },
-    "prose": { "temperature": 0.9 }
-  }
-}
-```
+| 6    | (varies)              | If it should apply without restart: propagate via `CompletionProvider.updateConfig()` |
 
 ## Architecture
 
@@ -167,7 +129,7 @@ The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bes
 
 | Level               | What gets logged                                                 |
 | ------------------- | ---------------------------------------------------------------- |
-| `info` (default)    | Lifecycle: activation, config changes, profile switches          |
+| `info` (default)    | Lifecycle: activation, config changes                            |
 | `debug`             | Per-request flow: start/end with timing, cache hits, request IDs |
 | `trace`             | Full content: prefix, suffix, messages sent, responses received  |
 | `error` (always on) | Failures are always logged regardless of the selected level      |
@@ -225,8 +187,6 @@ Key modules, listed in request-flow order:
 
 - `src/utils/model-name.ts` — `shortenModelName()` pure function for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`).
 
-- `src/utils/profile.ts` — `applyProfile()` pure function. Deep-merges `ProfileOverrides` over a base `ExtensionConfig`.
-
 - `src/utils/usage-tracker.ts` — Tracks per-session completion counts, character counts, cache hits/misses, errors, and burst detection.
 
 - `src/utils/usage-ledger.ts` — Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
@@ -235,7 +195,7 @@ Key modules, listed in request-flow order:
 
 ### Shared type definitions
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which the Claude Code backend implements. `ProfileOverrides` defines the subset of `ExtensionConfig` that profiles can override (excludes `enabled` and `activeProfile`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. The `claudeCode` sub-object includes a `models` array (informational catalog) and a `model` string (the active model).
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which the Claude Code backend implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. The `claudeCode` sub-object includes a `models` array (informational catalog) and a `model` string (the active model).
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
 

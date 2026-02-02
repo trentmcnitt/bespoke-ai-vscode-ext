@@ -131,10 +131,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     }
 
     // Suppress after punctuation that typically ends a thought or opens a new context
-    const suppressSet = mode === 'code' ? CODE_SUPPRESS_AFTER : PROSE_SUPPRESS_AFTER;
-    const lastChar = docContext.prefix.slice(-1);
-    if (suppressSet.has(lastChar)) {
-      return null;
+    // Explicit triggers (Ctrl+L) bypass suppression — the user explicitly asked for a completion
+    if (!isExplicitTrigger) {
+      const suppressSet = mode === 'code' ? CODE_SUPPRESS_AFTER : PROSE_SUPPRESS_AFTER;
+      const lastChar = docContext.prefix.slice(-1);
+      if (suppressSet.has(lastChar)) {
+        return null;
+      }
     }
 
     const completionContext: CompletionContext = {

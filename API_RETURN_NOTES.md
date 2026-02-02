@@ -36,7 +36,7 @@ Before rebuilding API providers, study how established projects handle the same 
 2. **Restore `PromptBuilder`** — Constructs `BuiltPrompt` objects per mode (prose/code) for API backends. Claude Code builds its own prompts and does not use `PromptBuilder`.
 3. **Keep Claude Code as first-class** — Don't tack it on as an afterthought. It should remain the default backend with its own prompt construction path.
 4. **Restore `CompletionProvider` interface compliance** — All providers implement `getCompletion(context, signal)` and `isAvailable()`.
-5. **Restore `Backend` type** — `type Backend = 'anthropic' | 'ollama' | 'claude-code'` in `types.ts`, plus the `backend` field in `ExtensionConfig` and `ProfileOverrides`.
+5. **Restore `Backend` type** — `type Backend = 'anthropic' | 'ollama' | 'claude-code'` in `types.ts`, plus the `backend` field in `ExtensionConfig`.
 6. **Restore oracle subsystem** — `src/oracle/` with `ContextOracle`, `ContextBriefStore`, `BriefFormatter`, and oracle-specific types. Injects context briefs into the Anthropic provider's system prompt.
 
 ## Cost and Latency Considerations

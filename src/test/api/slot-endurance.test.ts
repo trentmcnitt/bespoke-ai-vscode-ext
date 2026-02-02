@@ -34,8 +34,6 @@ try {
 function makeEnduranceConfig() {
   const config = makeConfig();
   config.claudeCode.model = 'haiku';
-  config.prose.maxTokens = 30;
-  config.code.maxTokens = 30;
   return config;
 }
 

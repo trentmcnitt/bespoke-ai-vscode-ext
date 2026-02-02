@@ -131,8 +131,6 @@ const scenarios: FillScenario[] = [
 function makeRealConfig() {
   const config = makeConfig();
   config.claudeCode.model = 'haiku';
-  config.prose.maxTokens = 60;
-  config.code.maxTokens = 60;
   return config;
 }
 

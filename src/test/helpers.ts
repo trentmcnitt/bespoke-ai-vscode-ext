@@ -24,23 +24,16 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   triggerMode: 'auto',
   debounceMs: 8000,
   prose: {
-    maxTokens: 100,
-    temperature: 0.7,
-    stopSequences: ['---', '##'],
     contextChars: 2000,
     suffixChars: 2500,
     fileTypes: ['markdown', 'plaintext'],
   },
   code: {
-    maxTokens: 256,
-    temperature: 0.2,
-    stopSequences: [],
     contextChars: 4000,
     suffixChars: 2500,
   },
   claudeCode: { model: 'haiku', models: ['haiku', 'sonnet', 'opus'] },
   logLevel: 'info',
-  activeProfile: '',
 };
 
 export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
@@ -144,7 +137,7 @@ export function makeLedger(dir?: string): { ledger: UsageLedger; filePath: strin
 
 /**
  * Assert that warmup responses captured by a capturing logger are valid.
- * Checks slot 0 and slot 1 traces — skips any that weren't captured.
+ * Checks slot 0 trace — skips if not captured.
  */
 export function assertWarmupValid(getTrace: (label: string) => string | undefined): void {
   const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);

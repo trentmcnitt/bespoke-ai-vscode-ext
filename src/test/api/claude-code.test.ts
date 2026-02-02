@@ -34,8 +34,6 @@ try {
 function makeRealConfig() {
   const config = makeConfig();
   config.claudeCode.model = 'haiku';
-  config.prose.maxTokens = 50;
-  config.code.maxTokens = 50;
   return config;
 }
 

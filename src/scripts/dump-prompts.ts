@@ -100,9 +100,9 @@ function dumpClaudeCode(ctx: CompletionContext): void {
   prompt(completionStart);
 
   out('\nPARAMETERS:');
-  out(`  model:       ${config.claudeCode.model}`);
-  out(`  max_tokens:  ${modeConfig.maxTokens}  (from config.${ctx.mode})`);
-  out(`  temperature: ${modeConfig.temperature}  (from config.${ctx.mode})`);
+  out(`  model:        ${config.claudeCode.model}`);
+  out(`  contextChars: ${modeConfig.contextChars}  (from config.${ctx.mode})`);
+  out(`  suffixChars:  ${modeConfig.suffixChars}  (from config.${ctx.mode})`);
   out();
 }
 
