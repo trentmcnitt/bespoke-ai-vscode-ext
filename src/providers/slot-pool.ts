@@ -14,6 +14,8 @@ export interface ResultMetadata {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   sessionId: string;
+  /** The model that actually generated this response (from the SDK assistant message). */
+  model: string;
 }
 
 export interface Slot {
@@ -33,6 +35,8 @@ export interface Slot {
   rapidRecycleCount: number;
   /** SDK metadata from the most recent result message, read by callers. */
   lastResultMeta: ResultMetadata | null;
+  /** Model from the most recent assistant message in the stream. */
+  lastAssistantModel: string | null;
 }
 
 /** Circuit breaker: max rapid recycles before marking a slot dead. */
@@ -73,6 +77,7 @@ export abstract class SlotPool {
       lastRecycleTime: 0,
       rapidRecycleCount: 0,
       lastResultMeta: null,
+      lastAssistantModel: null,
     }));
     this._warmupResolvers = Array.from({ length: poolSize }, () => null);
   }
@@ -305,7 +310,7 @@ export abstract class SlotPool {
 
   /** Extract SDK metadata from a result message. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected extractMetadata(message: any): ResultMetadata {
+  protected extractMetadata(message: any, assistantModel?: string): ResultMetadata {
     const usage = message.usage;
     return {
       durationMs: message.duration_ms ?? 0,
@@ -316,6 +321,7 @@ export abstract class SlotPool {
       cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
       cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
       sessionId: message.session_id ?? '',
+      model: assistantModel || '',
     };
   }
 
@@ -355,13 +361,18 @@ export abstract class SlotPool {
       let iterResult: IteratorResult<any>;
       while (!(iterResult = await iterator.next()).done) {
         const message = iterResult.value;
+        if (message.type === 'assistant') {
+          slot.lastAssistantModel = message.message?.model ?? null;
+        }
         if (message.type === 'result') {
           resultCount++;
           const text: string | null =
             message.subtype === 'success' ? (message.result ?? null) : null;
 
           // Extract SDK metadata from every result message
-          const meta = this.extractMetadata(message);
+          const assistantModel = slot.lastAssistantModel ?? undefined;
+          slot.lastAssistantModel = null;
+          const meta = this.extractMetadata(message, assistantModel);
 
           if (resultCount === 1) {
             // Warmup result — validate, then signal initSlot
@@ -370,7 +381,7 @@ export abstract class SlotPool {
             // Record warmup in ledger
             this.ledger?.record({
               source: 'warmup',
-              model: this.getModel(),
+              model: meta.model || this.getModel(),
               project: this.projectName,
               durationMs: meta.durationMs,
               durationApiMs: meta.durationApiMs,
@@ -481,6 +492,7 @@ export abstract class SlotPool {
       slot.deliverResult = null;
       slot.resultCount = 0;
       slot.lastResultMeta = null;
+      slot.lastAssistantModel = null;
       // Reset circuit breaker so intentional recycles (recycleAll) don't count
       slot.lastRecycleTime = 0;
       slot.rapidRecycleCount = 0;

@@ -1,5 +1,9 @@
 export type CompletionMode = 'prose' | 'code';
 
+/** Default model used throughout the extension and tests.
+ *  Keep in sync with the "default" value in package.json (bespokeAI.claudeCode.model). */
+export const DEFAULT_MODEL = 'opus';
+
 export interface CompletionContext {
   prefix: string;
   suffix: string;

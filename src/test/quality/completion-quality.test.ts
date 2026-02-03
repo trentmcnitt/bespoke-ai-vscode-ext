@@ -11,14 +11,15 @@
  * for Claude to begin Layer 2 (semantic quality) validation.
  *
  * Model override:
- *   QUALITY_TEST_MODEL=sonnet   — override model
+ *   TEST_MODEL=sonnet           — override model (preferred)
+ *   QUALITY_TEST_MODEL=sonnet   — backward-compatible alias
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
-import { makeConfig, makeCapturingLogger } from '../helpers';
+import { makeConfig, makeCapturingLogger, getTestModel, assertModelMatch } from '../helpers';
 import { TestScenario } from './judge';
 import {
   proseScenarios,
@@ -48,9 +49,7 @@ try {
 
 function makeCompletionConfig() {
   const config = makeConfig();
-  if (process.env.QUALITY_TEST_MODEL) {
-    config.claudeCode.model = process.env.QUALITY_TEST_MODEL;
-  }
+  config.claudeCode.model = getTestModel();
   return config;
 }
 
@@ -154,6 +153,7 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
     await cc.activate(cwd);
     const ac = new AbortController();
     const completion = await cc.getCompletion(ctx, ac.signal);
+    assertModelMatch(cc);
     const result: GenerationResult = {
       scenario,
       completion,

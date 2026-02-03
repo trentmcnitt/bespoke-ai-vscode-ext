@@ -163,7 +163,7 @@ async function doGenerateCommitMessage(
   const project = workspaceRoot ? path.basename(workspaceRoot) : '';
   ledger?.record({
     source: 'commit-message',
-    model: commandPool.getCurrentModel(),
+    model: meta?.model || commandPool.getCurrentModel(),
     project,
     durationMs: meta?.durationMs ?? durationMs,
     durationApiMs: meta?.durationApiMs,

@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { expect } from 'vitest';
-import { CompletionContext, ExtensionConfig } from '../types';
+import { CompletionContext, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import {
@@ -32,7 +32,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     contextChars: 4000,
     suffixChars: 2500,
   },
-  claudeCode: { model: 'haiku', models: ['haiku', 'sonnet', 'opus'] },
+  claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
   logLevel: 'info',
 };
 
@@ -248,6 +248,26 @@ export function makeFakeStream(
 
   activeStreams?.push(fakeStream);
   return fakeStream;
+}
+
+/** Return the model to use in integration/quality tests.
+ *  Precedence: TEST_MODEL > QUALITY_TEST_MODEL (backward compat) > DEFAULT_MODEL. */
+export function getTestModel(): string {
+  return (
+    process.env.TEST_MODEL || process.env.QUALITY_TEST_MODEL || DEFAULT_CONFIG.claudeCode.model
+  );
+}
+
+/** Assert that the provider's lastUsedModel matches the expected test model.
+ *  Skips silently when no completion was made (activation-only tests). */
+export function assertModelMatch(
+  provider: { lastUsedModel: string | null },
+  expectedModel?: string,
+): void {
+  const expected = expectedModel ?? getTestModel();
+  const actual = provider.lastUsedModel;
+  if (!actual) return; // no completion was made
+  expect(actual.toLowerCase()).toContain(expected.toLowerCase());
 }
 
 /** Helper: consume async iterable in background, signaling the fake stream on each message */

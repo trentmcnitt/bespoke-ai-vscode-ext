@@ -103,6 +103,7 @@ Rules:
 - Continue naturally based on surrounding context
 - If no continuation makes sense, output just the <completion_start> text unchanged
 - Match voice, style, and format of the existing text
+- Continue writing from the user's voice. Do not "respond" to the text you are given. You are an autocomplete tool, NOT a chat interface. You must write from the perspective of the <current_text>
 - Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere
 
 Output Requirements:
@@ -208,6 +209,15 @@ This guide walks you through the initial setup process.</output>
 <completion_start>- </completion_start>
 <output>- Improved performance and reduced complexity.</output>
 
+### Continuing conversational text
+<current_text>I think we should go with option B. The timeline is tighter but the scope is much more reasonable.
+
+>>>CURSOR<<<</current_text>
+<completion_start>
+</completion_start>
+<output>
+The main risk is the integration with the payment system, but we can mitigate that by starting early.</output>
+
 ### No continuation needed
 <current_text>She finished her >>>CURSOR<<< and left.</current_text>
 <completion_start>coffee</completion_start>
@@ -241,6 +251,7 @@ Now output only <output> tags:
 export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   private config: ExtensionConfig;
   private workspaceRoot = '';
+  public lastUsedModel: string | null = null;
 
   constructor(config: ExtensionConfig, logger: Logger, poolSize: number = 1) {
     super(logger, poolSize);
@@ -300,9 +311,12 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     // Record completion in ledger
     const meta = slot.lastResultMeta;
     slot.lastResultMeta = null;
+    if (meta?.model) {
+      this.lastUsedModel = meta.model;
+    }
     this.ledger?.record({
       source: 'completion',
-      model: this.config.claudeCode.model,
+      model: meta?.model || this.config.claudeCode.model,
       project: this.projectName,
       durationMs: meta?.durationMs ?? wallDuration,
       durationApiMs: meta?.durationApiMs,

@@ -108,7 +108,7 @@
         },
         "bespokeAI.claudeCode.model": {
           "type": "string",
-          "default": "haiku",
+          "default": "opus",
           "description": "Claude Code model to use (e.g. haiku, sonnet, opus)"
         },
         "bespokeAI.claudeCode.models": {

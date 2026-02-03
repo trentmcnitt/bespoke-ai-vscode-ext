@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext, CompletionMode } from '../../types';
-import { makeConfig, makeLogger } from '../helpers';
+import { makeConfig, makeLogger, getTestModel, assertModelMatch } from '../helpers';
 import {
   getApiRunDir,
   buildApiResult,
@@ -130,7 +130,7 @@ const scenarios: FillScenario[] = [
 
 function makeRealConfig() {
   const config = makeConfig();
-  config.claudeCode.model = 'haiku';
+  config.claudeCode.model = getTestModel();
   return config;
 }
 
@@ -151,6 +151,9 @@ describe.skipIf(!sdkAvailable)('fill marker adherence', () => {
   }, 60_000);
 
   afterAll(() => {
+    if (provider) {
+      assertModelMatch(provider);
+    }
     provider?.dispose();
 
     if (results.length > 0) {

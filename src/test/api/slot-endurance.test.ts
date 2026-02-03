@@ -10,7 +10,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
-import { makeConfig, makeLogger } from '../helpers';
+import { makeConfig, makeLogger, getTestModel, assertModelMatch } from '../helpers';
 import {
   getApiRunDir,
   saveApiResult,
@@ -33,7 +33,7 @@ try {
 
 function makeEnduranceConfig() {
   const config = makeConfig();
-  config.claudeCode.model = 'haiku';
+  config.claudeCode.model = getTestModel();
   return config;
 }
 
@@ -126,7 +126,7 @@ describe.skipIf(!sdkAvailable)('Slot Endurance', () => {
   });
 
   it('sustained reuse: 8 completions within recycle limit', async () => {
-    const TOTAL = ClaudeCodeProvider.MAX_REUSES; // 8
+    const TOTAL = 8; // matches ClaudeCodeProvider.getMaxReuses()
     const provider = new ClaudeCodeProvider(makeEnduranceConfig(), makeLogger());
     try {
       await provider.activate(CWD);
@@ -156,6 +156,8 @@ describe.skipIf(!sdkAvailable)('Slot Endurance', () => {
         `  Latency: first=${first}ms, last=${last}ms, ratio=${(last / first).toFixed(2)}x`,
       );
 
+      assertModelMatch(provider);
+
       // Save individual results
       for (const r of results) {
         const ctx = contexts[r.index % contexts.length];
@@ -175,7 +177,8 @@ describe.skipIf(!sdkAvailable)('Slot Endurance', () => {
   }, 180_000); // 3 min
 
   it('recycle boundary: 10 completions crossing MAX_REUSES', async () => {
-    const TOTAL = ClaudeCodeProvider.MAX_REUSES + 2; // 10
+    const MAX_REUSES = 8; // matches ClaudeCodeProvider.getMaxReuses()
+    const TOTAL = MAX_REUSES + 2; // 10
     const logger = makeLogger();
     const recycleLogs: string[] = [];
     // Capture recycle events via the logger
@@ -192,9 +195,7 @@ describe.skipIf(!sdkAvailable)('Slot Endurance', () => {
       const results = await runSequentialCompletions(provider, TOTAL);
 
       // Log per-request summary
-      console.log(
-        `\n[Recycle boundary] ${TOTAL} completions (MAX_REUSES=${ClaudeCodeProvider.MAX_REUSES}):`,
-      );
+      console.log(`\n[Recycle boundary] ${TOTAL} completions (MAX_REUSES=${MAX_REUSES}):`);
       for (const r of results) {
         console.log(
           `  #${r.index}: ${r.durationMs}ms | ${r.completion?.length ?? 0} chars | ${r.context}${r.error ? ` | ERROR: ${r.error}` : ''}`,
@@ -216,10 +217,12 @@ describe.skipIf(!sdkAvailable)('Slot Endurance', () => {
       expect(errors).toHaveLength(0);
 
       // Requests after the recycle boundary should still produce completions
-      const postRecycleResults = results.slice(ClaudeCodeProvider.MAX_REUSES);
+      const postRecycleResults = results.slice(MAX_REUSES);
       for (const r of postRecycleResults) {
         expect(r.completion, `post-recycle request #${r.index} should succeed`).toBeTruthy();
       }
+
+      assertModelMatch(provider);
 
       // Save individual results
       for (const r of results) {

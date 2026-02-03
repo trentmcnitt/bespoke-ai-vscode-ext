@@ -237,13 +237,14 @@ Quality tests (`src/test/quality/`) evaluate whether completions are actually go
 
 **Fabricated content is expected and acceptable.** Completions are predictions — the model will invent plausible content (names, dates, code, narrative). Judge whether fabricated content is contextually sensible, not whether it's factually accurate.
 
-**Testing different models:** By default, quality tests use the model from `makeConfig()` (currently `haiku`). To test a different model:
+**Testing different models:** By default, all integration and quality tests use the model from `makeConfig()` (currently `opus`). Override with `TEST_MODEL`:
 
 ```bash
-QUALITY_TEST_MODEL=sonnet npm run test:quality
+TEST_MODEL=haiku npm run test:api       # API tests with haiku
+TEST_MODEL=sonnet npm run test:quality   # quality tests with sonnet
 ```
 
-The model name is recorded in `summary.json` so results are traceable.
+`QUALITY_TEST_MODEL` is still supported as a backward-compatible alias but `TEST_MODEL` takes precedence. The model name is recorded in `summary.json` so results are traceable.
 
 **Key files:**
 

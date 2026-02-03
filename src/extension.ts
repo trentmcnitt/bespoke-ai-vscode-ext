@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
-import { ExtensionConfig } from './types';
+import { DEFAULT_MODEL, ExtensionConfig } from './types';
 import { CompletionProvider } from './completion-provider';
 import { ClaudeCodeProvider } from './providers/claude-code';
 import { CommandPool } from './providers/command-pool';
@@ -375,7 +375,7 @@ function loadConfig(): ExtensionConfig {
       suffixChars: ws.get<number>('code.suffixChars', 2500)!,
     },
     claudeCode: {
-      model: ws.get<string>('claudeCode.model', 'haiku')!,
+      model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
       models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,

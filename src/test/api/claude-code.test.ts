@@ -9,7 +9,14 @@
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
-import { makeConfig, makeLogger, makeCapturingLogger, assertWarmupValid } from '../helpers';
+import {
+  makeConfig,
+  makeLogger,
+  makeCapturingLogger,
+  assertWarmupValid,
+  getTestModel,
+  assertModelMatch,
+} from '../helpers';
 import {
   getApiRunDir,
   buildApiResult,
@@ -33,7 +40,7 @@ try {
 
 function makeRealConfig() {
   const config = makeConfig();
-  config.claudeCode.model = 'haiku';
+  config.claudeCode.model = getTestModel();
   return config;
 }
 
@@ -43,6 +50,9 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
   const results: ApiResult[] = [];
 
   afterEach(() => {
+    if (provider) {
+      assertModelMatch(provider);
+    }
     provider?.dispose();
     provider = null;
   });

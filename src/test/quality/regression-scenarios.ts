@@ -216,6 +216,36 @@ export const regressionScenarios: RegressionScenario[] = [
     },
   },
   {
+    id: 'regression-prose-assistant-mode-response',
+    description:
+      'Model switches to assistant voice and responds to the text instead of continuing as the author',
+    observedModel: 'claude-code/haiku',
+    observedDate: '2026-02-02',
+    regression_notes:
+      'The user was writing first-person conversational notes about a snooze feature. After two ' +
+      'paragraphs ending with a double newline, the model generated "Got it. So the snooze all ' +
+      'feature would apply a one-hour snooze..." — switching into assistant/chatbot voice and ' +
+      "summarizing the user's text back to them. The completion should continue as the same " +
+      'author, not respond as if it were the other party in a conversation.',
+    mode: 'prose',
+    languageId: 'markdown',
+    fileName: 'claude-prompt-d84079da-7098-416a-90af-b7015db664ab.md',
+    prefix:
+      "All right I like the numbers one and two. I think having a snooze all button for one hour would be a handy thing to have. That way I don't have to select everything, I can just snooze it.\n\n" +
+      "Also for any snooze, any bulk snoozing, I should say that's a specific thing. It should only snooze things that have no priority, low priority, or medium priority. So high or urgent priority stuff can't be snoozed as part of a group -- only individually. This is what you we're already saying, though. Snooze all overdue. I'm just clarifying the rules around what gets included.\n\n",
+    suffix: '',
+    requirements: {
+      must_not_include: ['Got it', 'That makes sense', 'Understood', 'I see'],
+      quality_notes:
+        'The prefix is first-person conversational text (notes/instructions from the author). ' +
+        "The completion MUST continue in the same author's voice. It must NOT switch to an " +
+        'assistant/chatbot voice that responds to, summarizes, or acknowledges the text. ' +
+        'Phrases like "Got it", "That makes sense", "Understood", or any summarization of what ' +
+        'the author said indicate the model has switched into respondent mode — this is a failure. ' +
+        "Acceptable: continuing the author's train of thought, adding another point, or elaborating.",
+    },
+  },
+  {
     id: 'regression-prose-distant-suffix-completion',
     description: 'Model completes truncated text at end of suffix instead of cursor position',
     observedModel: 'claude-code/haiku',
