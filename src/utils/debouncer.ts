@@ -84,6 +84,7 @@ export class Debouncer {
     this.timer = null;
 
     if (cancelled || token.isCancellationRequested) {
+      listener?.dispose(); // Defensive cleanup for pre-cancelled token edge case
       this.currentAbort.abort();
       return null;
     }

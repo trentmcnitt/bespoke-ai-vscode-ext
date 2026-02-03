@@ -3,6 +3,20 @@ import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { UsageLedger } from '../utils/usage-ledger';
 
+/**
+ * Subprocess Lifecycle Notes:
+ *
+ * Each slot spawns a Claude Code subprocess via the SDK. The subprocess lifecycle is:
+ * 1. initSlot() calls query() which spawns a subprocess
+ * 2. The subprocess stays alive, handling multiple requests via the message channel
+ * 3. channel.close() signals the subprocess to exit gracefully
+ * 4. The SDK handles subprocess termination internally
+ *
+ * Cleanup relies on channel.close() working correctly. The extension does NOT track
+ * subprocess PIDs and cannot force-kill orphaned processes. If VS Code crashes or
+ * is force-killed, subprocesses may remain until they timeout or are manually cleaned:
+ *   pkill -f "claude.*dangerously-skip-permissions"
+ */
 export type SlotState = 'initializing' | 'available' | 'busy' | 'dead';
 
 export interface ResultMetadata {
@@ -486,7 +500,13 @@ export abstract class SlotPool {
       slot.generation++;
       slot.deliverResult?.(null);
       slot.state = 'dead';
-      slot.channel?.close();
+      try {
+        slot.channel?.close();
+      } catch (err) {
+        this.logger.error(
+          `Failed to close channel for slot ${i}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
+        );
+      }
       slot.channel = null;
       slot.resultPromise = null;
       slot.deliverResult = null;
@@ -536,7 +556,13 @@ export abstract class SlotPool {
       );
       slot.generation++;
       slot.state = 'dead';
-      slot.channel?.close();
+      try {
+        slot.channel?.close();
+      } catch (err) {
+        this.logger.error(
+          `Failed to close channel for slot ${index}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
+        );
+      }
       slot.channel = null;
       slot.resultPromise = null;
       slot.deliverResult = null;
@@ -554,7 +580,13 @@ export abstract class SlotPool {
     slot.state = 'initializing';
 
     // Close old channel (kills subprocess)
-    slot.channel?.close();
+    try {
+      slot.channel?.close();
+    } catch (err) {
+      this.logger.error(
+        `Failed to close channel for slot ${index}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
+      );
+    }
     slot.channel = null;
     slot.resultPromise = null;
     slot.deliverResult = null;

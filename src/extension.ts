@@ -98,6 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   completionProvider = new CompletionProvider(config, claudeCodeProvider, logger, usageTracker);
+  context.subscriptions.push({ dispose: () => completionProvider.dispose() });
 
   completionProvider.setRequestCallbacks(
     () => {
@@ -370,6 +371,25 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  // Cleanup handlers for unexpected termination (crash, SIGTERM, etc.)
+  const cleanup = () => {
+    claudeCodeProvider?.dispose();
+    commandPool?.dispose();
+  };
+
+  process.on('exit', cleanup);
+  process.on('SIGTERM', cleanup);
+  process.on('SIGINT', cleanup);
+
+  // Remove signal handlers on deactivate to avoid double-cleanup
+  context.subscriptions.push({
+    dispose: () => {
+      process.removeListener('exit', cleanup);
+      process.removeListener('SIGTERM', cleanup);
+      process.removeListener('SIGINT', cleanup);
+    },
+  });
+
   logger.info(`Activated | claude-code | logLevel=${config.logLevel}`);
 }
 
@@ -563,5 +583,10 @@ async function showUsageDetail(): Promise<void> {
 }
 
 export function deactivate() {
+  // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
+  // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
+  claudeCodeProvider?.dispose();
+  commandPool?.dispose();
+  logger?.dispose();
 }

@@ -61,6 +61,7 @@ These are accepted trade-offs. Do not attempt to fix them unless explicitly aske
 - The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values. Invalid settings pass through to the backend without checking.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
+- **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If VS Code crashes or is force-killed (e.g., `kill -9`), subprocesses may remain until they timeout or are manually cleaned with: `pkill -f "claude.*dangerously-skip-permissions"`
 
 ## Build and Scripts
 

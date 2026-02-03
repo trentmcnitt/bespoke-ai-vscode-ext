@@ -117,17 +117,22 @@ export class CommandPool extends SlotPool {
     // Optional cancellation
     let cancelCleanup: (() => void) | undefined;
     if (options?.onCancel) {
-      // Check if already aborted
+      // Check if already aborted — clean up slot to prevent "busy forever" leak
       if (options.onCancel.aborted) {
         if (timeoutId !== undefined) {
           clearTimeout(timeoutId);
         }
+        slot.deliverResult?.(null);
+        slot.channel?.close();
         return { text: null, meta: null };
       }
       const cancelPromise = new Promise<null>((resolve) => {
         const onAbort = () => {
           if (resolved) return;
           resolved = true;
+          // Clean up slot to prevent "busy forever" leak — matches timeout behavior
+          slot.deliverResult?.(null);
+          slot.channel?.close();
           resolve(null);
         };
         options.onCancel!.addEventListener('abort', onAbort);
