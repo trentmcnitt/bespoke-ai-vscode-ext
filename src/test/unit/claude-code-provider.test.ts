@@ -560,11 +560,73 @@ describe('stripCompletionStart', () => {
     expect(stripCompletionStart(output, completionStart)).toBe('Some content here');
   });
 
-  it('returns null when whitespace-only completion start is normalized by model', () => {
-    // Model returns one newline instead of two — mismatch
-    const output = '\nSome content here';
-    const completionStart = '\n\n';
-    expect(stripCompletionStart(output, completionStart)).toBeNull();
+  describe('lenient whitespace matching', () => {
+    it('matches when newline vs space differs', () => {
+      // Model uses \n where completion_start has space
+      const output = ' *\n * content';
+      const completionStart = ' * * ';
+      expect(stripCompletionStart(output, completionStart)).toBe('content');
+    });
+
+    it('matches when whitespace run lengths differ', () => {
+      // Model uses single space where completion_start has double space
+      const output = 'a b content';
+      const completionStart = 'a  b ';
+      expect(stripCompletionStart(output, completionStart)).toBe('content');
+    });
+
+    it('fails when non-whitespace character counts differ', () => {
+      // JSDoc case: completionStart has 3 asterisks, output only has 2
+      const output = ' * \n * useTimezone()';
+      const completionStart = ' *\n * \n * ';
+      // Non-whitespace: * * * vs * *
+      // These don't match — model dropped one of the asterisks
+      expect(stripCompletionStart(output, completionStart)).toBeNull();
+    });
+
+    it('matches when completion_start has trailing whitespace output lacks', () => {
+      const output = ' * content';
+      const completionStart = ' * ';
+      expect(stripCompletionStart(output, completionStart)).toBe('content');
+    });
+
+    it('fails when non-whitespace chars differ', () => {
+      const output = 'abc content';
+      const completionStart = 'abd ';
+      expect(stripCompletionStart(output, completionStart)).toBeNull();
+    });
+
+    it('fails when non-whitespace chars missing', () => {
+      const output = 'ab content';
+      const completionStart = 'abc ';
+      expect(stripCompletionStart(output, completionStart)).toBeNull();
+    });
+
+    it('requires whitespace to be present in both, not dropped entirely', () => {
+      // completion_start has " a b", output has "ab" — whitespace dropped
+      const output = 'ab content';
+      const completionStart = ' a b ';
+      expect(stripCompletionStart(output, completionStart)).toBeNull();
+    });
+
+    it('handles mixed whitespace (space, tab, newline)', () => {
+      const output = 'a\tb\nc content';
+      const completionStart = 'a b c ';
+      expect(stripCompletionStart(output, completionStart)).toBe('content');
+    });
+
+    it('handles completion_start that is all whitespace with different lengths', () => {
+      const output = '\n\nSome content';
+      const completionStart = '\n\n\n';
+      expect(stripCompletionStart(output, completionStart)).toBe('Some content');
+    });
+
+    it('prefers strict match when both would work', () => {
+      // Strict match should be used when exact match exists
+      const output = 'hello world';
+      const completionStart = 'hello ';
+      expect(stripCompletionStart(output, completionStart)).toBe('world');
+    });
   });
 });
 

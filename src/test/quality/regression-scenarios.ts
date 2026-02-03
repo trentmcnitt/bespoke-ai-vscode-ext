@@ -34,6 +34,131 @@ export interface RegressionScenario extends TestScenario {
 
 export const regressionScenarios: RegressionScenario[] = [
   {
+    id: 'regression-code-jsdoc-premature-closure',
+    description: 'Model closes JSDoc comment with */ when suffix shows comment continues',
+    observedModel: 'claude-code/opus',
+    observedDate: '2026-02-03',
+    regression_notes:
+      'Inside a JSDoc comment block with visual reference examples, the model added content AND ' +
+      'closed the comment with "*/" even though the suffix clearly shows more comment lines ' +
+      '("* Overdue times:...", "* Future times:...", etc.) followed by the actual closing "*/". ' +
+      'The model should continue the comment pattern without terminating it prematurely.',
+    mode: 'code',
+    languageId: 'typescriptreact',
+    fileName: 'TaskRow.tsx',
+    prefix:
+      "'use client'\n\n" +
+      "import { useRef, useCallback, useEffect } from 'react'\n" +
+      "import Link from 'next/link'\n" +
+      "import { Check, Clock, Repeat } from 'lucide-react'\n" +
+      "import { Button } from '@/components/ui/button'\n" +
+      "import { Badge } from '@/components/ui/badge'\n" +
+      "import { Checkbox } from '@/components/ui/checkbox'\n" +
+      "import { cn } from '@/lib/utils'\n" +
+      "import { formatDueTimeParts, formatSnoozedFrom } from '@/lib/format-date'\n" +
+      "import { formatRRuleCompact } from '@/lib/format-rrule'\n" +
+      "import { useTimezone } from '@/hooks/useTimezone'\n" +
+      "import { useLabelConfig } from '@/components/LabelConfigProvider'\n" +
+      "import { getLabelClasses } from '@/lib/label-colors'\n" +
+      "import type { Task, LabelConfig } from '@/types'\n\n" +
+      '/**\n' +
+      ' * TaskRow visual reference — complete rendered examples:\n' +
+      ' *\n' +
+      ' *   Line 1: [priority] [title] [recurrence icon] [labels]\n' +
+      ' *   Line 2: [relative time] · [absolute time] · [recurrence text] · [snoozed from X]\n' +
+      ' *\n' +
+      ' * Due soon (< 3h, shows both relative + absolute):\n' +
+      ' *   ┌─────────────────────────────────────────────────────────┐\n' +
+      ' *   │ ○  Buy groceries                                       │\n' +
+      ' *   │    in 47m · 2:25 PM                                    │\n' +
+      ' *   └─────────────────────────────────────────────────────────┘\n' +
+      ' *\n' +
+      ' * Recurring + labels:\n' +
+      ' *   ┌─────────────────────────────────────────────────────────┐\n' +
+      ' *   │ ○  Morning standup  ↻  [work]                          │\n' +
+      ' *   │    in 1h 30m · 9:00 AM · Weekdays                      │\n' +
+      ' *   └─────────────────────────────────────────────────────────┘\n' +
+      ' *\n' +
+      ' * Overdue (red left border, relative "ago" + absolute time):\n' +
+      ' *   ┃─────────────────────────────────────────────────────────┐\n' +
+      ' *   ┃ ○  Pay rent                                             │\n' +
+      ' *   ┃    3h ago · 9:00 AM                                     │\n' +
+      ' *   ┃─────────────────────────────────────────────────────────┘\n' +
+      ' *\n' +
+      ' * Snoozed (blue left border, snoozed-from context):\n' +
+      ' *   ┃─────────────────────────────────────────────────────────┐\n' +
+      ' *   ┃ ○  Review PR  [ops]                                     │\n' +
+      ' *   ┃    Tomorrow 3:00 PM · snoozed from Tue                  │\n' +
+      ' *   ┃─────────────────────────────────────────────────────────┘\n' +
+      ' *\n' +
+      ' * \n' +
+      ' * \n' +
+      ' * ',
+    suffix:
+      '\n' +
+      ' * \n' +
+      ' * Overdue times: <1m ago · 5:00 PM | 3h ago · 9 AM | yesterday · 5 PM | 3d ago · Jan 30 5 PM\n' +
+      ' * Future times:  in 47m · 5:00 PM · Tomorrow 9 AM · Wed 9 AM · Feb 11 9 AM\n' +
+      ' * Left border:   red=overdue (wins), blue=snoozed, none=default\n' +
+      ' * Snooze button:  desktop only (hover) — mobile uses swipe\n' +
+      ' */\n\n' +
+      'function useLongPress(onLongPress?: () => void) {\n' +
+      '  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)',
+    requirements: {
+      must_not_include: ['*/'],
+      quality_notes:
+        'The cursor is inside a JSDoc comment block, with more comment lines in the suffix ' +
+        '("* Overdue times:", "* Future times:", etc.) AND the actual closing "*/" is already there. ' +
+        'The completion MUST NOT add "*/" — it should either add another visual example in the same ' +
+        'style, add descriptive text, or produce minimal content. The closing "*/" at the end of the ' +
+        'suffix means the model should NOT terminate the comment prematurely.',
+    },
+  },
+  {
+    id: 'regression-code-jsdoc-whitespace-continuation',
+    description: 'Model should continue comment pattern on whitespace-heavy lines',
+    observedModel: 'claude-code/opus',
+    observedDate: '2026-02-03',
+    regression_notes:
+      'Inside a JSDoc comment with the cursor on a mostly-whitespace comment line (" * "), the model ' +
+      'originally failed to match the completion_start pattern due to whitespace variations and ' +
+      'returned null. Lenient whitespace matching was added to handle this case. This scenario ' +
+      'verifies that continuations inside comment blocks work correctly with whitespace-heavy prefixes.',
+    mode: 'code',
+    languageId: 'typescriptreact',
+    fileName: 'TaskRow.tsx',
+    prefix:
+      '/**\n' +
+      ' * TaskRow visual reference — complete rendered examples:\n' +
+      ' *\n' +
+      ' *   Line 1: [priority] [title] [recurrence icon] [labels]\n' +
+      ' *   Line 2: [relative time] · [absolute time] · [recurrence text] · [snoozed from X]\n' +
+      ' *\n' +
+      ' * Due soon (< 3h, shows both relative + absolute):\n' +
+      ' *   ┌─────────────────────────────────────────────────────────┐\n' +
+      ' *   │ ○  Buy groceries                                       │\n' +
+      ' *   │    in 47m · 2:25 PM                                    │\n' +
+      ' *   └─────────────────────────────────────────────────────────┘\n' +
+      ' *\n' +
+      ' * ',
+    suffix:
+      '\n' +
+      ' * Overdue times: <1m ago · 5:00 PM | 3h ago · 9 AM | yesterday · 5 PM\n' +
+      ' * Future times:  in 47m · 5:00 PM · Tomorrow 9 AM · Wed 9 AM\n' +
+      ' */\n\n' +
+      'function useLongPress() {\n' +
+      '  return null\n' +
+      '}',
+    requirements: {
+      must_not_include: ['*/'],
+      quality_notes:
+        'The cursor is at the end of a " * " line inside a JSDoc comment, with more comment content ' +
+        'in the suffix. The completion should add meaningful documentation content (another example, ' +
+        'descriptive text, etc.) that continues the comment pattern. It must NOT close the comment ' +
+        'with "*/" since the suffix already contains more comment lines and the closing tag.',
+    },
+  },
+  {
     id: 'regression-code-json-markdown-fencing',
     description: 'Model wraps JSON completion in markdown code fences',
     observedModel: 'claude-code/haiku',

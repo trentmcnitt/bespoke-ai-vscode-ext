@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Claude Code",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "publisher": "trenthm",
   "icon": "images/icon.png",
   "engines": {
@@ -45,6 +45,26 @@
       {
         "command": "bespoke-ai.suggestEdit",
         "title": "Bespoke AI: Suggest Edits"
+      },
+      {
+        "command": "bespoke-ai.explainSelection",
+        "title": "Bespoke: Explain"
+      },
+      {
+        "command": "bespoke-ai.fixSelection",
+        "title": "Bespoke: Fix"
+      },
+      {
+        "command": "bespoke-ai.alternativesSelection",
+        "title": "Bespoke: Alternatives"
+      },
+      {
+        "command": "bespoke-ai.condenseSelection",
+        "title": "Bespoke: Condense"
+      },
+      {
+        "command": "bespoke-ai.chatSelection",
+        "title": "Bespoke: Chat"
       }
     ],
     "menus": {
@@ -53,6 +73,33 @@
           "command": "bespoke-ai.generateCommitMessage",
           "group": "navigation",
           "when": "scmProvider == git"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "bespoke-ai.explainSelection",
+          "when": "editorHasSelection",
+          "group": "0_bespoke@1"
+        },
+        {
+          "command": "bespoke-ai.fixSelection",
+          "when": "editorHasSelection",
+          "group": "0_bespoke@2"
+        },
+        {
+          "command": "bespoke-ai.alternativesSelection",
+          "when": "editorHasSelection",
+          "group": "0_bespoke@3"
+        },
+        {
+          "command": "bespoke-ai.condenseSelection",
+          "when": "editorHasSelection",
+          "group": "0_bespoke@4"
+        },
+        {
+          "command": "bespoke-ai.chatSelection",
+          "when": "editorHasSelection",
+          "group": "0_bespoke@5"
         }
       ]
     },

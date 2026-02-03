@@ -9,6 +9,13 @@ import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
+import {
+  explainSelection,
+  fixSelection,
+  alternativesSelection,
+  condenseSelection,
+  chatSelection,
+} from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
 import { getWorkspaceRoot } from './utils/workspace';
@@ -303,6 +310,15 @@ export function activate(context: vscode.ExtensionContext) {
       }
       await suggestEdit(commandPool, logger, usageLedger);
     }),
+  );
+
+  // Context menu commands (open Claude CLI in terminal)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.explainSelection', explainSelection),
+    vscode.commands.registerCommand('bespoke-ai.fixSelection', fixSelection),
+    vscode.commands.registerCommand('bespoke-ai.alternativesSelection', alternativesSelection),
+    vscode.commands.registerCommand('bespoke-ai.condenseSelection', condenseSelection),
+    vscode.commands.registerCommand('bespoke-ai.chatSelection', chatSelection),
   );
 
   // Watch for config changes

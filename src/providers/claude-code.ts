@@ -59,6 +59,8 @@ export function extractCompletionStart(prefix: string): {
  * Strip the completion start from the model's output.
  * The model is instructed to begin its output with the completion start text.
  * We remove it to get the actual text to insert at the cursor.
+ *
+ * Uses strict matching first; falls back to whitespace-lenient matching if strict fails.
  */
 export function stripCompletionStart(output: string, completionStart: string): string | null {
   if (!completionStart) {
@@ -67,8 +69,51 @@ export function stripCompletionStart(output: string, completionStart: string): s
   if (output.startsWith(completionStart)) {
     return output.slice(completionStart.length);
   }
-  // Model didn't follow instruction - return null to indicate failure
-  return null;
+
+  // Lenient fallback: allow whitespace runs to differ while requiring
+  // non-whitespace characters to match exactly and in order.
+  return lenientStripCompletionStart(output, completionStart);
+}
+
+/**
+ * Whitespace-flexible prefix stripping. Walks through both strings:
+ * - Non-whitespace characters must match exactly and in order
+ * - Whitespace runs can differ in length/composition (space, newline, tab)
+ * - Non-trailing whitespace in completionStart requires SOME whitespace in output
+ * Returns the remainder of output after the matched prefix, or null if no match.
+ */
+function lenientStripCompletionStart(output: string, completionStart: string): string | null {
+  let outIdx = 0;
+  let csIdx = 0;
+
+  while (csIdx < completionStart.length) {
+    // If completionStart has whitespace, skip whitespace runs in both
+    if (/\s/.test(completionStart[csIdx])) {
+      while (csIdx < completionStart.length && /\s/.test(completionStart[csIdx])) csIdx++;
+
+      // If completionStart ended with whitespace, skip any trailing ws in output too
+      if (csIdx >= completionStart.length) {
+        while (outIdx < output.length && /\s/.test(output[outIdx])) outIdx++;
+        break;
+      }
+
+      // Non-trailing whitespace in completionStart requires SOME whitespace in output
+      if (outIdx >= output.length || !/\s/.test(output[outIdx])) {
+        return null;
+      }
+      while (outIdx < output.length && /\s/.test(output[outIdx])) outIdx++;
+    }
+
+    // Now completionStart is at non-whitespace - output must have matching char
+    if (outIdx >= output.length || completionStart[csIdx] !== output[outIdx]) {
+      return null;
+    }
+
+    csIdx++;
+    outIdx++;
+  }
+
+  return output.slice(outIdx);
 }
 
 /** Build the per-request message from prefix + suffix context. */
@@ -101,7 +146,6 @@ Your task: Generate <output> containing text that:
 Rules:
 - Your <output> MUST begin with the exact <completion_start> text
 - Continue naturally based on surrounding context
-- If no continuation makes sense, output just the <completion_start> text unchanged
 - Match voice, style, and format of the existing text
 - You are an autocomplete tool, NOT a chat assistant. NEVER respond to, summarize, or acknowledge the text. NEVER switch to a different speaker's voice. NEVER output phrases like "Got it", "That makes sense", "Understood", "So to summarize", "I see", or any reply-style language. You must continue writing as the same author — add the next thought, the next point, the next sentence in their voice
 - Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere
@@ -116,11 +160,12 @@ Output Requirements:
 - Wrap response in <output> tags
 - No unnecessary code fences, commentary, or meta-text
 - Preserve whitespace exactly — <completion_start> may include spaces or newlines
+- <completion_start> may span multiple lines — echo ALL of it exactly, including blank lines or repeated patterns like " * \\n * "
 
 How much to output:
-- If the text is already complete, output just the <completion_start> text unchanged
 - If there is a clear gap to bridge to the text after >>>CURSOR<<<, output just enough to bridge it
 - If there is no text after >>>CURSOR<<<, continue naturally for a sentence or two (or a few lines of code)
+- NEVER close a structure (comment block, bracket, brace, parenthesis, tag) if the suffix shows that structure continues. Bridge to the existing suffix content — do not terminate prematurely
 
 ---
 
@@ -233,11 +278,6 @@ The main risk is the integration with the payment system, but we can mitigate th
 <output>
 For the chart, a simple bar chart should work — nothing fancy. Color-code the bars by category so I can spot patterns at a glance.</output>
 
-### No continuation needed
-<current_text>She finished her >>>CURSOR<<< and left.</current_text>
-<completion_start>coffee</completion_start>
-<output>coffee</output>
-
 ### Ignoring incomplete content elsewhere
 <current_text>## Configuration
 
@@ -257,6 +297,29 @@ The response includes (e.g., \`user.json\`,</current_text>
 - Reduced complxity and maintainability</current_text>
 <completion_start>- </completion_start>
 <output>- Enhanced reliability</output>
+
+### Continuing inside a JSDoc comment with multiline completion_start
+<current_text>/**
+ * TaskRow visual reference:
+ *
+ * Due soon:
+ *   ┌───────────────────────┐
+ *   │ ○  Buy groceries      │
+ *   └───────────────────────┘
+ *
+ * >>>CURSOR<<<
+ *
+ * Overdue times: <1m ago | 3h ago
+ */</current_text>
+<completion_start>
+ *
+ * </completion_start>
+<output>
+ *
+ * Snoozed:
+ *   ┌───────────────────────┐
+ *   │ ○  Review PR          │
+ *   └───────────────────────┘</output>
 
 ---
 

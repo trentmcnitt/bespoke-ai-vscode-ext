@@ -62,17 +62,26 @@ async function doSuggestEdit(
     return;
   }
 
-  // 2. Capture visible ranges → merge into single range (full lines)
-  const visibleRanges = editor.visibleRanges;
-  if (visibleRanges.length === 0) {
-    return;
+  // 2. Determine target range: selection if present, otherwise visible ranges
+  let range: vscode.Range;
+  const hasSelection = !editor.selection.isEmpty;
+
+  if (hasSelection) {
+    // Use the selection as-is (not expanded to full lines)
+    range = editor.selection;
+  } else {
+    // Fall back to visible ranges → merge into single range (full lines)
+    const visibleRanges = editor.visibleRanges;
+    if (visibleRanges.length === 0) {
+      return;
+    }
+    const startLine = visibleRanges[0].start.line;
+    const endLine = visibleRanges[visibleRanges.length - 1].end.line;
+    range = new vscode.Range(
+      new vscode.Position(startLine, 0),
+      editor.document.lineAt(endLine).range.end,
+    );
   }
-  const startLine = visibleRanges[0].start.line;
-  const endLine = visibleRanges[visibleRanges.length - 1].end.line;
-  const range = new vscode.Range(
-    new vscode.Position(startLine, 0),
-    editor.document.lineAt(endLine).range.end,
-  );
 
   // 3. Store version for staleness check
   const documentVersion = editor.document.version;
@@ -83,8 +92,11 @@ async function doSuggestEdit(
   const languageId = editor.document.languageId;
   const fullMessage = buildFullEditPrompt(originalText, languageId, fileName);
 
+  const modeLabel = hasSelection ? 'selection' : 'visible';
+  const startLine = range.start.line;
+  const endLine = range.end.line;
   logger.debug(
-    `Suggest edit: ${fileName} | ${languageId} | lines ${startLine}-${endLine} | ${originalText.length} chars`,
+    `Suggest edit: ${fileName} | ${languageId} | ${modeLabel} | lines ${startLine}-${endLine} | ${originalText.length} chars`,
   );
   logger.trace(`Suggest edit full prompt:\n${fullMessage}`);
 
