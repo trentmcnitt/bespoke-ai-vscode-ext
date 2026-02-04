@@ -49,7 +49,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -57,7 +57,7 @@ describe('CommandPool', () => {
     });
 
     it('reports unavailable before activation', () => {
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       expect(pool.isAvailable()).toBe(false);
     });
   });
@@ -71,7 +71,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -80,7 +80,7 @@ describe('CommandPool', () => {
     });
 
     it('returns null when pool not available', async () => {
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       // Not activated
 
@@ -103,7 +103,7 @@ describe('CommandPool', () => {
         return stream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -121,7 +121,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -141,7 +141,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -169,7 +169,7 @@ describe('CommandPool', () => {
         return stream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -193,64 +193,13 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
       const initialCallCount = mockQueryFn.mock.calls.length;
 
       pool.updateModel('haiku'); // same model
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      expect(mockQueryFn.mock.calls.length).toBe(initialCallCount);
-    });
-  });
-
-  describe('updateCwd', () => {
-    it('triggers recycleAll when cwd changes', async () => {
-      const stream1 = createFakeStream([]);
-      const stream2 = createFakeStream([]);
-      let callCount = 0;
-
-      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        const stream = callCount === 0 ? stream1 : stream2;
-        callCount++;
-        consumeIterable(prompt, stream);
-        return stream.stream;
-      });
-
-      const pool = new CommandPool('haiku', '/test', makeLogger());
-      activePool = pool;
-      await pool.activate();
-
-      expect(callCount).toBe(1);
-
-      // Change cwd
-      pool.updateCwd('/new/path');
-
-      // Wait for recycle
-      await new Promise((r) => setTimeout(r, 50));
-
-      // A new stream should have been created
-      expect(callCount).toBe(2);
-    });
-
-    it('does not recycle when cwd unchanged', async () => {
-      const fakeStream = createFakeStream([]);
-
-      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        consumeIterable(prompt, fakeStream);
-        return fakeStream.stream;
-      });
-
-      const pool = new CommandPool('haiku', '/test', makeLogger());
-      activePool = pool;
-      await pool.activate();
-
-      const initialCallCount = mockQueryFn.mock.calls.length;
-
-      pool.updateCwd('/test'); // same cwd
 
       await new Promise((r) => setTimeout(r, 50));
 
@@ -267,7 +216,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -282,7 +231,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
@@ -299,7 +248,7 @@ describe('CommandPool', () => {
         return fakeStream.stream;
       });
 
-      const pool = new CommandPool('haiku', '/test', makeLogger());
+      const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 

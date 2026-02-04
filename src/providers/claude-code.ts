@@ -331,7 +331,6 @@ Now output only <output> tags:
 
 export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   private config: ExtensionConfig;
-  private workspaceRoot = '';
   public lastUsedModel: string | null = null;
 
   constructor(config: ExtensionConfig, logger: Logger, poolSize: number = 1) {
@@ -343,9 +342,8 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     this.config = config;
   }
 
-  async activate(workspaceRoot: string): Promise<void> {
-    this.workspaceRoot = workspaceRoot;
-    this.logger.info(`Claude Code: activating (cwd=${workspaceRoot})`);
+  async activate(): Promise<void> {
+    this.logger.info('Claude Code: activating');
     await this.loadSdk();
     if (!this.sdkAvailable) {
       this.logger.error('Claude Code: SDK not available, skipping slot init');
@@ -397,7 +395,6 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     this.ledger?.record({
       source: 'completion',
       model: meta?.model || this.config.claudeCode.model,
-      project: this.projectName,
       durationMs: meta?.durationMs ?? wallDuration,
       durationApiMs: meta?.durationApiMs,
       inputTokens: meta?.inputTokens,
@@ -454,10 +451,6 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
 
   protected getModel(): string {
     return this.config.claudeCode.model;
-  }
-
-  protected getCwd(): string {
-    return this.workspaceRoot;
   }
 
   protected getMaxReuses(): number {

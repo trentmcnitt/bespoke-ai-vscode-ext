@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildFullCommitPrompt,
-  parseCommitMessage,
-  DEFAULT_SYSTEM_PROMPT,
-} from '../../utils/commit-message-utils';
+import { buildFullCommitPrompt, parseCommitMessage } from '../../utils/commit-message-utils';
 
 describe('parseCommitMessage', () => {
   it('returns trimmed stdout', () => {
@@ -44,35 +40,19 @@ describe('buildFullCommitPrompt', () => {
 @@ -1,3 +1,4 @@
 +console.log('hello');`;
 
-  it('uses default instructions when no custom prompt', () => {
+  it('wraps diff in tags with instructions', () => {
     const result = buildFullCommitPrompt(sampleDiff);
     expect(result).toContain('<instructions>');
     expect(result).toContain('</instructions>');
-    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
     expect(result).toContain('<diff>');
+    expect(result).toContain('</diff>');
     expect(result).toContain(sampleDiff);
   });
 
-  it('respects custom system prompt', () => {
-    const custom = 'Write a haiku about this diff.';
-    const result = buildFullCommitPrompt(sampleDiff, custom);
-    expect(result).toContain(custom);
-    expect(result).not.toContain(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('falls back to default when custom prompt is empty', () => {
-    const result = buildFullCommitPrompt(sampleDiff, '');
-    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('falls back to default when custom prompt is whitespace', () => {
-    const result = buildFullCommitPrompt(sampleDiff, '   ');
-    expect(result).toContain(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  it('wraps diff in tags', () => {
+  it('includes commit message generation instructions', () => {
     const result = buildFullCommitPrompt(sampleDiff);
-    expect(result).toContain('<diff>');
-    expect(result).toContain('</diff>');
+    expect(result).toContain('commit message generator');
+    expect(result).toContain('conventional commit');
+    expect(result).toContain('imperative mood');
   });
 });

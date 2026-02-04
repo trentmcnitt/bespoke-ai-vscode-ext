@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { UsageLedger } from '../utils/usage-ledger';
@@ -18,6 +17,35 @@ import { UsageLedger } from '../utils/usage-ledger';
  *   pkill -f "claude.*dangerously-skip-permissions"
  */
 export type SlotState = 'initializing' | 'available' | 'busy' | 'dead';
+
+export interface SlotStats {
+  state: SlotState;
+  requestCount: number;
+  maxRequests: number;
+}
+
+export interface PoolStats {
+  label: string;
+  available: boolean;
+  slots: SlotStats[];
+  /** Timestamp when pool was activated (ms since epoch). */
+  activatedAt: number | null;
+  /** Uptime in milliseconds (null if not activated). */
+  uptimeMs: number | null;
+  /** Total requests served across all slot recycles. */
+  totalRequests: number;
+  /** Total times slots have been recycled. */
+  totalRecycles: number;
+  /** Timestamp of last completed request (ms since epoch). */
+  lastRequestAt: number | null;
+  /** Cumulative token usage. */
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+  /** Cumulative cost in USD. */
+  totalCostUsd: number;
+}
 
 export interface ResultMetadata {
   durationMs: number;
@@ -79,6 +107,17 @@ export abstract class SlotPool {
   private _warmupFailureCount = 0;
   private _warmupFailureHandled = false;
 
+  // --- Pool-level statistics ---
+  private _activatedAt: number | null = null;
+  private _totalRequests = 0;
+  private _totalRecycles = 0;
+  private _lastRequestAt: number | null = null;
+  private _totalInputTokens = 0;
+  private _totalOutputTokens = 0;
+  private _totalCacheReadTokens = 0;
+  private _totalCacheCreationTokens = 0;
+  private _totalCostUsd = 0;
+
   /** Called when the pool is fully degraded (all warmup retries exhausted). */
   onPoolDegraded: (() => void) | null = null;
 
@@ -104,7 +143,6 @@ export abstract class SlotPool {
 
   protected abstract getSystemPrompt(): string;
   protected abstract getModel(): string;
-  protected abstract getCwd(): string;
   protected abstract getMaxReuses(): number;
   protected abstract getPoolLabel(): string;
   protected abstract buildWarmupMessage(): string;
@@ -120,8 +158,35 @@ export abstract class SlotPool {
     return this.sdkAvailable === true;
   }
 
+  /** Get pool statistics for status display. */
+  getStats(): PoolStats {
+    return {
+      label: this.getPoolLabel(),
+      available: this.sdkAvailable === true,
+      slots: this.slots.map((slot) => ({
+        state: slot.state,
+        requestCount: slot.resultCount,
+        maxRequests: this.getMaxReuses(),
+      })),
+      activatedAt: this._activatedAt,
+      uptimeMs: this._activatedAt ? Date.now() - this._activatedAt : null,
+      totalRequests: this._totalRequests,
+      totalRecycles: this._totalRecycles,
+      lastRequestAt: this._lastRequestAt,
+      totalInputTokens: this._totalInputTokens,
+      totalOutputTokens: this._totalOutputTokens,
+      totalCacheReadTokens: this._totalCacheReadTokens,
+      totalCacheCreationTokens: this._totalCacheCreationTokens,
+      totalCostUsd: this._totalCostUsd,
+    };
+  }
+
   /** Initialize all slots in parallel. */
   protected async initAllSlots(): Promise<void> {
+    // Record activation time on first init
+    if (this._activatedAt === null) {
+      this._activatedAt = Date.now();
+    }
     await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
   }
 
@@ -228,7 +293,6 @@ export abstract class SlotPool {
           permissionMode: 'bypassPermissions',
           allowDangerouslySkipPermissions: true,
           systemPrompt: this.getSystemPrompt(),
-          cwd: this.getCwd(),
           settingSources: [],
           maxThinkingTokens: MAX_THINKING_TOKENS,
           maxTurns: MAX_TURNS,
@@ -265,7 +329,6 @@ export abstract class SlotPool {
       this.ledger?.record({
         source: 'startup',
         model: this.getModel(),
-        project: this.projectName,
         durationMs: 0,
         inputChars: 0,
         outputChars: 0,
@@ -348,11 +411,6 @@ export abstract class SlotPool {
     };
   }
 
-  /** Get the workspace root basename for ledger entries. */
-  protected get projectName(): string {
-    return this.getCwd() ? path.basename(this.getCwd()) : '';
-  }
-
   protected resetResultPromise(slot: Slot): void {
     slot.resultPromise = new Promise<string | null>((resolve) => {
       slot.deliverResult = resolve;
@@ -405,7 +463,6 @@ export abstract class SlotPool {
             this.ledger?.record({
               source: 'warmup',
               model: meta.model || this.getModel(),
-              project: this.projectName,
               durationMs: meta.durationMs,
               durationApiMs: meta.durationApiMs,
               inputTokens: meta.inputTokens,
@@ -451,6 +508,17 @@ export abstract class SlotPool {
           // Real completion result — deliver to the waiting caller
           slot.resultCount++;
           slot.deliverResult?.(text);
+
+          // Update pool-level statistics
+          this._totalRequests++;
+          this._lastRequestAt = Date.now();
+          if (meta) {
+            this._totalInputTokens += meta.inputTokens;
+            this._totalOutputTokens += meta.outputTokens;
+            this._totalCacheReadTokens += meta.cacheReadTokens;
+            this._totalCacheCreationTokens += meta.cacheCreationTokens;
+            this._totalCostUsd += meta.costUsd;
+          }
 
           // Stop if disposed or hit reuse limit
           if (slot.state === 'dead') {
@@ -550,6 +618,8 @@ export abstract class SlotPool {
     if (slot.state === 'dead') {
       return;
     } // already disposed
+
+    this._totalRecycles++;
 
     // Circuit breaker: detect rapid consecutive recycles
     const now = Date.now();

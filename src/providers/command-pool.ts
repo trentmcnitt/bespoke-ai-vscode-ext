@@ -6,7 +6,7 @@ const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely
 const WARMUP_MESSAGE = 'Reply with exactly the word: READY';
 
 /** Maximum requests per slot before recycling. */
-const MAX_COMMAND_REUSES = 24;
+const MAX_COMMAND_REUSES = 8;
 
 export interface SendPromptOptions {
   timeoutMs?: number;
@@ -20,16 +20,14 @@ export interface SendPromptResult {
 
 export class CommandPool extends SlotPool {
   private model: string;
-  private cwd: string;
 
-  constructor(model: string, cwd: string, logger: Logger) {
+  constructor(model: string, logger: Logger) {
     super(logger, 1); // 1-slot pool
     this.model = model;
-    this.cwd = cwd;
   }
 
   async activate(): Promise<void> {
-    this.logger.info(`CommandPool: activating (cwd=${this.cwd})`);
+    this.logger.info('CommandPool: activating');
     await this.loadSdk();
     if (!this.sdkAvailable) {
       this.logger.error('CommandPool: SDK not available, skipping slot init');
@@ -47,17 +45,6 @@ export class CommandPool extends SlotPool {
     }
     this.model = model;
     this.logger.info(`CommandPool: model changed to ${model}, recycling`);
-    this.recycleAll().catch((err) => {
-      this.logger.error(`CommandPool: recycleAll failed: ${err}`);
-    });
-  }
-
-  updateCwd(cwd: string): void {
-    if (this.cwd === cwd) {
-      return;
-    }
-    this.cwd = cwd;
-    this.logger.info(`CommandPool: cwd changed to ${cwd}, recycling`);
     this.recycleAll().catch((err) => {
       this.logger.error(`CommandPool: recycleAll failed: ${err}`);
     });
@@ -177,10 +164,6 @@ export class CommandPool extends SlotPool {
 
   protected getModel(): string {
     return this.model;
-  }
-
-  protected getCwd(): string {
-    return this.cwd;
   }
 
   protected getMaxReuses(): number {

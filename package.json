@@ -156,7 +156,8 @@
         "bespokeAI.claudeCode.model": {
           "type": "string",
           "default": "opus",
-          "description": "Claude Code model to use (e.g. haiku, sonnet, opus)"
+          "scope": "application",
+          "description": "Claude Code model to use (e.g. haiku, sonnet, opus). Global setting shared across all windows."
         },
         "bespokeAI.claudeCode.models": {
           "type": "array",
@@ -172,12 +173,12 @@
         },
         "bespokeAI.prose.contextChars": {
           "type": "number",
-          "default": 2000,
+          "default": 2500,
           "description": "Number of prefix characters to include for prose context"
         },
         "bespokeAI.prose.suffixChars": {
           "type": "number",
-          "default": 2500,
+          "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for prose context"
         },
         "bespokeAI.prose.fileTypes": {
@@ -185,26 +186,18 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            "markdown",
-            "plaintext"
-          ],
-          "description": "Language IDs treated as prose"
+          "default": [],
+          "description": "Additional language IDs to treat as prose (overrides code detection)"
         },
         "bespokeAI.code.contextChars": {
           "type": "number",
-          "default": 4000,
+          "default": 2500,
           "description": "Number of prefix characters to include for code context"
         },
         "bespokeAI.code.suffixChars": {
           "type": "number",
-          "default": 2500,
+          "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for code context"
-        },
-        "bespokeAI.commitMessage.systemPrompt": {
-          "type": "string",
-          "default": "",
-          "description": "Custom system prompt for commit message generation. Leave empty for the built-in prompt."
         }
       }
     }

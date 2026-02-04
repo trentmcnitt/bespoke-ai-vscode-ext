@@ -24,13 +24,13 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   triggerMode: 'auto',
   debounceMs: 8000,
   prose: {
-    contextChars: 2000,
-    suffixChars: 2500,
-    fileTypes: ['markdown', 'plaintext'],
+    contextChars: 2500,
+    suffixChars: 2000,
+    fileTypes: [],
   },
   code: {
-    contextChars: 4000,
-    suffixChars: 2500,
+    contextChars: 2500,
+    suffixChars: 2000,
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
   logLevel: 'info',

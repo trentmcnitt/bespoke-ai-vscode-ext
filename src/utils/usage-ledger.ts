@@ -8,7 +8,7 @@ export interface LedgerEntry {
   ts: number;
   source: LedgerSource;
   model: string;
-  project: string;
+  project?: string;
   durationMs: number;
   durationApiMs?: number;
   inputTokens?: number;

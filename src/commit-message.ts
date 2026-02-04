@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from './utils/logger';
 import { UsageLedger } from './utils/usage-ledger';
-import { CommandPool } from './providers/command-pool';
+import { PoolClient } from './pool-server/client';
 import { buildFullCommitPrompt, parseCommitMessage } from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
 import type { GitExtension, Repository } from './types/git';
@@ -12,7 +12,7 @@ const TIMEOUT_MS = 60_000;
 let inFlight = false;
 
 export async function generateCommitMessage(
-  commandPool: CommandPool,
+  poolClient: PoolClient,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
@@ -22,21 +22,21 @@ export async function generateCommitMessage(
   }
   inFlight = true;
   try {
-    await doGenerateCommitMessage(commandPool, logger, ledger);
+    await doGenerateCommitMessage(poolClient, logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
 async function doGenerateCommitMessage(
-  commandPool: CommandPool,
+  poolClient: PoolClient,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
   logger.info('Commit message generation started');
 
   // Check pool availability
-  if (!commandPool.isAvailable()) {
+  if (!poolClient.isCommandPoolAvailable()) {
     vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
     return;
   }
@@ -122,14 +122,10 @@ async function doGenerateCommitMessage(
   }
 
   // 5. Build full prompt (instructions + diff in one message)
-  const customSystemPrompt = vscode.workspace
-    .getConfiguration('bespokeAI')
-    .get<string>('commitMessage.systemPrompt', '');
-
-  const fullMessage = buildFullCommitPrompt(diff, customSystemPrompt);
+  const fullMessage = buildFullCommitPrompt(diff);
 
   logger.debug(
-    `Commit message: diff source=${hasStaged && hasUnstaged ? 'user choice' : hasStaged ? 'staged' : 'unstaged'}, diff chars=${diff.length}, custom prompt=${!!customSystemPrompt?.trim()}`,
+    `Commit message: diff source=${hasStaged && hasUnstaged ? 'user choice' : hasStaged ? 'staged' : 'unstaged'}, diff chars=${diff.length}`,
   );
   logger.trace(`Commit message full prompt:\n${fullMessage}`);
 
@@ -145,7 +141,7 @@ async function doGenerateCommitMessage(
       const controller = new AbortController();
       token.onCancellationRequested(() => controller.abort());
 
-      return commandPool.sendPrompt(fullMessage, {
+      return poolClient.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
       });
@@ -163,7 +159,7 @@ async function doGenerateCommitMessage(
   const project = workspaceRoot ? path.basename(workspaceRoot) : '';
   ledger?.record({
     source: 'commit-message',
-    model: meta?.model || commandPool.getCurrentModel(),
+    model: meta?.model || poolClient.getCurrentModel(),
     project,
     durationMs: meta?.durationMs ?? durationMs,
     durationApiMs: meta?.durationApiMs,

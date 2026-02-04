@@ -3,8 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { DEFAULT_MODEL, ExtensionConfig } from './types';
 import { CompletionProvider } from './completion-provider';
-import { ClaudeCodeProvider } from './providers/claude-code';
-import { CommandPool } from './providers/command-pool';
+import { PoolClient } from './pool-server/client';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
@@ -18,7 +17,6 @@ import {
 } from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
-import { getWorkspaceRoot } from './utils/workspace';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -30,8 +28,7 @@ const MODE_ICONS: Record<string, string> = {
 
 let statusBarItem: vscode.StatusBarItem;
 let completionProvider: CompletionProvider;
-let claudeCodeProvider: ClaudeCodeProvider;
-let commandPool: CommandPool;
+let poolClient: PoolClient;
 let logger: Logger;
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
@@ -54,50 +51,46 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
 
-  claudeCodeProvider = new ClaudeCodeProvider(config, logger);
-  claudeCodeProvider.setLedger(usageLedger);
-  context.subscriptions.push({ dispose: () => claudeCodeProvider.dispose() });
+  // Generate unique client ID for this VS Code window
+  const clientId = `vscode-${process.pid}-${Date.now().toString(36)}`;
 
-  // Activate Claude Code provider with workspace root (async, non-blocking)
-  const workspaceRoot = getWorkspaceRoot();
-
-  claudeCodeProvider.onPoolDegraded = async () => {
-    const action = await vscode.window.showErrorMessage(
-      'Bespoke AI: Autocomplete unavailable — warmup validation failed after retry.',
-      'Restart',
-    );
-    if (action === 'Restart') {
-      claudeCodeProvider.restart().catch((err) => {
-        logger.error(`Claude Code restart failed: ${err}`);
-      });
-    }
-  };
+  // Create global pool client
+  poolClient = new PoolClient({
+    config,
+    logger,
+    ledger: usageLedger,
+    clientId,
+    onPoolDegraded: async (pool) => {
+      if (pool === 'completion') {
+        const action = await vscode.window.showErrorMessage(
+          'Bespoke AI: Autocomplete unavailable — warmup validation failed after retry.',
+          'Restart',
+        );
+        if (action === 'Restart') {
+          poolClient.restart().catch((err) => {
+            logger.error(`Pool restart failed: ${err}`);
+          });
+        }
+      } else {
+        logger.error('CommandPool degraded');
+      }
+    },
+    onRoleChange: (role) => {
+      logger.info(`Pool client role changed to: ${role}`);
+    },
+  });
+  context.subscriptions.push({ dispose: () => poolClient.dispose() });
 
   // Only start pools if enabled — disabled = hard kill (no subprocesses)
   if (config.enabled) {
-    claudeCodeProvider.activate(workspaceRoot).catch((err) => {
-      logger.error(`Claude Code activation failed: ${err}`);
+    poolClient.activate().catch((err) => {
+      logger.error(`Pool client activation failed: ${err}`);
     });
   } else {
     logger.info('Extension disabled at startup — pools not started');
   }
 
-  // Create and activate CommandPool for commit-message and suggest-edit
-  commandPool = new CommandPool(config.claudeCode.model, workspaceRoot, logger);
-  commandPool.setLedger(usageLedger);
-  context.subscriptions.push({ dispose: () => commandPool.dispose() });
-
-  commandPool.onPoolDegraded = () => {
-    logger.error('CommandPool degraded');
-  };
-
-  if (config.enabled) {
-    commandPool.activate().catch((err) => {
-      logger.error(`CommandPool activation failed: ${err}`);
-    });
-  }
-
-  completionProvider = new CompletionProvider(config, claudeCodeProvider, logger, usageTracker);
+  completionProvider = new CompletionProvider(config, poolClient, logger, usageTracker);
   context.subscriptions.push({ dispose: () => completionProvider.dispose() });
 
   completionProvider.setRequestCallbacks(
@@ -268,6 +261,82 @@ export function activate(context: vscode.ExtensionContext) {
         handlers.set(usageItem, () => showUsageDetail());
       }
 
+      // --- Pool Status section ---
+      if (config.enabled) {
+        const poolStatus = await poolClient.getPoolStatus();
+        if (poolStatus) {
+          items.push({ label: 'Pool Status', kind: vscode.QuickPickItemKind.Separator });
+
+          // Role and uptime
+          const roleLabel = poolStatus.role === 'server' ? '$(broadcast) Server' : '$(plug) Client';
+          const uptimeStr = poolStatus.completionPool?.uptimeMs
+            ? formatDuration(poolStatus.completionPool.uptimeMs)
+            : 'starting...';
+          const roleItem: vscode.QuickPickItem = {
+            label: roleLabel,
+            description: `uptime: ${uptimeStr}`,
+          };
+          items.push(roleItem);
+
+          // Helper to format slot state
+          const slotIcon = (state: string) =>
+            state === 'available'
+              ? '$(check)'
+              : state === 'busy'
+                ? '$(sync~spin)'
+                : state === 'initializing'
+                  ? '$(loading~spin)'
+                  : '$(error)';
+
+          // Show completion pool stats
+          if (poolStatus.completionPool) {
+            const cp = poolStatus.completionPool;
+            const slot = cp.slots[0];
+            const item: vscode.QuickPickItem = {
+              label: `${slotIcon(slot?.state ?? 'dead')} Completion`,
+              description: `request slot ${slot?.requestCount ?? 0}/${slot?.maxRequests ?? 8} • ${cp.totalRequests} total requests • ${cp.totalRecycles} restarts`,
+            };
+            items.push(item);
+          }
+
+          // Show command pool stats
+          if (poolStatus.commandPool) {
+            const cmdPool = poolStatus.commandPool;
+            const slot = cmdPool.slots[0];
+            const item: vscode.QuickPickItem = {
+              label: `${slotIcon(slot?.state ?? 'dead')} Command`,
+              description: `request slot ${slot?.requestCount ?? 0}/${slot?.maxRequests ?? 8} • ${cmdPool.totalRequests} total requests • ${cmdPool.totalRecycles} restarts`,
+            };
+            items.push(item);
+          }
+
+          // Token breakdown
+          const cp = poolStatus.completionPool;
+          const cmd = poolStatus.commandPool;
+          const totalIn = (cp?.totalInputTokens ?? 0) + (cmd?.totalInputTokens ?? 0);
+          const totalOut = (cp?.totalOutputTokens ?? 0) + (cmd?.totalOutputTokens ?? 0);
+          const totalCache = (cp?.totalCacheReadTokens ?? 0) + (cmd?.totalCacheReadTokens ?? 0);
+          if (totalIn > 0 || totalOut > 0) {
+            const cacheStr = totalCache > 0 ? ` • cache: ${totalCache.toLocaleString()}` : '';
+            const tokensItem: vscode.QuickPickItem = {
+              label: '$(symbol-number) Tokens',
+              description: `in: ${totalIn.toLocaleString()} • out: ${totalOut.toLocaleString()}${cacheStr}`,
+            };
+            items.push(tokensItem);
+          }
+
+          // Cost
+          const totalCost = (cp?.totalCostUsd ?? 0) + (cmd?.totalCostUsd ?? 0);
+          if (totalCost > 0) {
+            const costItem: vscode.QuickPickItem = {
+              label: '$(credit-card) Cost',
+              description: `$${totalCost.toFixed(4)} this session`,
+            };
+            items.push(costItem);
+          }
+        }
+      }
+
       const picked = await vscode.window.showQuickPick(items, {
         title: 'Bespoke AI',
         placeHolder: 'Select an option',
@@ -288,7 +357,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await generateCommitMessage(commandPool, logger, usageLedger);
+      await generateCommitMessage(poolClient, logger, usageLedger);
     }),
   );
 
@@ -309,7 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await suggestEdit(commandPool, logger, usageLedger);
+      await suggestEdit(poolClient, logger, usageLedger);
     }),
   );
 
@@ -339,15 +408,13 @@ export function activate(context: vscode.ExtensionContext) {
         if (enabledChanged) {
           if (!newConfig.enabled) {
             logger.info('Disabled — shutting down pools');
-            claudeCodeProvider.dispose();
-            commandPool.dispose();
+            poolClient.dispose();
           } else {
             logger.info('Enabled — restarting pools');
-            claudeCodeProvider.restart().catch((err) => {
-              logger.error(`Claude Code restart failed: ${err}`);
-            });
-            commandPool.restart().catch((err) => {
-              logger.error(`CommandPool restart failed: ${err}`);
+            // Re-activate the same client instance to preserve references
+            poolClient.updateConfig(newConfig);
+            poolClient.activate().catch((err) => {
+              logger.error(`Pool client activation failed: ${err}`);
             });
           }
         }
@@ -360,10 +427,7 @@ export function activate(context: vscode.ExtensionContext) {
         ) {
           logger.info(`Model → ${newConfig.claudeCode.model} (recycling pools + clearing cache)`);
           completionProvider.clearCache();
-          completionProvider.recyclePool().catch((err) => {
-            logger.error(`Pool recycle failed: ${err}`);
-          });
-          commandPool.updateModel(newConfig.claudeCode.model);
+          poolClient.updateConfig(newConfig);
         }
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
@@ -373,8 +437,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Cleanup handlers for unexpected termination (crash, SIGTERM, etc.)
   const cleanup = () => {
-    claudeCodeProvider?.dispose();
-    commandPool?.dispose();
+    poolClient?.dispose();
   };
 
   process.on('exit', cleanup);
@@ -402,13 +465,13 @@ function loadConfig(): ExtensionConfig {
     triggerMode: ws.get<'auto' | 'manual'>('triggerMode', 'auto')!,
     debounceMs: ws.get<number>('debounceMs', 8000)!,
     prose: {
-      contextChars: ws.get<number>('prose.contextChars', 2000)!,
-      suffixChars: ws.get<number>('prose.suffixChars', 2500)!,
-      fileTypes: ws.get<string[]>('prose.fileTypes', ['markdown', 'plaintext'])!,
+      contextChars: ws.get<number>('prose.contextChars', 2500)!,
+      suffixChars: ws.get<number>('prose.suffixChars', 2000)!,
+      fileTypes: ws.get<string[]>('prose.fileTypes', [])!,
     },
     code: {
-      contextChars: ws.get<number>('code.contextChars', 4000)!,
-      suffixChars: ws.get<number>('code.suffixChars', 2500)!,
+      contextChars: ws.get<number>('code.contextChars', 2500)!,
+      suffixChars: ws.get<number>('code.suffixChars', 2000)!,
     },
     claudeCode: {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
@@ -586,7 +649,6 @@ export function deactivate() {
   // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
   // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
-  claudeCodeProvider?.dispose();
-  commandPool?.dispose();
+  poolClient?.dispose();
   logger?.dispose();
 }
