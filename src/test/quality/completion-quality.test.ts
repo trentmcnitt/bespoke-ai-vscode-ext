@@ -68,6 +68,7 @@ interface GenerationResult {
   scenario: TestScenario;
   completion: string | null;
   rawResponse?: string;
+  sentMessage?: string;
   durationMs: number;
   error?: string;
 }
@@ -109,6 +110,11 @@ function saveScenarioOutput(result: GenerationResult): void {
   // Save raw model output (before post-processing) when available
   if (result.rawResponse !== undefined) {
     fs.writeFileSync(path.join(scenarioDir, 'raw-response.txt'), result.rawResponse);
+  }
+
+  // Save the actual message sent to Claude Code
+  if (result.sentMessage !== undefined) {
+    fs.writeFileSync(path.join(scenarioDir, 'sent-message.txt'), result.sentMessage);
   }
 
   // Save metadata
@@ -158,6 +164,7 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
       scenario,
       completion,
       rawResponse: capturing.getTrace('← raw'),
+      sentMessage: capturing.getTrace('→ sent'),
       durationMs: Date.now() - start,
     };
     saveScenarioOutput(result);
@@ -166,6 +173,7 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
     const result: GenerationResult = {
       scenario,
       completion: null,
+      sentMessage: capturing.getTrace('→ sent'),
       durationMs: Date.now() - start,
       error: err instanceof Error ? err.message : String(err),
     };
@@ -339,6 +347,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
             scenario,
             completion,
             rawResponse: capturing.getTrace('← raw'),
+            sentMessage: capturing.getTrace('→ sent'),
             durationMs: Date.now() - start,
           };
           saveScenarioOutput(result);

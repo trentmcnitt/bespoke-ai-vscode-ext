@@ -32,13 +32,24 @@ export function extractOutput(raw: string): string {
 /**
  * Extract the completion start from the end of the prefix.
  * Returns the truncated prefix (for display) and the completion start text.
+ *
+ * Leading whitespace is trimmed from completion_start and moved to the end of
+ * truncatedPrefix. This places the >>>CURSOR<<< marker at the actual insertion
+ * point, making completion_start show just the meaningful partial token (e.g.,
+ * "0" instead of "\n\n0" for a partial date). The model sees whitespace in
+ * context before the cursor rather than as part of the echo anchor.
  */
 export function extractCompletionStart(prefix: string): {
   truncatedPrefix: string;
   completionStart: string;
 } {
   if (prefix.length <= COMPLETION_START_LENGTH) {
-    return { truncatedPrefix: '', completionStart: prefix };
+    // Short prefix: trim leading whitespace from completion_start
+    const leadingWs = prefix.match(/^[\s]*/)?.[0] ?? '';
+    return {
+      truncatedPrefix: leadingWs,
+      completionStart: prefix.slice(leadingWs.length),
+    };
   }
   // Search forward from the ideal cut point for a word boundary (space or
   // newline) so <current_text> ends at a complete word before >>>CURSOR<<<.
@@ -52,9 +63,14 @@ export function extractCompletionStart(prefix: string): {
       break;
     }
   }
+
+  // Extract raw completion_start, then trim leading whitespace
+  const rawCompletionStart = prefix.slice(cutPoint);
+  const leadingWs = rawCompletionStart.match(/^[\s]*/)?.[0] ?? '';
+
   return {
-    truncatedPrefix: prefix.slice(0, cutPoint),
-    completionStart: prefix.slice(cutPoint),
+    truncatedPrefix: prefix.slice(0, cutPoint) + leadingWs,
+    completionStart: rawCompletionStart.slice(leadingWs.length),
   };
 }
 

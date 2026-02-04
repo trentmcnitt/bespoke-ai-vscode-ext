@@ -451,8 +451,9 @@ describe('extractCompletionStart', () => {
     const prefix = 'The quick brown fox jumps over the lazy dog.';
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
     // COMPLETION_START_LENGTH is 10, forward search snaps to word boundary
-    expect(completionStart).toBe(' lazy dog.');
-    expect(truncatedPrefix).toBe('The quick brown fox jumps over the');
+    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
+    expect(completionStart).toBe('lazy dog.');
+    expect(truncatedPrefix).toBe('The quick brown fox jumps over the ');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 
@@ -487,16 +488,18 @@ describe('extractCompletionStart', () => {
     const prefix = 'They seem so complex and wasteful (noise, h';
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
     // Forward search finds the space after "wasteful"
-    expect(truncatedPrefix).toBe('They seem so complex and wasteful');
-    expect(completionStart).toBe(' (noise, h');
+    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
+    expect(truncatedPrefix).toBe('They seem so complex and wasteful ');
+    expect(completionStart).toBe('(noise, h');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 
   it('splits at paragraph boundary when newlines are nearby', () => {
     const prefix = "They power so much of our world.\n\nI've heard that ele";
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    expect(truncatedPrefix).toBe("They power so much of our world.\n\nI've heard");
-    expect(completionStart).toBe(' that ele');
+    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
+    expect(truncatedPrefix).toBe("They power so much of our world.\n\nI've heard ");
+    expect(completionStart).toBe('that ele');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 
@@ -514,8 +517,40 @@ describe('extractCompletionStart', () => {
     const prefix = 'I was thinking about choosing colleges for my kids';
     const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
     // Most of the prefix should be in truncatedPrefix (= visible in current_text)
-    expect(truncatedPrefix).toBe('I was thinking about choosing colleges for');
-    expect(completionStart).toBe(' my kids');
+    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
+    expect(truncatedPrefix).toBe('I was thinking about choosing colleges for ');
+    expect(completionStart).toBe('my kids');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('trims leading newlines from completionStart for partial tokens', () => {
+    // The partial-date case: prefix ends with "\n\n0" where "0" is a partial date
+    // Use a longer prefix so the cut happens near the end
+    const prefix = '#journal\n\n#### Notes about anything\n\n0';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // The cut happens at a word boundary, then leading whitespace is trimmed
+    // "\n\n0" after the cut becomes "0" with "\n\n" moved to truncatedPrefix
+    expect(truncatedPrefix).toBe('#journal\n\n#### Notes about anything\n\n');
+    expect(completionStart).toBe('0');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('handles pure whitespace prefix gracefully', () => {
+    const prefix = '\n\n\n';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // All whitespace moves to truncatedPrefix, completionStart is empty
+    expect(truncatedPrefix).toBe('\n\n\n');
+    expect(completionStart).toBe('');
+    expect(truncatedPrefix + completionStart).toBe(prefix);
+  });
+
+  it('preserves indentation spaces after trimming newlines', () => {
+    // Code indentation case: newline + spaces + partial token
+    const prefix = 'def foo():\n    return';
+    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
+    // Newline and spaces move to truncatedPrefix
+    expect(truncatedPrefix).toBe('def foo():\n    ');
+    expect(completionStart).toBe('return');
     expect(truncatedPrefix + completionStart).toBe(prefix);
   });
 });
