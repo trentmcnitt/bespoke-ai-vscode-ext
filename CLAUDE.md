@@ -14,9 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bespoke AI is a personal AI toolkit for VS Code that provides inline completions (ghost text — the gray preview text shown before accepting) for prose and code, a commit message generator, and a suggest-edits command (fixes typos/grammar/bugs in visible text). It uses the Claude Code CLI, which requires a Claude subscription. Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
 
-The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions and the existing commit message feature unless explicitly asked.
+The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions, commit messages, and suggest-edits unless explicitly asked.
 
-## Scope Constraints and Policies
+## Policies and Guidelines
 
 **Interpreting pasted content:** When the user pastes log output, error messages, or other unaccompanied diagnostic content, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix.
 
@@ -58,9 +58,9 @@ When fixing a completion bug, consider also adding the failing case as a regress
 These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
 
 - Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
-- The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
+- The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL, time-to-live) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values. Invalid settings pass through to the backend without checking.
-- Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
+- Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/` and `src/benchmark/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
 - **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If VS Code crashes or is force-killed (e.g., `kill -9`), subprocesses may remain until they timeout or are manually cleaned with: `pkill -f "claude.*dangerously-skip-permissions"`
 
 ## Build and Scripts
@@ -78,14 +78,14 @@ npm run test:unit:watch  # Vitest watch mode
 npm run test:api         # API integration tests (src/test/api/, needs claude CLI)
 npm run test:quality     # LLM-as-judge completion quality tests (needs claude CLI)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
-npm run install-ext      # Compile, package VSIX, and install into VSCodium (all-in-one)
+npm run install-ext      # Compile, package VSIX (VS Code extension bundle), and install into VSCodium
 ```
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
 
 **Pre-commit hooks:** Husky and lint-staged are configured to auto-format staged files on commit via Prettier. The hooks run automatically — no manual setup needed beyond `npm install`.
 
-### Build system
+### Build System
 
 Pressing F5 in VS Code launches the Extension Development Host using the `npm:watch` build task.
 
@@ -120,9 +120,9 @@ Adding or modifying a VS Code setting requires coordinated changes to:
 
 ## Architecture
 
-### Request flow
+### Request Flow
 
-User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (8000ms default, zero-delay for manual trigger) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
+User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (delay until typing pauses; 8000ms default, zero-delay for manual trigger) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
 
 ### Logging
 
@@ -153,11 +153,11 @@ Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correl
 
 The output channel is visible in the VS Code Output panel.
 
-### Module reference
+### Module Reference
 
 Key modules, listed in request-flow order:
 
-- `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and twelve commands. Watches for config changes and propagates via `updateConfig()`.
+- `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and commands. Watches for config changes and propagates via `updateConfig()`.
 
 - `src/commit-message.ts` — Generates commit messages via the `CommandPool`. Reads diffs from VS Code's built-in Git extension, sends them to the pre-warmed command pool, and writes the result into the Source Control panel's commit message input box. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
 
@@ -165,11 +165,11 @@ Key modules, listed in request-flow order:
 
 - `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Alternatives, Condense, Chat). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Standalone module — does not use the CommandPool.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`Invoke`) use zero-delay debounce for instant response. Adaptive back-off code is present but commented out. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`Invoke`) use zero-delay debounce for instant response. Adaptive back-off code is present but commented out. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `ClaudeCodeProvider`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
-- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. Manages slot lifecycle (init → warmup → consume → reuse → recycle), circuit breaker, generation guards, single-waiter queue, warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
+- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a reusable Claude Code subprocess session. Manages slot lifecycle (init → warmup → consume → reuse → recycle), circuit breaker (stops requests after repeated failures), generation guards, single-waiter queue, warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
 
 - `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
   - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
@@ -190,13 +190,15 @@ Key modules, listed in request-flow order:
 
 - `src/utils/model-name.ts` — `shortenModelName()` pure function for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`).
 
+- `src/utils/workspace.ts` — `getWorkspaceRoot()` utility for resolving the workspace folder path. Used by extension.ts for project-relative operations.
+
 - `src/utils/usage-tracker.ts` — Tracks per-session completion counts, character counts, cache hits/misses, errors, and burst detection.
 
-- `src/utils/usage-ledger.ts` — Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
+- `src/utils/usage-ledger.ts` — Persistent JSONL (JSON Lines, one JSON object per line) ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
 
 - `src/scripts/dump-prompts.ts` — Utility script (`npm run dump-prompts`) that renders exact prompt strings for prose and code modes.
 
-### Shared type definitions
+### Shared Type Definitions
 
 All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which the Claude Code backend implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. The `claudeCode` sub-object includes a `models` array (informational catalog) and a `model` string (the active model).
 
@@ -204,7 +206,7 @@ Additional type definitions: `src/types/git.d.ts` provides type definitions for 
 
 ## Testing
 
-### Running all tests
+### Running All Tests
 
 When asked to "run tests" (without further qualification), run the full test suite:
 
@@ -218,25 +220,37 @@ The Claude Code API tests and quality tests require the `@anthropic-ai/claude-ag
 
 After Layer 2 evaluation, report the results to the user. Do not attempt fixes unless asked.
 
-### Unit tests
+### Unit Tests
 
-Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide `makeConfig()` (config factory), `makeLogger()` (no-op mock Logger), `makeCapturingLogger()` (captures `traceBlock` calls for inspecting raw output), `loadApiKey()` (reads `ANTHROPIC_API_KEY` from the environment), `makeProseContext()` and `makeCodeContext()` (factory functions for `CompletionContext`), `createMockToken()` (mock `CancellationToken` with a `cancel()` trigger), and `makeLedger()` (creates a `UsageLedger` backed by a temp directory).
+Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts` provide:
+
+- `makeConfig()` — config factory with sensible defaults
+- `makeLogger()` / `makeCapturingLogger()` — no-op mock Logger / captures `traceBlock` calls for inspecting raw output
+- `makeProseContext()` / `makeCodeContext()` — factory functions for `CompletionContext`
+- `makeDocument()` — creates mock `TextDocument` for unit tests
+- `createMockToken()` — mock `CancellationToken` with a `cancel()` trigger
+- `makeLedger()` — creates a `UsageLedger` backed by a temp directory
+- `getTestModel()` — returns test model with `TEST_MODEL` env var precedence
+- `makeFakeStream()` / `FakeStream` — creates fake async iterable streams for SDK testing
+- `assertWarmupValid()` / `assertModelMatch()` — validation helpers for warmup responses and model matching
+- `consumeIterable()` — helper to consume async iterables in background
+- `loadApiKey()` — reads `ANTHROPIC_API_KEY` from the environment
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
-### API integration tests
+### API Integration Tests
 
 API integration tests (`src/test/api/`) make real calls to the Claude Code CLI. They use `describe.skipIf()` to skip when the backend isn't available. The API test config (`vitest.api.config.ts`) sets a 30-second timeout.
 
 **Result output:** Tests persist results to `test-results/api-{timestamp}/`, organized by suite. Each JSON file records input context, completion text, duration, and timestamp. `test-results/latest-api` symlinks to the most recent run.
 
-### Quality tests (LLM-as-judge)
+### Quality Tests (LLM-as-Judge)
 
 Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. They use the Claude Code backend and follow a two-layer validation pattern:
 
 **Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `raw-response.txt` (pre-post-processing model output), `requirements.json`, and `metadata.json`. Layer 1 only checks that the backend didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run.
 
-**Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` per scenario and an overall `layer2-summary.md`. Validate every scenario — do not spot-check. Use background agents to parallelize if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
+**Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` in each scenario's directory and an overall `layer2-summary.md` at the run root. Validate every scenario — do not skip any. Use the Task tool with multiple parallel agents to speed up evaluation if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
 
 **Fabricated content is expected and acceptable.** Completions are predictions — the model will invent plausible content (names, dates, code, narrative). Judge whether fabricated content is contextually sensible, not whether it's factually accurate.
 
@@ -258,7 +272,7 @@ TEST_MODEL=sonnet npm run test:quality   # quality tests with sonnet
 
 To add a new scenario, add a `TestScenario` object to the prose, code, or edge-case scenario array in `scenarios.ts`. To adjust judging criteria, edit `validator-prompt.md`.
 
-#### Regression scenarios
+#### Regression Scenarios
 
 Regression scenarios (`src/test/quality/regression-scenarios.ts`) capture real-world completion failures observed during use. They run alongside the standard quality scenarios via `npm run test:quality` and flow through the same Layer 1 + Layer 2 pipeline.
 
