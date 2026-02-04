@@ -48,25 +48,27 @@ function getSelectionInfo(): { filePath: string; startLine: number; endLine: num
 // All use escaped backticks (\`) for markdown formatting in the prompt.
 // The \\\` in template literals produces \` in output, which shells interpret as literal backticks.
 
-function buildExplainCommand(filePath: string, startLine: number, endLine: number): string {
-  return `claude --dangerously-skip-permissions "Explain lines ${startLine}-${endLine} of \\\`${filePath}\\\`. Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context."`;
-}
+/** Common instruction appended to all prompts: read the lines first, then context as needed. */
+const READ_CONTEXT_INSTRUCTION =
+  'Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context.';
 
-function buildFixCommand(filePath: string, startLine: number, endLine: number): string {
-  const prompt = `Fix any issues in lines ${startLine}-${endLine} of \\\`${filePath}\\\`. Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context. Apply fixes to those lines directly. If you notice related issues outside the selection, describe them but do not edit without asking.`;
+/** Prompt templates for each command type. */
+const PROMPT_TEMPLATES = {
+  explain: (filePath: string, startLine: number, endLine: number) =>
+    `Explain lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
+  fix: (filePath: string, startLine: number, endLine: number) =>
+    `Fix any issues in lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION} Apply fixes to those lines directly. If you notice related issues outside the selection, describe them but do not edit without asking.`,
+  alternatives: (filePath: string, startLine: number, endLine: number) =>
+    `Give me 3 alternative ways to phrase lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
+  condense: (filePath: string, startLine: number, endLine: number) =>
+    `Make lines ${startLine}-${endLine} of \\\`${filePath}\\\` more concise while preserving the meaning. ${READ_CONTEXT_INSTRUCTION}`,
+  chat: (filePath: string, startLine: number, endLine: number) =>
+    `I want to discuss lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
+} as const;
+
+/** Builds a Claude CLI command from a prompt. */
+function buildClaudeCommand(prompt: string): string {
   return `claude --dangerously-skip-permissions "${prompt}"`;
-}
-
-function buildAlternativesCommand(filePath: string, startLine: number, endLine: number): string {
-  return `claude --dangerously-skip-permissions "Give me 3 alternative ways to phrase lines ${startLine}-${endLine} of \\\`${filePath}\\\`. Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context."`;
-}
-
-function buildCondenseCommand(filePath: string, startLine: number, endLine: number): string {
-  return `claude --dangerously-skip-permissions "Make lines ${startLine}-${endLine} of \\\`${filePath}\\\` more concise while preserving the meaning. Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context."`;
-}
-
-function buildChatCommand(filePath: string, startLine: number, endLine: number): string {
-  return `claude --dangerously-skip-permissions "I want to discuss lines ${startLine}-${endLine} of \\\`${filePath}\\\`. Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context."`;
 }
 
 // --- Handlers ---
@@ -74,29 +76,34 @@ function buildChatCommand(filePath: string, startLine: number, endLine: number):
 export async function explainSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  await openClaudeTerminal(buildExplainCommand(sel.filePath, sel.startLine, sel.endLine));
+  const prompt = PROMPT_TEMPLATES.explain(sel.filePath, sel.startLine, sel.endLine);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function fixSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  await openClaudeTerminal(buildFixCommand(sel.filePath, sel.startLine, sel.endLine));
+  const prompt = PROMPT_TEMPLATES.fix(sel.filePath, sel.startLine, sel.endLine);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function alternativesSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  await openClaudeTerminal(buildAlternativesCommand(sel.filePath, sel.startLine, sel.endLine));
+  const prompt = PROMPT_TEMPLATES.alternatives(sel.filePath, sel.startLine, sel.endLine);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function condenseSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  await openClaudeTerminal(buildCondenseCommand(sel.filePath, sel.startLine, sel.endLine));
+  const prompt = PROMPT_TEMPLATES.condense(sel.filePath, sel.startLine, sel.endLine);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function chatSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  await openClaudeTerminal(buildChatCommand(sel.filePath, sel.startLine, sel.endLine));
+  const prompt = PROMPT_TEMPLATES.chat(sel.filePath, sel.startLine, sel.endLine);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
 }

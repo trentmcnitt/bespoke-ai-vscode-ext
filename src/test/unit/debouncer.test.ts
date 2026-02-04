@@ -213,16 +213,4 @@ describe('Debouncer', () => {
       debouncer.dispose();
     });
   });
-
-  // --- Adaptive back-off tests (commented out — back-off is disabled) ---
-  // describe('adaptive back-off', () => {
-  //   it('returns base delay with zero dismissals', () => { ... });
-  //   it('increases delay after recordDismissal()', () => { ... });
-  //   it('follows the exponential formula for known dismissal counts', () => { ... });
-  //   it('caps at MAX_BACKOFF_MS after MAX_DISMISSALS dismissals', () => { ... });
-  //   it('resets to base delay after resetBackoff()', () => { ... });
-  //   it('scales with a different base delay', () => { ... });
-  //   it('uses back-off delay in debounce()', () => { ... });
-  //   it('does not increment beyond MAX_DISMISSALS', () => { ... });
-  // });
 });

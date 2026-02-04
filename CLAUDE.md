@@ -145,7 +145,7 @@ Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correl
           ⋮ (445 chars total)
           function foo() {
 [TRACE]   → sent (764 chars):
-          <incomplete_text>...</incomplete_text>
+          <current_text>...</current_text>
 [DEBUG 00:51:12.374] ◀ #a7f3 | 835ms | 9 chars | slot=0
 [TRACE]   ← raw:
           }
@@ -157,11 +157,13 @@ The output channel is visible in the VS Code Output panel.
 
 Key modules, listed in request-flow order:
 
-- `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and eight commands. Watches for config changes and propagates via `updateConfig()`.
+- `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and twelve commands. Watches for config changes and propagates via `updateConfig()`.
 
 - `src/commit-message.ts` — Generates commit messages via the `CommandPool`. Reads diffs from VS Code's built-in Git extension, sends them to the pre-warmed command pool, and writes the result into the Source Control panel's commit message input box. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
 
 - `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `CommandPool`. Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
+
+- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Alternatives, Condense, Chat). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Standalone module — does not use the CommandPool.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`Invoke`) use zero-delay debounce for instant response. Adaptive back-off code is present but commented out. Its constructor accepts a `Logger` and a `CompletionProvider` implementation (the `ClaudeCodeProvider` instance — not to be confused with the class name). Exposes `clearCache()` and `setRequestCallbacks()`.
 

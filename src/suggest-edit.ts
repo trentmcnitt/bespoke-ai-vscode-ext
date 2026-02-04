@@ -172,22 +172,25 @@ async function doSuggestEdit(
   const originalUri = vscode.Uri.parse(`bespoke-edit-original:${key}`);
   const correctedUri = vscode.Uri.parse(`bespoke-edit-corrected:${key}`);
 
-  await vscode.commands.executeCommand(
-    'vscode.diff',
-    originalUri,
-    correctedUri,
-    `Suggest Edits — ${fileName}`,
-  );
+  let choice: string | undefined;
+  try {
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      originalUri,
+      correctedUri,
+      `Suggest Edits — ${fileName}`,
+    );
 
-  const choice = await vscode.window.showInformationMessage(
-    'Bespoke AI: Apply suggested edits?',
-    'Apply',
-    'Discard',
-  );
-
-  // Clean up virtual document content
-  contentStore.delete(`original:${key}`);
-  contentStore.delete(`corrected:${key}`);
+    choice = await vscode.window.showInformationMessage(
+      'Bespoke AI: Apply suggested edits?',
+      'Apply',
+      'Discard',
+    );
+  } finally {
+    // Clean up virtual document content (always, even on error)
+    contentStore.delete(`original:${key}`);
+    contentStore.delete(`corrected:${key}`);
+  }
 
   // Close the diff tab
   await vscode.commands.executeCommand('workbench.action.closeActiveEditor');

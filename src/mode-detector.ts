@@ -68,30 +68,42 @@ const PROSE_LANGUAGES = new Set([
   'org',
 ]);
 
+/**
+ * Detect completion mode based on languageId and config.
+ * Priority: (1) user override, (2) custom file types, (3) built-in language sets, (4) prose default.
+ */
+export function detectMode(languageId: string, config: ExtensionConfig): CompletionMode {
+  // User override takes priority
+  if (config.mode === 'prose') {
+    return 'prose';
+  }
+  if (config.mode === 'code') {
+    return 'code';
+  }
+
+  // Check additional prose file types from config
+  if (config.prose.fileTypes.includes(languageId)) {
+    return 'prose';
+  }
+
+  // Auto-detect
+  if (PROSE_LANGUAGES.has(languageId)) {
+    return 'prose';
+  }
+  if (CODE_LANGUAGES.has(languageId)) {
+    return 'code';
+  }
+
+  // Fallback: default to prose (user's primary use case is writing)
+  return 'prose';
+}
+
+/**
+ * @deprecated Use detectMode() function directly instead.
+ * This class wrapper is kept for backward compatibility.
+ */
 export class ModeDetector {
   detectMode(languageId: string, config: ExtensionConfig): CompletionMode {
-    // User override takes priority
-    if (config.mode === 'prose') {
-      return 'prose';
-    }
-    if (config.mode === 'code') {
-      return 'code';
-    }
-
-    // Check additional prose file types from config
-    if (config.prose.fileTypes.includes(languageId)) {
-      return 'prose';
-    }
-
-    // Auto-detect
-    if (PROSE_LANGUAGES.has(languageId)) {
-      return 'prose';
-    }
-    if (CODE_LANGUAGES.has(languageId)) {
-      return 'code';
-    }
-
-    // Fallback: default to prose (user's primary use case is writing)
-    return 'prose';
+    return detectMode(languageId, config);
   }
 }

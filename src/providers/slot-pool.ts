@@ -57,6 +57,10 @@ export interface Slot {
 const RAPID_RECYCLE_LIMIT = 5;
 /** Circuit breaker: time window (ms) for counting rapid recycles. */
 const RAPID_RECYCLE_WINDOW_MS = 5_000;
+/** Maximum turns per query (SDK limit). */
+const MAX_TURNS = 50;
+/** Thinking tokens disabled for autocomplete (immediate response preferred). */
+const MAX_THINKING_TOKENS = 0;
 
 export abstract class SlotPool {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,6 +120,11 @@ export abstract class SlotPool {
     return this.sdkAvailable === true;
   }
 
+  /** Initialize all slots in parallel. */
+  protected async initAllSlots(): Promise<void> {
+    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
+  }
+
   /** Close all slots and reinitialize them. Used when the model changes.
    *  Serialized: overlapping calls return the same promise. */
   async recycleAll(): Promise<void> {
@@ -153,7 +162,7 @@ export abstract class SlotPool {
     }
 
     this.logger.info(`${this.getPoolLabel()}: restarting pool...`);
-    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
+    await this.initAllSlots();
     this.logger.info(`${this.getPoolLabel()}: pool restarted`);
   }
 
@@ -221,8 +230,8 @@ export abstract class SlotPool {
           systemPrompt: this.getSystemPrompt(),
           cwd: this.getCwd(),
           settingSources: [],
-          maxThinkingTokens: 0,
-          maxTurns: 50,
+          maxThinkingTokens: MAX_THINKING_TOKENS,
+          maxTurns: MAX_TURNS,
           persistSession: false,
           pathToClaudeCodeExecutable: sdkCliPath,
         },
@@ -463,7 +472,8 @@ export abstract class SlotPool {
         }
       }
     } catch (err) {
-      // Stale consumer guard — don't touch the new slot's state
+      // Stale consumer guard — don't touch the new slot's state.
+      // The finally block handles iterator cleanup, so just return here.
       if (this.slots[slotIndex].generation !== myGeneration) {
         return;
       }
@@ -531,7 +541,7 @@ export abstract class SlotPool {
     this.killAllSlots();
 
     // Reinitialize all slots
-    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
+    await this.initAllSlots();
     this.logger.info(`${this.getPoolLabel()}: pool recycled`);
   }
 
@@ -634,11 +644,9 @@ export abstract class SlotPool {
       this.logger.info(`${this.getPoolLabel()}: retrying all slots after warmup failure...`);
       setTimeout(() => {
         this._warmupFailureHandled = false;
-        Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i))).catch(
-          (err) => {
-            this.logger.error(`${this.getPoolLabel()}: warmup retry failed: ${err}`);
-          },
-        );
+        this.initAllSlots().catch((err) => {
+          this.logger.error(`${this.getPoolLabel()}: warmup retry failed: ${err}`);
+        });
       }, 0);
     }
   }

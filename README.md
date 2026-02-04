@@ -34,7 +34,7 @@ User types
   → Detect mode (prose/code)
   → Extract prefix + suffix from document
   → Check LRU cache (50 entries, 5min TTL)
-  → Debounce (1000ms base, adaptive back-off on dismissals)
+  → Debounce (8000ms default)
   → Acquire a slot from the session pool
   → Build prompt with >>>CURSOR<<< marker
   → Get completion from Claude Code
@@ -48,19 +48,26 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 ### General
 
-| Setting      | Type                               | Default  | Description                               |
-| ------------ | ---------------------------------- | -------- | ----------------------------------------- |
-| `enabled`    | boolean                            | `true`   | Master on/off toggle                      |
-| `mode`       | `"auto"` \| `"prose"` \| `"code"`  | `"auto"` | Completion mode (auto-detects by default) |
-| `debounceMs` | number                             | `8000`   | Delay before triggering a completion      |
-| `logLevel`   | `"info"` \| `"debug"` \| `"trace"` | `"info"` | Logging verbosity in the Output channel   |
+| Setting       | Type                               | Default  | Description                                            |
+| ------------- | ---------------------------------- | -------- | ------------------------------------------------------ |
+| `enabled`     | boolean                            | `true`   | Master on/off toggle                                   |
+| `mode`        | `"auto"` \| `"prose"` \| `"code"`  | `"auto"` | Completion mode (auto-detects by default)              |
+| `triggerMode` | `"auto"` \| `"manual"`             | `"auto"` | Auto fires on typing, manual requires explicit trigger |
+| `debounceMs`  | number                             | `8000`   | Delay before triggering a completion                   |
+| `logLevel`    | `"info"` \| `"debug"` \| `"trace"` | `"info"` | Logging verbosity in the Output channel                |
 
 ### Claude Code
 
 | Setting             | Type     | Default                       | Description                              |
 | ------------------- | -------- | ----------------------------- | ---------------------------------------- |
-| `claudeCode.model`  | string   | `"haiku"`                     | Active model (e.g., haiku, sonnet, opus) |
+| `claudeCode.model`  | string   | `"opus"`                      | Active model (e.g., haiku, sonnet, opus) |
 | `claudeCode.models` | string[] | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
+
+### Commit Message
+
+| Setting                      | Type   | Default | Description                                        |
+| ---------------------------- | ------ | ------- | -------------------------------------------------- |
+| `commitMessage.systemPrompt` | string | `""`    | Custom system prompt for commit message generation |
 
 ### Prose Mode
 
@@ -79,14 +86,20 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 ## Commands & Keybindings
 
-| Command                               | Keybinding | Description                         |
-| ------------------------------------- | ---------- | ----------------------------------- |
-| `Bespoke AI: Trigger Completion`      | `Ctrl+L`   | Manually trigger a completion       |
-| `Bespoke AI: Toggle Enabled`          | —          | Toggle the extension on/off         |
-| `Bespoke AI: Cycle Mode`              | —          | Cycle through auto → prose → code   |
-| `Bespoke AI: Clear Completion Cache`  | —          | Clear the LRU cache                 |
-| `Bespoke AI: Show Menu`               | —          | Status bar menu (click status bar)  |
-| `Bespoke AI: Generate Commit Message` | —          | AI-generated commit message via SCM |
+| Command                               | Keybinding | Description                             |
+| ------------------------------------- | ---------- | --------------------------------------- |
+| `Bespoke AI: Trigger Completion`      | `Ctrl+L`   | Manually trigger a completion           |
+| `Bespoke AI: Toggle Enabled`          | —          | Toggle the extension on/off             |
+| `Bespoke AI: Cycle Mode`              | —          | Cycle through auto → prose → code       |
+| `Bespoke AI: Clear Completion Cache`  | —          | Clear the LRU cache                     |
+| `Bespoke AI: Show Menu`               | —          | Status bar menu (click status bar)      |
+| `Bespoke AI: Generate Commit Message` | —          | AI-generated commit message via SCM     |
+| `Bespoke AI: Suggest Edits`           | —          | Fix typos/grammar/bugs in visible text  |
+| `Bespoke: Explain`                    | —          | Explain selected code (context menu)    |
+| `Bespoke: Fix`                        | —          | Fix selected code (context menu)        |
+| `Bespoke: Alternatives`               | —          | Suggest alternatives (context menu)     |
+| `Bespoke: Condense`                   | —          | Condense selected text (context menu)   |
+| `Bespoke: Chat`                       | —          | Chat about selected code (context menu) |
 
 ## Setup
 

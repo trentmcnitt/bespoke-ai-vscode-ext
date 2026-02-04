@@ -108,6 +108,70 @@ interface MockToken {
   onCancellationRequested: (listener: () => void) => { dispose: () => void };
 }
 
+/** Minimal mock TextDocument for unit tests. */
+export interface MockDocument {
+  getText: (range?: unknown) => string;
+  lineAt: (line: number) => { text: string; range: { end: { line: number; character: number } } };
+  positionAt: (offset: number) => { line: number; character: number };
+  offsetAt: (position: { line: number; character: number }) => number;
+  lineCount: number;
+  languageId: string;
+  fileName: string;
+}
+
+/**
+ * Creates a mock TextDocument for unit tests.
+ * Supports getText, lineAt, positionAt, offsetAt, and common properties.
+ */
+export function makeDocument(
+  content: string,
+  options?: { languageId?: string; fileName?: string },
+): MockDocument {
+  const lines = content.split('\n');
+  const languageId = options?.languageId ?? 'plaintext';
+  const fileName = options?.fileName ?? 'test.txt';
+
+  return {
+    getText: (range?: unknown) => {
+      if (!range) return content;
+      // Cast to expected range type
+      const r = range as {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+      };
+      const startOffset =
+        lines.slice(0, r.start.line).reduce((acc, l) => acc + l.length + 1, 0) + r.start.character;
+      const endOffset =
+        lines.slice(0, r.end.line).reduce((acc, l) => acc + l.length + 1, 0) + r.end.character;
+      return content.slice(startOffset, endOffset);
+    },
+    lineAt: (line: number) => ({
+      text: lines[line] ?? '',
+      range: { end: { line, character: (lines[line] ?? '').length } },
+    }),
+    positionAt: (offset: number) => {
+      let remaining = offset;
+      for (let i = 0; i < lines.length; i++) {
+        if (remaining <= lines[i].length) {
+          return { line: i, character: remaining };
+        }
+        remaining -= lines[i].length + 1; // +1 for newline
+      }
+      return { line: lines.length - 1, character: lines[lines.length - 1].length };
+    },
+    offsetAt: (position: { line: number; character: number }) => {
+      let offset = 0;
+      for (let i = 0; i < position.line && i < lines.length; i++) {
+        offset += lines[i].length + 1;
+      }
+      return offset + position.character;
+    },
+    lineCount: lines.length,
+    languageId,
+    fileName,
+  };
+}
+
 export function createMockToken(): MockToken & { cancel: () => void } {
   let listener: (() => void) | null = null;
   return {
@@ -142,19 +206,18 @@ export function makeLedger(dir?: string): { ledger: UsageLedger; filePath: strin
 export function assertWarmupValid(getTrace: (label: string) => string | undefined): void {
   const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
 
-  for (const slotIndex of [0]) {
-    const raw = getTrace(`warmup ← recv (slot ${slotIndex})`);
-    if (raw === undefined) {
-      continue;
-    }
-    const extracted = extractOutput(raw);
-    const stripped = stripCompletionStart(extracted, completionStart);
-    expect(stripped, `warmup slot ${slotIndex}: stripCompletionStart returned null`).not.toBeNull();
-    expect(
-      stripped!.trim().toLowerCase(),
-      `warmup slot ${slotIndex}: expected "${WARMUP_EXPECTED}"`,
-    ).toBe(WARMUP_EXPECTED);
+  const slotIndex = 0;
+  const raw = getTrace(`warmup ← recv (slot ${slotIndex})`);
+  if (raw === undefined) {
+    return;
   }
+  const extracted = extractOutput(raw);
+  const stripped = stripCompletionStart(extracted, completionStart);
+  expect(stripped, `warmup slot ${slotIndex}: stripCompletionStart returned null`).not.toBeNull();
+  expect(
+    stripped!.trim().toLowerCase(),
+    `warmup slot ${slotIndex}: expected "${WARMUP_EXPECTED}"`,
+  ).toBe(WARMUP_EXPECTED);
 }
 
 /** Type for fake stream returned by makeFakeStream */

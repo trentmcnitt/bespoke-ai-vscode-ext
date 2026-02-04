@@ -8,6 +8,9 @@ import { SlotPool } from './slot-pool';
  * of the prefix to understand the cursor position and generate relevant text. */
 const COMPLETION_START_LENGTH = 10;
 
+/** Maximum completions per slot before recycling. */
+const MAX_COMPLETION_REUSES = 8;
+
 /** Warmup prompt constants — exported for test assertions. */
 export const WARMUP_PREFIX = 'Two plus two equals ';
 export const WARMUP_SUFFIX = '.';
@@ -350,8 +353,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     }
 
     this.logger.info('Claude Code: initializing pool...');
-    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
-
+    await this.initAllSlots();
     this.logger.info(`Claude Code: pool ready (${this.poolSize} slots)`);
   }
 
@@ -459,7 +461,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   }
 
   protected getMaxReuses(): number {
-    return 8;
+    return MAX_COMPLETION_REUSES;
   }
 
   protected getPoolLabel(): string {

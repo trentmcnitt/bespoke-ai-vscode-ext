@@ -66,6 +66,7 @@ export function createMessageChannel(): MessageChannel {
     },
     close() {
       done = true;
+      pending.length = 0; // Clear pending queue to prevent memory leak
       if (resolve) {
         resolve({ value: undefined as unknown as SdkUserMessage, done: true });
         resolve = null;

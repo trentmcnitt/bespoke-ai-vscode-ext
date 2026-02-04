@@ -5,6 +5,9 @@ const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely
 
 const WARMUP_MESSAGE = 'Reply with exactly the word: READY';
 
+/** Maximum requests per slot before recycling. */
+const MAX_COMMAND_REUSES = 24;
+
 export interface SendPromptOptions {
   timeoutMs?: number;
   onCancel?: AbortSignal;
@@ -34,7 +37,7 @@ export class CommandPool extends SlotPool {
     }
 
     this.logger.info('CommandPool: initializing pool...');
-    await Promise.all(Array.from({ length: this.poolSize }, (_, i) => this.initSlot(i)));
+    await this.initAllSlots();
     this.logger.info('CommandPool: pool ready');
   }
 
@@ -92,11 +95,18 @@ export class CommandPool extends SlotPool {
     // Push the command into the slot's channel
     slot.channel.push(message);
 
-    // Build race promises
-    const promises: Promise<string | null>[] = [slot.resultPromise];
-
-    // Flag to prevent race between timeout/cancel and real result
+    // Flag to prevent race between timeout/cancel and real result.
+    // Set atomically when the winning promise resolves.
     let resolved = false;
+
+    // Wrap slot.resultPromise to set resolved atomically on win
+    const resultWithFlag = slot.resultPromise.then((result) => {
+      resolved = true;
+      return result;
+    });
+
+    // Build race promises
+    const promises: Promise<string | null>[] = [resultWithFlag];
 
     // Optional timeout
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -144,9 +154,6 @@ export class CommandPool extends SlotPool {
     // Race for the result
     const raw = await Promise.race(promises);
 
-    // Mark as resolved to prevent late timeout/cancel effects
-    resolved = true;
-
     // Cleanup
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);
@@ -177,7 +184,7 @@ export class CommandPool extends SlotPool {
   }
 
   protected getMaxReuses(): number {
-    return 24;
+    return MAX_COMMAND_REUSES;
   }
 
   protected getPoolLabel(): string {

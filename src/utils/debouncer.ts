@@ -1,12 +1,8 @@
 import * as vscode from 'vscode';
 
-export const MAX_BACKOFF_MS = 30_000;
-export const MAX_DISMISSALS = 8;
-
 export class Debouncer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private currentAbort: AbortController | null = null;
-  // private dismissalCount = 0;
 
   constructor(private delayMs: number) {}
 
@@ -14,34 +10,10 @@ export class Debouncer {
     this.delayMs = ms;
   }
 
-  // --- Adaptive back-off (commented out — may restore later) ---
-  // /** Record a dismissal — increases back-off for the next debounce. */
-  // recordDismissal(): void {
-  //   if (this.dismissalCount < MAX_DISMISSALS) {
-  //     this.dismissalCount++;
-  //   }
-  // }
-  //
-  // /** Reset back-off to zero (called on acceptance). */
-  // resetBackoff(): void {
-  //   this.dismissalCount = 0;
-  // }
-
-  /** Current effective delay — returns base delay (back-off disabled). */
+  /** Current effective delay. */
   getCurrentDelay(): number {
     return this.delayMs;
-    // Back-off formula (disabled):
-    // if (this.dismissalCount === 0) {
-    //   return this.delayMs;
-    // }
-    // const ratio = MAX_BACKOFF_MS / this.delayMs;
-    // const exponent = Math.min(this.dismissalCount, MAX_DISMISSALS) / MAX_DISMISSALS;
-    // return Math.min(Math.round(this.delayMs * Math.pow(ratio, exponent)), MAX_BACKOFF_MS);
   }
-
-  // get currentDismissalCount(): number {
-  //   return this.dismissalCount;
-  // }
 
   /**
    * Waits for the debounce period, then returns an AbortSignal for the HTTP request.

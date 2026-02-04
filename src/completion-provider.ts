@@ -4,7 +4,7 @@ import {
   CompletionProvider as ICompletionProvider,
   ExtensionConfig,
 } from './types';
-import { ModeDetector } from './mode-detector';
+import { detectMode } from './mode-detector';
 import { buildDocumentContext } from './utils/context-builder';
 import { LRUCache } from './utils/cache';
 import { Debouncer } from './utils/debouncer';
@@ -19,7 +19,6 @@ const PROSE_SUPPRESS_AFTER = new Set(['.', '?', '!', ';', '(', '[', '{', '"', "'
 const CODE_SUPPRESS_AFTER = new Set([';']);
 
 export class CompletionProvider implements vscode.InlineCompletionItemProvider {
-  private modeDetector: ModeDetector;
   private provider: ICompletionProvider;
   private cache: LRUCache;
   private debouncer: Debouncer;
@@ -29,7 +28,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
-  // private lastOfferedCompletion: { text: string; line: number; character: number } | null = null;
 
   constructor(
     config: ExtensionConfig,
@@ -38,7 +36,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     tracker?: UsageTracker,
   ) {
     this.config = config;
-    this.modeDetector = new ModeDetector();
     this.provider = provider;
     this.cache = new LRUCache();
     this.debouncer = new Debouncer(config.debounceMs);
@@ -59,7 +56,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
   clearCache(): void {
     this.cache.clear();
-    // this.lastOfferedCompletion = null;
     this.logger.info('Cache cleared');
   }
 
@@ -85,38 +81,12 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       return null;
     }
 
-    // --- Dismissal / acceptance detection (commented out — back-off disabled) ---
-    // if (this.lastOfferedCompletion) {
-    //   const offered = this.lastOfferedCompletion;
-    //   this.lastOfferedCompletion = null;
-    //
-    //   const textAfterOffer = document.getText(
-    //     new vscode.Range(
-    //       new vscode.Position(offered.line, offered.character),
-    //       document.positionAt(
-    //         document.offsetAt(new vscode.Position(offered.line, offered.character)) +
-    //           offered.text.length,
-    //       ),
-    //     ),
-    //   );
-    //
-    //   if (textAfterOffer === offered.text) {
-    //     this.debouncer.resetBackoff();
-    //     this.logger.debug('Completion accepted — back-off reset');
-    //   } else {
-    //     this.debouncer.recordDismissal();
-    //     this.logger.debug(
-    //       `Completion dismissed — back-off level ${this.debouncer.currentDismissalCount}, next delay ${this.debouncer.getCurrentDelay()}ms`,
-    //     );
-    //   }
-    // }
-
     // Explicit triggers use zero delay
     const isExplicitTrigger =
       inlineContext.triggerKind === vscode.InlineCompletionTriggerKind.Invoke;
 
     // Detect mode
-    const mode = this.modeDetector.detectMode(document.languageId, this.config);
+    const mode = detectMode(document.languageId, this.config);
 
     // Build document context
     const contextChars =
@@ -159,11 +129,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.trace(
         `returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`,
       );
-      // this.lastOfferedCompletion = {
-      //   text: cached,
-      //   line: position.line,
-      //   character: position.character,
-      // };
       return [item];
     }
 
@@ -230,11 +195,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.trace(
         `returning completion: insertText=${JSON.stringify(result.slice(0, 50))}... range=${position.line}:${position.character}`,
       );
-      // this.lastOfferedCompletion = {
-      //   text: result,
-      //   line: position.line,
-      //   character: position.character,
-      // };
       return [item];
     } catch (err: unknown) {
       this.logger.error(`✗ #${reqId} | claude-code error`, err);
