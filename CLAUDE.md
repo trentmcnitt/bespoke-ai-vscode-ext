@@ -12,56 +12,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Bespoke AI is a personal AI toolkit for VS Code that provides inline completions (ghost text — the gray preview text shown before accepting) for prose and code, a commit message generator, and a suggest-edits command (fixes typos/grammar/bugs in visible text). It uses the Claude Code CLI, which requires a Claude subscription. Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
+Bespoke AI is a personal AI toolkit for VS Code that provides inline completions (ghost text — the gray preview text shown before accepting) for prose and code, a commit message generator, a suggest-edits command (fixes typos/grammar/bugs in visible text), and context menu commands (Explain, Fix, Alternatives, Condense, Chat). It uses the Claude Code CLI, which requires a Claude subscription. Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
 
-The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions, commit messages, and suggest-edits unless explicitly asked.
+The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, and context menu commands unless explicitly asked.
 
 ## Policies and Guidelines
 
 **Interpreting pasted content:** When the user pastes log output, error messages, or other unaccompanied diagnostic content, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix.
 
-**Error handling pattern:** The backend catches abort errors and returns `null`; all other errors propagate to the completion orchestrator, which logs them via the `Logger` and returns `null`. The extension does not surface runtime completion errors to the user. New code should follow this same pattern.
+**Error handling pattern:** The backend catches abort errors and returns `null`; all other errors propagate to the completion orchestrator, which logs them via the `Logger`. Completion errors are shown to the user via `showErrorMessage`, rate-limited to one toast per 60 seconds. New code should follow this same pattern.
 
 **Pre-commit gate:** Run `npm run check` before creating any commit. Only proceed if it passes.
 
 **Version control:** This project uses GitHub. Use `gh` for repository operations. Work directly on `main` unless asked to create a branch.
-
-### Debugging and Fixing Completion Issues
-
-When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwanted content):
-
-**First, diagnose.** Set `bespokeAI.logLevel` to `trace` and reproduce the issue. If the user provides trace output directly, use that for diagnosis rather than asking them to reproduce. The `[TRACE]` output shows the full prefix, suffix, system prompt, user message, and raw completion. Use this to determine whether the problem is in prompt construction, model output, or post-processing before attempting a fix.
-
-| Symptom source      | Action                                                      |
-| ------------------- | ----------------------------------------------------------- |
-| Prompt construction | Fix in `buildFillMessage()` or the system prompt            |
-| Model output        | Adjust prompt or system prompt                              |
-| Post-processing     | Review `post-process.ts` pipeline (last resort — see below) |
-
-**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, assistant-turn prefix, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes.
-
-**Why post-processing is risky:** Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing unpredictable ghost text the user didn't ask for. Edge cases compound — each post-processing step interacts with every other step and with every possible completion the model might produce. The result is brittle behavior that's hard to diagnose because the user sees ghost text that doesn't match what the model actually returned.
-
-**If post-processing seems necessary:**
-
-1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does. Do not add post-processing without explicit approval.
-2. **The transformation must be provably safe** — it should only activate when the input is _always_ wrong (a true invariant violation), never when the input _might_ be correct. If there's any ambiguity about whether the text is a duplicate vs. legitimate content, don't strip it.
-3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs. Broad pattern matching or fuzzy heuristics are not acceptable.
-4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected _and_ tests that verify it leaves correct completions untouched across a range of realistic inputs.
-5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
-6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or backend level, remove the corresponding post-processing step. Stale workarounds accumulate risk.
-
-When fixing a completion bug, consider also adding the failing case as a regression scenario (see Regression Scenarios) so it is covered by future quality test runs.
-
-### Known Limitations
-
-These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
-
-- Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
-- The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL, time-to-live) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
-- The extension does not validate config values. Invalid settings pass through to the backend without checking.
-- Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/` and `src/benchmark/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
-- **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If VS Code crashes or is force-killed (e.g., `kill -9`), subprocesses may remain until they timeout or are manually cleaned with: `pkill -f "claude.*dangerously-skip-permissions"`
 
 ## Build and Scripts
 
@@ -78,7 +41,7 @@ npm run test:unit:watch  # Vitest watch mode
 npm run test:api         # API integration tests (src/test/api/, needs claude CLI)
 npm run test:quality     # LLM-as-judge completion quality tests (needs claude CLI)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
-npm run install-ext      # Compile, package VSIX (VS Code extension bundle), and install into VSCodium
+npm run install-ext      # Compile, package VSIX, and install into VSCodium
 ```
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
@@ -91,17 +54,17 @@ Pressing F5 in VS Code launches the Extension Development Host using the `npm:wa
 
 esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). The build marks the `vscode` module as external because the VS Code host provides it at runtime. Optional dependency: `@anthropic-ai/claude-agent-sdk` (Claude Code backend). `@anthropic-ai/sdk` is a devDependency used only by the benchmark judge.
 
-## Versioning and Installation
+### Versioning and Installation
 
 Increment the version in `package.json` with each development iteration before installing. To package and install:
 
 ```bash
 npm run compile
 vsce package --allow-missing-repository
-codium --install-extension bespoke-ai-{version}.vsix   # or: code --install-extension
+codium --install-extension bespoke-ai.vsix   # or: code --install-extension
 ```
 
-The `npm run install-ext` script runs all three steps above but does not bump the version — increment it manually first.
+The `npm run install-ext` script runs compile, package, and install but does not bump the version — increment it manually first.
 
 Increment the patch version (third number) by default for each install. For larger changes (new features, prompt rewrites, architectural shifts), ask whether to bump the minor version instead.
 
@@ -109,24 +72,44 @@ Increment the patch version (third number) by default for each install. For larg
 
 Adding or modifying a VS Code setting requires coordinated changes to:
 
-| Step | File                  | What to change                                                                        |
-| ---- | --------------------- | ------------------------------------------------------------------------------------- |
-| 1    | `package.json`        | Add to `contributes.configuration`                                                    |
-| 2    | `src/types.ts`        | Add field to `ExtensionConfig`                                                        |
-| 3    | `src/extension.ts`    | Read it in `loadConfig()`                                                             |
-| 4    | `src/test/helpers.ts` | Add default value in `DEFAULT_CONFIG`                                                 |
-| 5    | (varies)              | Use the new field in the relevant component(s)                                        |
-| 6    | (varies)              | If it should apply without restart: propagate via `CompletionProvider.updateConfig()` |
+| Step | File                        | What to change                                                                        |
+| ---- | --------------------------- | ------------------------------------------------------------------------------------- |
+| 1    | `package.json`              | Add to `contributes.configuration`                                                    |
+| 2    | `src/types.ts`              | Add field to `ExtensionConfig`                                                        |
+| 3    | `src/extension.ts`          | Read it in `loadConfig()`                                                             |
+| 4    | `src/test/helpers.ts`       | Add default value in `DEFAULT_CONFIG`                                                 |
+| 5    | (varies)                    | Use the new field in the relevant component(s)                                        |
+| 6    | (varies)                    | If it should apply without restart: propagate via `CompletionProvider.updateConfig()` |
+| 7    | `src/pool-server/client.ts` | If the setting affects pool behavior: propagate via `PoolClient.updateConfig()`       |
 
 ## Architecture
 
 ### Request Flow
 
-User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache → debounce (delay until typing pauses; 8000ms default, zero-delay for manual trigger) → call Claude Code backend (builds prompt internally) → post-process result → cache result → return `InlineCompletionItem`.
+**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU cache (returns immediately on hit) → debounce (batches rapid keystrokes; 8000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path if this window is the server, or Unix socket IPC to the `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
+
+**Commit message / Suggest edits:** Command invoked → `PoolClient.sendCommand()` → (local or socket) → `PoolServer` → `CommandPool.sendPrompt()` → result returned to caller.
+
+### Pool Server
+
+The pool server is a shared-process architecture that allows multiple VS Code windows to share a single set of Claude Code subprocesses.
+
+**Leader election:** The first VS Code window to start tries to connect to an existing server at `~/.bespokeai/pool.sock`. If none exists, it acquires a lockfile (`~/.bespokeai/pool.lock`) using atomic `wx` file creation to prevent races, then starts a `PoolServer` listening on the Unix socket. Subsequent windows connect as clients. If the server window closes, clients detect the disconnection and race to become the new server (takeover with exponential back-off).
+
+**IPC protocol:** Newline-delimited JSON messages over the Unix domain socket. Request types: `completion`, `command`, `config-update`, `recycle`, `status`, `warmup`, `dispose`, `client-hello`. Server pushes events (`server-shutting-down`, `pool-degraded`) to all connected clients.
+
+**Local fast path:** When the `PoolClient` is also the server (leader), requests bypass the socket entirely and call `PoolServer` methods directly — zero serialization overhead.
+
+**Key files:**
+
+- `src/pool-server/client.ts` — `PoolClient` class. Implements `CompletionProvider` interface. Leader election, socket connection, reconnection with retry, takeover on server loss.
+- `src/pool-server/server.ts` — `PoolServer` class. Manages `ClaudeCodeProvider` and `CommandPool` instances, handles IPC requests, lockfile utilities.
+- `src/pool-server/protocol.ts` — IPC message type definitions, serialization/parsing helpers.
+- `src/pool-server/index.ts` — Re-exports for external consumers.
 
 ### Logging
 
-The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). The `activate()` function creates the Logger and injects it into the completion orchestrator and `ClaudeCodeProvider`. The `bespokeAI.logLevel` setting controls verbosity:
+The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bespoke AI"). The `activate()` function creates the Logger and passes it to `PoolClient` and `CompletionProvider`. The `bespokeAI.logLevel` setting controls verbosity:
 
 | Level               | What gets logged                                                 |
 | ------------------- | ---------------------------------------------------------------- |
@@ -155,21 +138,15 @@ The output channel is visible in the VS Code Output panel.
 
 ### Module Reference
 
-Key modules, listed in request-flow order:
+#### Core Pipeline
 
-- `src/extension.ts` — Activation entry point. Loads config, creates Logger/ClaudeCodeProvider/completion orchestrator, registers the inline completion provider, status bar, and commands. Watches for config changes and propagates via `updateConfig()`.
+- `src/extension.ts` — Activation entry point. Loads config, creates Logger/PoolClient/CompletionProvider, registers the inline completion provider, status bar, and commands. Watches for config changes and propagates via `updateConfig()`.
 
-- `src/commit-message.ts` — Generates commit messages via the `CommandPool`. Reads diffs from VS Code's built-in Git extension, sends them to the pre-warmed command pool, and writes the result into the Source Control panel's commit message input box. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Ctrl+L or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
-- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `CommandPool`. Captures visible editor text, sends it for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Standalone module — independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
+- `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over Unix socket IPC).
 
-- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Alternatives, Condense, Chat). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Standalone module — does not use the CommandPool.
-
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`Invoke`) use zero-delay debounce for instant response. Adaptive back-off code is present but commented out. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `ClaudeCodeProvider`). Exposes `clearCache()` and `setRequestCallbacks()`.
-
-- `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
-
-- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a reusable Claude Code subprocess session. Manages slot lifecycle (init → warmup → consume → reuse → recycle), circuit breaker (stops requests after repeated failures), generation guards, single-waiter queue, warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
+- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a reusable Claude Code subprocess session. Manages slot lifecycle: init (spawn subprocess) → warmup (validate with a test prompt) → consume (handle user requests) → reuse (serve another request on the same subprocess) → recycle (terminate old subprocess and spawn a new one when `maxRequests` is reached). Also provides: circuit breaker (stops requests after repeated failures), generation guards (prevent stale responses from previous request cycles from being returned), single-waiter queue (only the most recent caller waits for a busy slot; older waiters get `null`), warmup retry, and `recycleAll`/`restart`/`dispose`. Subclassed by `ClaudeCodeProvider` and `CommandPool`.
 
 - `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
   - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
@@ -178,13 +155,27 @@ Key modules, listed in request-flow order:
 
 - `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 24 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
 
-- `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
+#### Standalone Commands
 
-- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. Adaptive back-off code is present but commented out. `debounce()` accepts an optional `overrideDelayMs` (used by explicit triggers with `0` for instant response).
+- `src/commit-message.ts` — Generates commit messages via the `PoolClient`. Reads diffs from VS Code's built-in Git extension, sends them through `PoolClient.sendCommand()` to the command pool, and writes the result into the Source Control panel's commit message input box. Independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
 
-- `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Key built from mode + last 500 prefix chars + first 200 suffix chars.
+- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `PoolClient`. Captures visible editor text, sends it through `PoolClient.sendCommand()` for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
+
+- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Alternatives, Condense, Chat). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process.
+
+#### Detection and Context
+
+- `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
 - `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Context sizes configurable via `prose.contextChars`/`code.contextChars` settings.
+
+#### Utilities
+
+- `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
+
+- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. `debounce()` accepts an optional `overrideDelayMs` (used by explicit triggers with `0` for instant response).
+
+- `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Key built from mode + last 500 prefix chars + first 200 suffix chars.
 
 - `src/utils/message-channel.ts` — Async message channel utility used by the Claude Code backend for inter-process communication.
 
@@ -196,13 +187,64 @@ Key modules, listed in request-flow order:
 
 - `src/utils/usage-ledger.ts` — Persistent JSONL (JSON Lines, one JSON object per line) ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
 
+- `src/utils/logger.ts` — `Logger` class wrapping VS Code `OutputChannel`. See [Logging](#logging).
+
 - `src/scripts/dump-prompts.ts` — Utility script (`npm run dump-prompts`) that renders exact prompt strings for prose and code modes.
 
-### Shared Type Definitions
+#### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which the Claude Code backend implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. The `claudeCode` sub-object includes a `models` array (informational catalog) and a `model` string (the active model).
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `PoolClient` implements (and which `ClaudeCodeProvider` also implements within the pool server). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. The `claudeCode` sub-object includes a `models` array (informational catalog) and a `model` string (the active model).
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
+
+## Debugging and Fixing Issues
+
+### Debugging Completion Issues
+
+When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwanted content):
+
+**First, diagnose.** Set `bespokeAI.logLevel` to `trace` and reproduce the issue. If the user provides trace output directly, use that for diagnosis rather than asking them to reproduce. The `[TRACE]` output shows the full prefix, suffix, system prompt, user message, and raw completion. Use this to determine whether the problem is in prompt construction, model output, post-processing, or pool/IPC communication before attempting a fix.
+
+| Symptom source                                    | Action                                                      |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| Prompt construction (model receives wrong input)  | Fix in `buildFillMessage()` or the system prompt            |
+| Model output (correct input, wrong response)      | Adjust prompt or system prompt                              |
+| Pool/IPC (message corruption, timeout, reconnect) | Debug `PoolClient`/`PoolServer` communication               |
+| Post-processing                                   | Review `post-process.ts` pipeline (last resort — see below) |
+
+**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, `<completion_start>` anchor, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes.
+
+**Why post-processing is risky:** Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing unpredictable ghost text the user didn't ask for. Edge cases compound — each post-processing step interacts with every other step and with every possible completion the model might produce. The result is brittle behavior that's hard to diagnose because the user sees ghost text that doesn't match what the model actually returned.
+
+**If post-processing seems necessary:**
+
+1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does. Do not add post-processing without explicit approval.
+2. **The transformation must be provably safe** — it should only activate when the input is _always_ wrong (a true invariant violation), never when the input _might_ be correct. If there's any ambiguity about whether the text is a duplicate vs. legitimate content, don't strip it.
+3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs. Broad pattern matching or fuzzy heuristics are not acceptable.
+4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected _and_ tests that verify it leaves correct completions untouched across a range of realistic inputs.
+5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
+6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or backend level, remove the corresponding post-processing step. Stale workarounds accumulate risk.
+
+When fixing a completion bug, consider also adding the failing case as a regression scenario (see Regression Scenarios) so it is covered by future quality test runs.
+
+### Debugging Commit Message and Suggest-Edit Issues
+
+These commands use the `CommandPool` (via `PoolClient.sendCommand()`). Diagnosis approach:
+
+1. Check `[DEBUG]` logs for "Commit message" or "Suggest edit" entries — they show diff size, prompt size, and timing.
+2. Check `[TRACE]` logs for the full prompt and raw response.
+3. If the command pool is not ready, check whether the pool server is running and the command slot is in a healthy state (use the status bar menu → Pool Status).
+4. For parse failures in suggest-edit, check the raw response format against the expected `<corrected>` tag structure in `suggest-edit-utils.ts`.
+
+## Known Limitations
+
+These are accepted trade-offs. Do not attempt to fix them unless explicitly asked.
+
+- Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
+- The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL, time-to-live) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
+- The extension does not validate config values. Invalid settings pass through to the backend without checking.
+- Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/` and `src/benchmark/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
+- **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If VS Code crashes or is force-killed (e.g., `kill -9`), subprocesses may remain until they timeout or are manually cleaned with: `pkill -f "claude.*dangerously-skip-permissions"`
 
 ## Testing
 
@@ -289,6 +331,6 @@ Each `RegressionScenario` extends `TestScenario` with:
 3. Document the failure in `regression_notes` and set `quality_notes` to tell the judge what constitutes a fix
 4. Tag with the `observedModel` and `observedDate`
 
-## Benchmarking
+## Benchmarking (Non-Functional)
 
 The benchmark system (`src/benchmark/`) is currently non-functional and needs a rewrite for the Claude Code backend. The runner and configs still reference the removed Anthropic/Ollama providers. The judge (`src/benchmark/judge.ts`) still works independently as it uses the Anthropic SDK directly. If asked to run benchmarks, explain the situation and ask whether the user wants to proceed with a rewrite.
