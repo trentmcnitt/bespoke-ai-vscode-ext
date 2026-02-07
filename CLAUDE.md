@@ -12,9 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Bespoke AI is a personal AI toolkit for VS Code that provides inline completions (ghost text — the gray preview text shown before accepting) for prose and code, a commit message generator, a suggest-edits command (fixes typos/grammar/bugs in visible text), and context menu commands (Explain, Fix, Alternatives, Condense, Chat). It uses the Claude Code CLI, which requires a Claude subscription. Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
+Bespoke AI is a personal AI toolkit for VS Code that provides inline completions (ghost text — the gray preview text shown before accepting) for prose and code, a commit message generator, a suggest-edits command (fixes typos/grammar/bugs in visible text), an expand command (guided multi-suggestion inline completions via right-click or Ctrl+Shift+L), and context menu commands (Explain, Fix, Alternatives, Condense, Chat). It uses the Claude Code CLI, which requires a Claude subscription. Auto-detects prose vs code completion mode based on `document.languageId`. The extension works identically in both VS Code and VSCodium.
 
-The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, and context menu commands unless explicitly asked.
+The Claude Code backend is the sole provider. Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, expand, and context menu commands unless explicitly asked.
 
 ## Policies and Guidelines
 
@@ -163,6 +163,8 @@ The output channel is visible in the VS Code Output panel.
 
 - `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Alternatives, Condense, Chat). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process.
 
+- `src/commands/expand.ts` — Expand command (Ctrl+Shift+L or right-click). Generates 1–3 inline suggestions the user can cycle through (Alt+]/[) and accept with Tab. Two modes: Continue (no selection, smarter continuation from cursor) and Expand (with selection, transforms/expands selected text). Optionally guided via input box. Uses `PoolClient.sendCommand()` to the command pool, parses `<suggestion>` tags, and injects results into `CompletionProvider` for native inline suggest rendering. Pure helpers live in `src/utils/expand-utils.ts`.
+
 #### Detection and Context
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
@@ -170,6 +172,8 @@ The output channel is visible in the VS Code Output panel.
 - `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Context sizes configurable via `prose.contextChars`/`code.contextChars` settings.
 
 #### Utilities
+
+- `src/utils/expand-utils.ts` — Pure helpers for the expand command. `buildExpandPrompt()` constructs the prompt with document context and optional guidance. `parseSuggestions()` extracts `<suggestion>` tag content from model responses.
 
 - `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
 
@@ -185,7 +189,7 @@ The output channel is visible in the VS Code Output panel.
 
 - `src/utils/usage-tracker.ts` — Tracks per-session completion counts, character counts, cache hits/misses, errors, and burst detection.
 
-- `src/utils/usage-ledger.ts` — Persistent JSONL (JSON Lines, one JSON object per line) ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
+- `src/utils/usage-ledger.ts` — Persistent JSONL (JSON Lines, one JSON object per line) ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every Claude Code interaction (completions, warmups, startups, commit messages, suggest-edits, expand) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
 
 - `src/utils/logger.ts` — `Logger` class wrapping VS Code `OutputChannel`. See [Logging](#logging).
 
@@ -227,14 +231,14 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 
 When fixing a completion bug, consider also adding the failing case as a regression scenario (see Regression Scenarios) so it is covered by future quality test runs.
 
-### Debugging Commit Message and Suggest-Edit Issues
+### Debugging Commit Message, Suggest-Edit, and Expand Issues
 
 These commands use the `CommandPool` (via `PoolClient.sendCommand()`). Diagnosis approach:
 
-1. Check `[DEBUG]` logs for "Commit message" or "Suggest edit" entries — they show diff size, prompt size, and timing.
+1. Check `[DEBUG]` logs for "Commit message", "Suggest edit", or "Expand" entries — they show diff size, prompt size, and timing.
 2. Check `[TRACE]` logs for the full prompt and raw response.
 3. If the command pool is not ready, check whether the pool server is running and the command slot is in a healthy state (use the status bar menu → Pool Status).
-4. For parse failures in suggest-edit, check the raw response format against the expected `<corrected>` tag structure in `suggest-edit-utils.ts`.
+4. For parse failures in suggest-edit, check the raw response format against the expected `<corrected>` tag structure in `suggest-edit-utils.ts`. For expand, check for `<suggestion>` tags in the raw response.
 
 ## Known Limitations
 

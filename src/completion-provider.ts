@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   CompletionContext,
   CompletionProvider as ICompletionProvider,
+  ExpandResult,
   ExtensionConfig,
 } from './types';
 import { detectMode } from './mode-detector';
@@ -25,6 +26,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private config: ExtensionConfig;
   private logger: Logger;
   private tracker?: UsageTracker;
+  private expandResult: ExpandResult | null = null;
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
@@ -54,8 +56,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.provider.updateConfig?.(config);
   }
 
+  setExpandResult(result: ExpandResult): void {
+    this.expandResult = result;
+  }
+
   clearCache(): void {
     this.cache.clear();
+    this.expandResult = null;
     this.logger.info('Cache cleared');
   }
 
@@ -71,6 +78,19 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   ): Promise<vscode.InlineCompletionItem[] | null> {
     if (!this.config.enabled) {
       return null;
+    }
+
+    // Consume pending expand result (one-shot injection from the expand command)
+    if (this.expandResult) {
+      const result = this.expandResult;
+      this.expandResult = null;
+      const range = new vscode.Range(
+        result.range.startLine,
+        result.range.startCharacter,
+        result.range.endLine,
+        result.range.endCharacter,
+      );
+      return result.suggestions.map((text) => new vscode.InlineCompletionItem(text, range));
     }
 
     // In manual mode, only respond to explicit triggers (Ctrl+L / command palette)
@@ -212,6 +232,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   }
 
   dispose(): void {
+    this.expandResult = null;
     this.debouncer.dispose();
   }
 }

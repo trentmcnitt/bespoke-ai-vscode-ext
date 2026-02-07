@@ -20,6 +20,11 @@ export interface CompletionProvider {
   recycleAll?(): Promise<void>;
 }
 
+export interface ExpandResult {
+  suggestions: string[];
+  range: { startLine: number; startCharacter: number; endLine: number; endCharacter: number };
+}
+
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';

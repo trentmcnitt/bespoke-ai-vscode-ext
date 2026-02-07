@@ -2,7 +2,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from './logger';
 
-export type LedgerSource = 'completion' | 'commit-message' | 'suggest-edit' | 'warmup' | 'startup';
+export type LedgerSource =
+  | 'completion'
+  | 'commit-message'
+  | 'suggest-edit'
+  | 'expand'
+  | 'warmup'
+  | 'startup';
 
 export interface LedgerEntry {
   ts: number;

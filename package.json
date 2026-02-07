@@ -65,6 +65,10 @@
       {
         "command": "bespoke-ai.chatSelection",
         "title": "Bespoke: Chat"
+      },
+      {
+        "command": "bespoke-ai.expand",
+        "title": "Bespoke: Expand"
       }
     ],
     "menus": {
@@ -100,6 +104,10 @@
           "command": "bespoke-ai.chatSelection",
           "when": "editorHasSelection",
           "group": "0_bespoke@5"
+        },
+        {
+          "command": "bespoke-ai.expand",
+          "group": "0_bespoke@6"
         }
       ]
     },
@@ -108,6 +116,12 @@
         "command": "bespoke-ai.trigger",
         "key": "ctrl+l",
         "mac": "ctrl+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "bespoke-ai.expand",
+        "key": "ctrl+shift+l",
+        "mac": "ctrl+shift+l",
         "when": "editorTextFocus"
       }
     ],

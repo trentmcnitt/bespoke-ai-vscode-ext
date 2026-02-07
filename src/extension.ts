@@ -15,6 +15,7 @@ import {
   condenseSelection,
   chatSelection,
 } from './commands/context-menu';
+import { expandCommand } from './commands/expand';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
 
@@ -389,6 +390,16 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('bespoke-ai.alternativesSelection', alternativesSelection),
     vscode.commands.registerCommand('bespoke-ai.condenseSelection', condenseSelection),
     vscode.commands.registerCommand('bespoke-ai.chatSelection', chatSelection),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.expand', async () => {
+      if (!lastConfig.enabled) {
+        vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
+        return;
+      }
+      await expandCommand(poolClient, completionProvider, lastConfig, logger, usageLedger);
+    }),
   );
 
   // Watch for config changes
