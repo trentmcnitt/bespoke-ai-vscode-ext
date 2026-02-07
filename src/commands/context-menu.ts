@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { escapeForDoubleQuotes, PROMPT_TEMPLATES } from './context-menu-utils';
 
 /**
  * Opens a terminal in ViewColumn.Two and sends a Claude CLI command.
@@ -44,27 +45,24 @@ function getSelectionInfo(): { filePath: string; startLine: number; endLine: num
   return { filePath, startLine, endLine };
 }
 
-// --- Command builders ---
-// All use escaped backticks (\`) for markdown formatting in the prompt.
-// The \\\` in template literals produces \` in output, which shells interpret as literal backticks.
-
-/** Common instruction appended to all prompts: read the lines first, then context as needed. */
-const READ_CONTEXT_INSTRUCTION =
-  'Read those lines first, then read any other parts of the document (or other documents) as needed to understand the specified lines in context.';
-
-/** Prompt templates for each command type. */
-const PROMPT_TEMPLATES = {
-  explain: (filePath: string, startLine: number, endLine: number) =>
-    `Explain lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
-  fix: (filePath: string, startLine: number, endLine: number) =>
-    `Fix any issues in lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION} Apply fixes to those lines directly. If you notice related issues outside the selection, describe them but do not edit without asking.`,
-  alternatives: (filePath: string, startLine: number, endLine: number) =>
-    `Give me 3 alternative ways to phrase lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
-  condense: (filePath: string, startLine: number, endLine: number) =>
-    `Make lines ${startLine}-${endLine} of \\\`${filePath}\\\` more concise while preserving the meaning. ${READ_CONTEXT_INSTRUCTION}`,
-  chat: (filePath: string, startLine: number, endLine: number) =>
-    `I want to discuss lines ${startLine}-${endLine} of \\\`${filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`,
-} as const;
+/**
+ * Shows an input box and returns the user's input.
+ * Returns undefined if the user pressed Escape (cancel).
+ * When required is true, empty input is rejected with a validation message.
+ */
+async function getUserInput(options: {
+  prompt: string;
+  placeholder: string;
+  required: boolean;
+}): Promise<string | undefined> {
+  return vscode.window.showInputBox({
+    prompt: options.prompt,
+    placeHolder: options.placeholder,
+    validateInput: options.required
+      ? (value) => (value.trim() ? null : 'Please enter a message')
+      : undefined,
+  });
+}
 
 /** Builds a Claude CLI command from a prompt. */
 function buildClaudeCommand(prompt: string): string {
@@ -76,34 +74,69 @@ function buildClaudeCommand(prompt: string): string {
 export async function explainSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const prompt = PROMPT_TEMPLATES.explain(sel.filePath, sel.startLine, sel.endLine);
+  const commentary = await getUserInput({
+    prompt: 'Add context for Explain (optional)',
+    placeholder: 'e.g., "focus on the error handling" — press Enter to skip',
+    required: false,
+  });
+  if (commentary === undefined) return; // Escape pressed
+  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
+  const prompt = PROMPT_TEMPLATES.explain(sel.filePath, sel.startLine, sel.endLine, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function fixSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const prompt = PROMPT_TEMPLATES.fix(sel.filePath, sel.startLine, sel.endLine);
+  const commentary = await getUserInput({
+    prompt: 'Add context for Fix (optional)',
+    placeholder: 'e.g., "the return type is wrong" — press Enter to skip',
+    required: false,
+  });
+  if (commentary === undefined) return;
+  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
+  const prompt = PROMPT_TEMPLATES.fix(sel.filePath, sel.startLine, sel.endLine, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function alternativesSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const prompt = PROMPT_TEMPLATES.alternatives(sel.filePath, sel.startLine, sel.endLine);
+  const commentary = await getUserInput({
+    prompt: 'Add context for Alternatives (optional)',
+    placeholder: 'e.g., "prefer functional style" — press Enter to skip',
+    required: false,
+  });
+  if (commentary === undefined) return;
+  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
+  const prompt = PROMPT_TEMPLATES.alternatives(sel.filePath, sel.startLine, sel.endLine, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function condenseSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const prompt = PROMPT_TEMPLATES.condense(sel.filePath, sel.startLine, sel.endLine);
+  const commentary = await getUserInput({
+    prompt: 'Add context for Condense (optional)',
+    placeholder: 'e.g., "keep the technical terms" — press Enter to skip',
+    required: false,
+  });
+  if (commentary === undefined) return;
+  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
+  const prompt = PROMPT_TEMPLATES.condense(sel.filePath, sel.startLine, sel.endLine, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function chatSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const prompt = PROMPT_TEMPLATES.chat(sel.filePath, sel.startLine, sel.endLine);
+  const userQuestion = await getUserInput({
+    prompt: 'What would you like to discuss?',
+    placeholder: 'Type your question about the selected lines...',
+    required: true,
+  });
+  if (userQuestion === undefined) return; // Escape pressed
+  const escaped = escapeForDoubleQuotes(userQuestion);
+  const prompt = PROMPT_TEMPLATES.chat(sel.filePath, sel.startLine, sel.endLine, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
