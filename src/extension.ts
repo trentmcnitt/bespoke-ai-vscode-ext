@@ -224,6 +224,15 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('bespoke-ai.suggestEdit');
       });
 
+      const restartPoolsItem: vscode.QuickPickItem = {
+        label: '$(refresh) Restart Pools',
+        description: 'terminate and respawn all subprocesses',
+      };
+      items.push(restartPoolsItem);
+      handlers.set(restartPoolsItem, () => {
+        vscode.commands.executeCommand('bespoke-ai.restartPools');
+      });
+
       const clearCacheItem: vscode.QuickPickItem = {
         label: '$(trash) Clear Cache',
       };
@@ -390,6 +399,23 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('bespoke-ai.alternativesSelection', alternativesSelection),
     vscode.commands.registerCommand('bespoke-ai.condenseSelection', condenseSelection),
     vscode.commands.registerCommand('bespoke-ai.chatSelection', chatSelection),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.restartPools', async () => {
+      if (!lastConfig.enabled) {
+        vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
+        return;
+      }
+      try {
+        await poolClient.restart();
+        completionProvider.clearCache();
+        vscode.window.showInformationMessage('Bespoke AI: Pools restarted.');
+      } catch (err) {
+        logger.error(`Pool restart failed: ${err}`);
+        vscode.window.showErrorMessage(`Bespoke AI: Pool restart failed — ${err}`);
+      }
+    }),
   );
 
   context.subscriptions.push(

@@ -69,6 +69,10 @@
       {
         "command": "bespoke-ai.expand",
         "title": "Bespoke: Expand"
+      },
+      {
+        "command": "bespoke-ai.restartPools",
+        "title": "Bespoke AI: Restart Pools"
       }
     ],
     "menus": {
