@@ -40,7 +40,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.config = config;
     this.provider = provider;
     this.cache = new LRUCache();
-    this.debouncer = new Debouncer(config.debounceMs);
+    this.debouncer = new Debouncer(this.getDebounceDelay(config));
     this.logger = logger;
     this.tracker = tracker;
   }
@@ -52,8 +52,16 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
-    this.debouncer.setDelay(config.debounceMs);
+    this.debouncer.setDelay(this.getDebounceDelay(config));
     this.provider.updateConfig?.(config);
+  }
+
+  /** Resolve the effective debounce delay based on active backend. */
+  private getDebounceDelay(config: ExtensionConfig): number {
+    if (config.backend === 'api') {
+      return config.api.debounceMs;
+    }
+    return config.debounceMs;
   }
 
   setExpandResult(result: ExpandResult): void {
@@ -170,7 +178,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     // Log request start with structured format
     this.logger.requestStart(reqId, {
       mode,
-      backend: 'claude-code',
+      backend: this.config.backend,
       file: docContext.fileName,
       prefixLen: docContext.prefix.length,
       suffixLen: docContext.suffix.length,
@@ -207,7 +215,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
       // Record successful completion in usage tracker
       const inputChars = docContext.prefix.length + docContext.suffix.length;
-      this.tracker?.record(this.config.claudeCode.model, inputChars, result.length);
+      const modelLabel =
+        this.config.backend === 'api' ? this.config.api.activePreset : this.config.claudeCode.model;
+      this.tracker?.record(modelLabel, inputChars, result.length);
 
       // Cache and return
       this.cache.set(cacheKey, result);
@@ -217,13 +227,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       );
       return [item];
     } catch (err: unknown) {
-      this.logger.error(`✗ #${reqId} | claude-code error`, err);
+      this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);
       this.tracker?.recordError();
       const now = Date.now();
       if (now - this.lastErrorToastTime > 60_000) {
         this.lastErrorToastTime = now;
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Bespoke AI: claude-code error — ${msg}`);
+        vscode.window.showErrorMessage(`Bespoke AI: ${this.config.backend} error — ${msg}`);
       }
       return null;
     } finally {

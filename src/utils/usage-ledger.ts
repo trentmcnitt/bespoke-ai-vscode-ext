@@ -14,6 +14,7 @@ export interface LedgerEntry {
   ts: number;
   source: LedgerSource;
   model: string;
+  backend?: 'claude-code' | 'api';
   project?: string;
   durationMs: number;
   durationApiMs?: number;

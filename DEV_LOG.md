@@ -4,6 +4,38 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 02-09-26
+
+### Multi-provider API autocomplete backend
+
+Added a direct-API autocomplete backend alongside the existing Claude Code CLI backend. Motivation: Claude Code's chat-based subprocess can't use assistant prefill (pre-seeding the model's response with the cursor anchor), so the model often fails to continue from the right place. Direct API calls fix this and unlock provider-specific features like prompt caching and streaming.
+
+**Architecture:**
+
+A `BackendRouter` implements `CompletionProvider` and delegates to either the existing `PoolClient` (Claude Code) or a new `ApiCompletionProvider` (direct API). The router slots into the existing `CompletionProvider` orchestrator — cache, debounce, mode detection are all unchanged.
+
+Three SDK adapters cover five providers:
+
+- `AnthropicAdapter` (`@anthropic-ai/sdk`) — Anthropic models, prompt caching, assistant prefill
+- `OpenAICompatAdapter` (`openai` package) — OpenAI, xAI/Grok, Ollama (local)
+- `GeminiAdapter` (`@google/genai`) — Google Gemini models, context caching
+
+**Presets** define model ID, provider, generation params (temperature, max_tokens), feature flags (caching, prefill), and pricing for cost tracking. Built-in presets are bundled in `src/providers/api/presets.ts`. Switching presets via the status bar enables A/B testing between models or settings.
+
+**Key design decisions:**
+
+1. **Direct SDKs over Vercel AI SDK** — Vercel's abstraction doesn't fully expose provider-specific features (Anthropic prompt caching, Gemini context caching). Three thin adapters give us full control with minimal code.
+
+2. **Commands stay on Claude Code** — Commit message, suggest-edits, and expand commands work fine with the Claude Code backend and benefit from longer context. Only inline completions get the API backend.
+
+3. **Separate debounce** — API mode uses 400ms (vs 8000ms for Claude Code) because API roundtrips are much faster than subprocess communication.
+
+4. **Cost transparency** — Every API call records tokens, cost, duration, and model to the UsageLedger. Test runs also track total cost and per-scenario latency.
+
+**Phase 1 (this commit):** Anthropic adapter + end-to-end wiring. OpenAI-compat and Gemini adapters are stubbed out for Phase 2/3.
+
+---
+
 ## 02-01-26
 
 ### Reusable Claude Code slot pool

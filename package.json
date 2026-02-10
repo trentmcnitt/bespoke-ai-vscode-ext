@@ -137,6 +137,15 @@
           "default": true,
           "description": "Enable or disable inline completions"
         },
+        "bespokeAI.backend": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "api"
+          ],
+          "default": "claude-code",
+          "description": "Backend for inline completions: claude-code (CLI subprocess) or api (direct API calls)"
+        },
         "bespokeAI.mode": {
           "type": "string",
           "enum": [
@@ -216,6 +225,16 @@
           "type": "number",
           "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for code context"
+        },
+        "bespokeAI.api.activePreset": {
+          "type": "string",
+          "default": "anthropic-haiku-4-5",
+          "description": "Active preset ID for API backend (e.g. anthropic-haiku-4-5, openai-gpt-4o-mini, xai-grok-4-1-fast)"
+        },
+        "bespokeAI.api.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "Debounce delay in milliseconds for API backend completions"
         }
       }
     }
@@ -230,6 +249,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
+    "test:api:providers": "vitest run --config vitest.api-provider.config.ts",
     "test:quality": "vitest run --config vitest.quality.config.ts",
     "benchmark": "tsx src/benchmark/runner.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
@@ -248,7 +268,6 @@
     ]
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
@@ -262,8 +281,12 @@
     "typescript": "^5.3.0",
     "vitest": "^4.0.18"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "openai": "^4.78.0"
+  },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.77"
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "@google/genai": "^1.0.0"
   }
 }
