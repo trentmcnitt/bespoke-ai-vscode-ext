@@ -251,6 +251,7 @@
     "test:api": "vitest run --config vitest.api.config.ts",
     "test:api:providers": "vitest run --config vitest.api-provider.config.ts",
     "test:quality": "vitest run --config vitest.quality.config.ts",
+    "test:quality:compare": "vitest run --config vitest.quality.config.ts -- src/test/quality/prompt-comparison.test.ts",
     "benchmark": "tsx src/benchmark/runner.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
     "install-ext": "npm run compile && vsce package --allow-missing-repository --skip-license -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",

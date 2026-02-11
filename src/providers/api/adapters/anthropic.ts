@@ -124,6 +124,8 @@ export class AnthropicAdapter implements ApiAdapter {
 function isAbortError(err: unknown): boolean {
   if (err instanceof Error && err.name === 'AbortError') return true;
   if (err instanceof DOMException && err.name === 'AbortError') return true;
+  // Anthropic SDK throws APIUserAbortError (name: 'APIUserAbortError') when the signal fires
+  if (err instanceof Error && err.name === 'APIUserAbortError') return true;
   return false;
 }
 

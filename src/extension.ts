@@ -609,14 +609,14 @@ function updateStatusBar(config: ExtensionConfig) {
   } else if (config.backend === 'api') {
     const cardLabel = config.api.activePreset.replace(/^(anthropic|openai|xai|ollama|gemini)-/, '');
     const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
-    statusBarItem.text = `${triggerIcon} ${config.mode} | ${cardLabel}`;
+    statusBarItem.text = `${triggerIcon} ${config.mode} | API: ${cardLabel}`;
 
     const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
     statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, api (${config.api.activePreset}) (click for menu)`;
   } else {
     const modelLabel = shortenModelName(config.claudeCode.model);
     const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
-    statusBarItem.text = `${triggerIcon} ${config.mode} | ${modelLabel}`;
+    statusBarItem.text = `${triggerIcon} ${config.mode} | CC: ${modelLabel}`;
 
     const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
     statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, claude-code (${config.claudeCode.model}) (click for menu)`;
@@ -631,11 +631,12 @@ function updateStatusBarSpinner(spinning: boolean) {
   }
 
   if (spinning) {
+    const backendPrefix = config.backend === 'api' ? 'API' : 'CC';
     const modelLabel =
       config.backend === 'api'
         ? config.api.activePreset.replace(/^(anthropic|openai|xai|ollama|gemini)-/, '')
         : shortenModelName(config.claudeCode.model);
-    statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
+    statusBarItem.text = `$(loading~spin) ${config.mode} | ${backendPrefix}: ${modelLabel}`;
   } else {
     updateStatusBar(config);
   }
