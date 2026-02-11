@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { truncatePrefix, truncateSuffix } from './truncation';
 
 export interface DocumentContext {
   prefix: string;
@@ -18,35 +19,11 @@ export function buildDocumentContext(
   const offset = document.offsetAt(position);
   const fullText = document.getText();
 
-  let prefixStart = Math.max(0, offset - prefixChars);
-  // Snap to line boundary: if we cut mid-line, move forward to the next
-  // newline so the model always sees complete lines. Skip if already at
-  // a line boundary (offset 0 or preceded by \n).
-  if (prefixStart > 0 && fullText[prefixStart - 1] !== '\n') {
-    const nextNewline = fullText.indexOf('\n', prefixStart);
-    if (nextNewline !== -1 && nextNewline < offset) {
-      prefixStart = nextNewline + 1;
-    }
-  }
-  const prefix = fullText.slice(prefixStart, offset);
+  const rawPrefix = fullText.slice(0, offset);
+  const rawSuffix = fullText.slice(offset);
 
-  const suffixEnd = Math.min(fullText.length, offset + suffixChars);
-  let suffix = fullText.slice(offset, suffixEnd);
-
-  // Snap to word boundary: if we cut mid-word at the end, trim back to the
-  // last whitespace so the model doesn't try to complete a truncated word.
-  // Only do this if we actually truncated (didn't reach end of document).
-  if (suffixEnd < fullText.length && suffix.length > 0) {
-    // Check if we cut mid-word (next char in document is not whitespace)
-    const nextChar = fullText[suffixEnd];
-    if (nextChar && !/\s/.test(nextChar)) {
-      // Find the last whitespace in the suffix and trim there
-      const lastWhitespace = suffix.search(/\s[^\s]*$/);
-      if (lastWhitespace !== -1) {
-        suffix = suffix.slice(0, lastWhitespace + 1);
-      }
-    }
-  }
+  const prefix = truncatePrefix(rawPrefix, prefixChars);
+  const suffix = truncateSuffix(rawSuffix, suffixChars);
 
   return {
     prefix,

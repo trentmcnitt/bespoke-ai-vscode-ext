@@ -104,6 +104,7 @@ export const regressionScenarios: RegressionScenario[] = [
       ' */\n\n' +
       'function useLongPress(onLongPress?: () => void) {\n' +
       '  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['*/'],
       quality_notes:
@@ -149,6 +150,7 @@ export const regressionScenarios: RegressionScenario[] = [
       'function useLongPress() {\n' +
       '  return null\n' +
       '}',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['*/'],
       quality_notes:
@@ -182,6 +184,7 @@ export const regressionScenarios: RegressionScenario[] = [
       '            "args": ["-y", "chrome-devtools-mcp@latest"]\n' +
       '        },',
     suffix: '\n' + '    }\n' + '}\n',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['```', '```json', '```\n'],
       quality_notes:
@@ -235,8 +238,9 @@ export const regressionScenarios: RegressionScenario[] = [
       '| Limitation | Our Solution |\n' +
       '|------------|--------------|\n' +
       '| No anchor date (causes snooze drift) | CANON',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
-      must_not_include: ['```'],
+      must_not_include: ['```', '- '],
       quality_notes:
         'The prefix ends with "- " (the user has already typed the list marker). ' +
         'The completion MUST NOT start with "- " or any list marker — it should provide ' +
@@ -289,6 +293,7 @@ export const regressionScenarios: RegressionScenario[] = [
       '- **xAI/Grok** — avoid entirely (de-identified data extraction, security incidents, DOGE conflicts)\n' +
       '- **Gemini API** — cheaper alternative ($0.26 vs $1.00/MTok) with solid enterprise privacy\n\n' +
       'Leaning toward: VSCodium + Continue.dev extension + Anthropic API. Would cost ~$3-10/month for autocomplete, down from $10/month Copilot, with better privacy guarantees.',
+    saturation: { prefix: 'unsaturated', suffix: 'saturated' },
     requirements: {
       must_not_include: ['01-31-26', '01-30-26', '\n\n01'],
       quality_notes:
@@ -330,6 +335,7 @@ export const regressionScenarios: RegressionScenario[] = [
       '01-28-26\n\n' +
       '**Local LLM autocomplete — extension research**\n\n' +
       "Frustrated with Llama VS Code's clunky interface and Continue.dev being just okay. Looking for better alternatives for local model autocomplete.",
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['```'],
       quality_notes:
@@ -359,6 +365,7 @@ export const regressionScenarios: RegressionScenario[] = [
       "All right I like the numbers one and two. I think having a snooze all button for one hour would be a handy thing to have. That way I don't have to select everything, I can just snooze it.\n\n" +
       "Also for any snooze, any bulk snoozing, I should say that's a specific thing. It should only snooze things that have no priority, low priority, or medium priority. So high or urgent priority stuff can't be snoozed as part of a group -- only individually. This is what you we're already saying, though. Snooze all overdue. I'm just clarifying the rules around what gets included.\n\n",
     suffix: '',
+    saturation: { prefix: 'unsaturated', suffix: 'none' },
     requirements: {
       must_not_include: ['Got it', 'That makes sense', 'Understood', 'I see'],
       quality_notes:
@@ -421,6 +428,7 @@ export const regressionScenarios: RegressionScenario[] = [
       'Full research: [VS Code and Microsoft Privacy Research](_ai/2026-01-27%20VS%20Code%20and%20Microsoft%20Privacy%20Research.md)\n\n' +
       '---\n\n' +
       '**Switched ',
+    saturation: { prefix: 'unsaturated', suffix: 'saturated' },
     requirements: {
       must_not_include: ['to VSCodium', 'VSCodium', 'to vscodium'],
       quality_notes:

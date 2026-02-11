@@ -21,6 +21,22 @@ export interface TestScenario {
     must_not_include?: string[];
     quality_notes?: string;
   };
+
+  /**
+   * Declares whether this scenario's raw text exceeds the production context
+   * window. Validated by unit tests against DEFAULT_CONFIG values.
+   * When config values change, tests automatically flag mismatched scenarios.
+   */
+  saturation: {
+    prefix: 'saturated' | 'unsaturated';
+    suffix: 'saturated' | 'unsaturated' | 'none';
+  };
+
+  /** Override context window for this scenario. Defaults to config values. */
+  contextWindow?: {
+    prefixChars?: number;
+    suffixChars?: number;
+  };
 }
 
 /**

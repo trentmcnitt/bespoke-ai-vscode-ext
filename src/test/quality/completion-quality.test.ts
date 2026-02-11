@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
+import { truncatePrefix, truncateSuffix } from '../../utils/truncation';
 import { makeConfig, makeCapturingLogger, getTestModel, assertModelMatch } from '../helpers';
 import { TestScenario } from './judge';
 import {
@@ -29,6 +30,15 @@ import {
   reuseQualityScenarios,
 } from './scenarios';
 import { regressionScenarios } from './regression-scenarios';
+import {
+  proseMidDocumentScenarios,
+  proseJournalScenarios,
+  proseBridgingScenarios,
+  codeMidFileScenarios,
+  prosePromptWritingScenarios,
+  proseFullWindowScenarios,
+  codeFullWindowScenarios,
+} from './scenarios/index';
 
 // ─── Backend selection ───────────────────────────────────────────────
 
@@ -79,7 +89,8 @@ function saveScenarioOutput(result: GenerationResult): void {
   const scenarioDir = path.join(RUN_DIR, result.scenario.id);
   fs.mkdirSync(scenarioDir, { recursive: true });
 
-  // Save the input context
+  // Save the input context with raw and truncated sizes
+  const truncated = truncateScenario(result.scenario);
   fs.writeFileSync(
     path.join(scenarioDir, 'input.json'),
     JSON.stringify(
@@ -87,8 +98,14 @@ function saveScenarioOutput(result: GenerationResult): void {
         mode: result.scenario.mode,
         languageId: result.scenario.languageId,
         fileName: result.scenario.fileName,
-        prefix: result.scenario.prefix,
-        suffix: result.scenario.suffix,
+        prefix: truncated.prefix,
+        suffix: truncated.suffix,
+        rawPrefixLen: result.scenario.prefix.length,
+        rawSuffixLen: result.scenario.suffix.length,
+        truncatedPrefixLen: truncated.prefix.length,
+        truncatedSuffixLen: truncated.suffix.length,
+        prefixChars: truncated.prefixChars,
+        suffixChars: truncated.suffixChars,
       },
       null,
       2,
@@ -139,15 +156,37 @@ function saveScenarioOutput(result: GenerationResult): void {
 
 // ─── Per-scenario isolated provider ─────────────────────────────────
 
+function truncateScenario(scenario: TestScenario): {
+  prefix: string;
+  suffix: string;
+  prefixChars: number;
+  suffixChars: number;
+} {
+  const config = makeCompletionConfig();
+  const prefixChars =
+    scenario.contextWindow?.prefixChars ??
+    (scenario.mode === 'code' ? config.code.contextChars : config.prose.contextChars);
+  const suffixChars =
+    scenario.contextWindow?.suffixChars ??
+    (scenario.mode === 'code' ? config.code.suffixChars : config.prose.suffixChars);
+  return {
+    prefix: truncatePrefix(scenario.prefix, prefixChars),
+    suffix: truncateSuffix(scenario.suffix, suffixChars),
+    prefixChars,
+    suffixChars,
+  };
+}
+
 async function generateWithFreshProvider(scenario: TestScenario): Promise<GenerationResult> {
   const config = makeCompletionConfig();
   const capturing = makeCapturingLogger();
   const cc = new ClaudeCodeProvider(config, capturing.logger, 1);
   const cwd = path.resolve(__dirname, '..', '..', '..');
 
+  const truncated = truncateScenario(scenario);
   const ctx: CompletionContext = {
-    prefix: scenario.prefix,
-    suffix: scenario.suffix,
+    prefix: truncated.prefix,
+    suffix: truncated.suffix,
     languageId: scenario.languageId,
     fileName: scenario.fileName,
     filePath: `/${scenario.fileName}`,
@@ -303,6 +342,85 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     );
   });
 
+  // ── Expanded realistic scenarios ──────────────────────────────────
+
+  describe('prose mid-document', () => {
+    it.concurrent.each(proseMidDocumentScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('prose journal', () => {
+    it.concurrent.each(proseJournalScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('prose bridging', () => {
+    it.concurrent.each(proseBridgingScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('code mid-file', () => {
+    it.concurrent.each(codeMidFileScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('prose prompt-writing', () => {
+    it.concurrent.each(prosePromptWritingScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('prose full-window', () => {
+    it.concurrent.each(proseFullWindowScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('code full-window', () => {
+    it.concurrent.each(codeFullWindowScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateWithFreshProvider(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
   describe('reuse quality (shared provider)', () => {
     // These scenarios share ONE provider instance. The slot serves
     // 5 priming completions first, then the real quality scenarios.
@@ -319,9 +437,10 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
 
         // Phase 1: Priming — send throwaway completions to fill the slot
         for (const prime of reusePrimingContexts) {
+          const primeTruncated = truncateScenario(prime);
           const ctx: CompletionContext = {
-            prefix: prime.prefix,
-            suffix: prime.suffix,
+            prefix: primeTruncated.prefix,
+            suffix: primeTruncated.suffix,
             languageId: prime.languageId,
             fileName: prime.fileName,
             filePath: `/${prime.fileName}`,
@@ -332,9 +451,10 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
 
         // Phase 2: Quality scenarios — these get saved and Layer 2 judged
         for (const scenario of reuseQualityScenarios) {
+          const scenTruncated = truncateScenario(scenario);
           const ctx: CompletionContext = {
-            prefix: scenario.prefix,
-            suffix: scenario.suffix,
+            prefix: scenTruncated.prefix,
+            suffix: scenTruncated.suffix,
             languageId: scenario.languageId,
             fileName: scenario.fileName,
             filePath: `/${scenario.fileName}`,

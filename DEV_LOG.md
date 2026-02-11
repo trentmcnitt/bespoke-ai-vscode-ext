@@ -4,6 +4,25 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 02-11-26
+
+### Quality test suite expansion — Phase 1
+
+Expanded the quality test suite from 38 scenarios to 63 with a focus on realistic, full-window editing contexts. The existing scenarios had near-zero coverage of the most common editing situation: working mid-document with both prefix and suffix at or near the context window limits (2500/2000 chars).
+
+**New scenario categories (25 scenarios):**
+
+- **Mid-document editing (8)** — Prose editing inside full-length documents. Prefix 2600-3800 chars, suffix 2100-3700 chars. Covers READMEs, design docs, blog posts, tutorials, and mixed-structure documents.
+- **Dev journal (5)** — Chronological dev logs and meeting notes. Tests the user's primary writing use case with date markers, multiple topics per entry, and varied entry lengths.
+- **Fill-in-the-middle bridging (6)** — Cursor in a gap between existing text. The hardest completion task. Varying gap sizes from ~10 words to ~3 sentences.
+- **Realistic mid-file code (6)** — Full code files (TypeScript, Python, Go, Rust) with imports, types, multiple functions. Much larger and more realistic than the existing 50-200 char code stubs.
+
+**Approach:** Wrote ~11 anchor documents (7000-10000 chars each) and extracted scenarios by placing the cursor at different positions. This produces naturally coherent contexts.
+
+**Documentation:** Added `docs/autocomplete-approach.md` consolidating autocomplete philosophy, prompt design, and testing strategy.
+
+---
+
 ## 02-09-26
 
 ### Multi-provider API autocomplete backend

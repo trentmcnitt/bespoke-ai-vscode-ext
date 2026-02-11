@@ -8,6 +8,7 @@ This file contains instructions and reference material for Claude Code (claude.a
 - `ROADMAP.md` — Tracks planned, exploratory, and deferred features.
 - `FEATURE_MAP.md` — Competitive landscape analysis and open-source reference guide. Check it before implementing a feature that may already exist in an open-source project.
 - `docs/` — Research and reference documents. Key files:
+  - `docs/autocomplete-approach.md` — Autocomplete philosophy, prompt design, and testing strategy
   - `docs/claude-code-cli-reference.md` — CLI flags and usage
   - `docs/prompt-template-research.md` — Prompt engineering patterns
   - `docs/anthropic-sdk-reference.md` — Anthropic SDK usage
@@ -204,7 +205,9 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
 
-- `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Context sizes configurable via `prose.contextChars`/`code.contextChars` settings.
+- `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Context sizes configurable via `prose.contextChars`/`code.contextChars` settings. Delegates to `truncation.ts` for boundary-snapped truncation.
+
+- `src/utils/truncation.ts` — Pure truncation functions (no vscode dependency). `truncatePrefix()` takes the last N chars and snaps forward to a newline boundary. `truncateSuffix()` takes the first N chars and snaps back to a word boundary. Used by both `context-builder.ts` (production) and the quality test runner.
 
 #### Utilities
 
@@ -363,6 +366,18 @@ For the API backend specifically: verify the API key is set (in `process.env` or
 
 ## Testing
 
+### Testing Philosophy
+
+Quality tests are our primary mechanism for validating that autocomplete works well in real-world conditions. There is no other systematic way to know — inline completions are subjective, context-dependent, and fail silently (the user just dismisses bad ghost text). Therefore, the quality of the AI is a function of two things:
+
+1. **How comprehensive and realistic the test scenarios are.** Scenarios must cover the user's actual editing patterns — the documents they write, the cursor positions they edit from, the context window sizes they encounter. Tests that only cover easy cases (short prefix, no suffix) will pass while production use fails.
+2. **How well autocomplete performs on those scenarios.** A high pass rate on realistic scenarios means the system works. A high pass rate on toy scenarios means nothing.
+
+The two highest-priority use cases for test coverage are:
+
+1. **Journal writing** (`journal.jnl.md` files) — the most common editing context. Personal dated entries, mixed topics, casual voice. Both prefix-only (continuing a thought) and mid-document (cursor between entries).
+2. **Prompt writing** (Ctrl+G editor prompts to Claude) — writing instructions, requests, and questions to Claude Code. Usually prefix-only. The critical failure mode is the model answering the user's questions instead of continuing their message.
+
 ### Running All Tests
 
 When asked to "run tests" (without further qualification), run the full test suite:
@@ -416,6 +431,20 @@ Quality tests (`src/test/quality/`) evaluate whether completions are actually go
 **Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` in each scenario's directory and an overall `layer2-summary.md` at the run root. Validate every scenario — do not skip any. Use the Task tool with multiple parallel agents to speed up evaluation if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
 
 **Fabricated content is expected and acceptable.** Completions are predictions — the model will invent plausible content (names, dates, code, narrative). Judge whether fabricated content is contextually sensible, not whether it's factually accurate.
+
+**Scenario categories:**
+
+- `scenarios.ts` — Standard prose, code, and edge case scenarios
+- `regression-scenarios.ts` — Captured real-world completion failures
+- `scenarios/prose-mid-document.ts` — Full-window mid-document prose editing (8 scenarios)
+- `scenarios/prose-journal.ts` — Journal writing in `journal.jnl.md` format + meeting notes (12 scenarios)
+- `scenarios/prose-bridging.ts` — Fill-in-the-middle bridging (6 scenarios)
+- `scenarios/code-mid-file.ts` — Realistic mid-file code completion (6 scenarios)
+- `scenarios/prose-prompt-writing.ts` — Prompt/message writing to Claude Code (6 scenarios)
+- `scenarios/prose-full-window.ts` — Large anchor document prose scenarios (5 scenarios)
+- `scenarios/code-full-window.ts` — Large anchor document code scenarios (3 scenarios)
+
+**Scenario design:** Each scenario declares a `saturation` field (whether raw text exceeds the production context window) and the test runner applies production-equivalent truncation. For design principles (over-window content, saturation balance, anchor documents), see `docs/autocomplete-approach.md` Section 5. Verify character counts with `npx tsx src/test/quality/measure-scenarios.ts`.
 
 **Testing different models:** By default, all integration and quality tests use the model from `makeConfig()` (currently `opus`). Override with `TEST_MODEL`:
 
