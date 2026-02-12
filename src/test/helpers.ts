@@ -6,8 +6,7 @@ import { CompletionContext, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import {
-  extractOutput,
-  stripCompletionStart,
+  extractCompletion,
   buildFillMessage,
   WARMUP_PREFIX,
   WARMUP_SUFFIX,
@@ -207,18 +206,14 @@ export function makeLedger(dir?: string): { ledger: UsageLedger; filePath: strin
  * Checks slot 0 trace — skips if not captured.
  */
 export function assertWarmupValid(getTrace: (label: string) => string | undefined): void {
-  const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
-
   const slotIndex = 0;
   const raw = getTrace(`warmup ← recv (slot ${slotIndex})`);
   if (raw === undefined) {
     return;
   }
-  const extracted = extractOutput(raw);
-  const stripped = stripCompletionStart(extracted, completionStart);
-  expect(stripped, `warmup slot ${slotIndex}: stripCompletionStart returned null`).not.toBeNull();
+  const extracted = extractCompletion(raw);
   expect(
-    stripped!.trim().toLowerCase(),
+    extracted.trim().toLowerCase(),
     `warmup slot ${slotIndex}: expected "${WARMUP_EXPECTED}"`,
   ).toBe(WARMUP_EXPECTED);
 }

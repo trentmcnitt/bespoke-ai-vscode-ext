@@ -84,7 +84,7 @@ function prompt(text: string): void {
 function dumpClaudeCode(ctx: CompletionContext): void {
   const modeConfig = ctx.mode === 'prose' ? config.prose : config.code;
 
-  const { message, completionStart } = buildFillMessage(ctx.prefix, ctx.suffix);
+  const message = buildFillMessage(ctx.prefix, ctx.suffix, ctx.languageId);
 
   out(DIVIDER);
   out(`CLAUDE CODE — ${ctx.mode.toUpperCase()}`);
@@ -95,9 +95,6 @@ function dumpClaudeCode(ctx: CompletionContext): void {
 
   out('\nUSER MESSAGE (per-request):');
   prompt(message);
-
-  out('\nCOMPLETION START (model output must begin with this, then stripped):');
-  prompt(completionStart);
 
   out('\nPARAMETERS:');
   out(`  model:        ${config.claudeCode.model}`);

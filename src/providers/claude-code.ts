@@ -3,11 +3,6 @@ import { Logger } from '../utils/logger';
 import { postProcessCompletion } from '../utils/post-process';
 import { SlotPool } from './slot-pool';
 
-/** How many characters to extract from the end of the prefix as the completion start.
- * Kept short so <current_text> retains maximum context — the model needs to see most
- * of the prefix to understand the cursor position and generate relevant text. */
-const COMPLETION_START_LENGTH = 10;
-
 /** Maximum completions per slot before recycling. */
 const MAX_COMPLETION_REUSES = 8;
 
@@ -17,333 +12,84 @@ export const WARMUP_SUFFIX = '.';
 export const WARMUP_EXPECTED = 'four';
 
 /**
- * Extract content from <output> tags. Returns the content between the first
- * <output> and last </output>, or the raw text as-is if no tags are found.
+ * Extract content from <COMPLETION> tags. Returns the content between the first
+ * <COMPLETION> and last </COMPLETION>, or the raw text as-is if no tags are found.
  */
-export function extractOutput(raw: string): string {
-  const open = raw.indexOf('<output>');
-  const close = raw.lastIndexOf('</output>');
+export function extractCompletion(raw: string): string {
+  const open = raw.indexOf('<COMPLETION>');
+  const close = raw.lastIndexOf('</COMPLETION>');
   if (open === -1 || close === -1 || close <= open) {
     return raw; // fallback: no valid tags, use raw text
   }
-  return raw.slice(open + '<output>'.length, close);
-}
-
-/**
- * Extract the completion start from the end of the prefix.
- * Returns the truncated prefix (for display) and the completion start text.
- *
- * Leading whitespace is trimmed from completion_start and moved to the end of
- * truncatedPrefix. This places the >>>CURSOR<<< marker at the actual insertion
- * point, making completion_start show just the meaningful partial token (e.g.,
- * "0" instead of "\n\n0" for a partial date). The model sees whitespace in
- * context before the cursor rather than as part of the echo anchor.
- */
-export function extractCompletionStart(prefix: string): {
-  truncatedPrefix: string;
-  completionStart: string;
-} {
-  if (prefix.length <= COMPLETION_START_LENGTH) {
-    // Short prefix: trim leading whitespace from completion_start
-    const leadingWs = prefix.match(/^[\s]*/)?.[0] ?? '';
-    return {
-      truncatedPrefix: leadingWs,
-      completionStart: prefix.slice(leadingWs.length),
-    };
-  }
-  // Search forward from the ideal cut point for a word boundary (space or
-  // newline) so <current_text> ends at a complete word before >>>CURSOR<<<.
-  // Forward search keeps completion_start ≤ COMPLETION_START_LENGTH chars,
-  // which is easier for the model to echo back reliably.
-  const idealCut = prefix.length - COMPLETION_START_LENGTH;
-  let cutPoint = idealCut;
-  for (let i = idealCut; i < Math.min(prefix.length, idealCut + COMPLETION_START_LENGTH); i++) {
-    if (prefix[i] === ' ' || prefix[i] === '\n') {
-      cutPoint = i;
-      break;
-    }
-  }
-
-  // Extract raw completion_start, then trim leading whitespace
-  const rawCompletionStart = prefix.slice(cutPoint);
-  const leadingWs = rawCompletionStart.match(/^[\s]*/)?.[0] ?? '';
-
-  return {
-    truncatedPrefix: prefix.slice(0, cutPoint) + leadingWs,
-    completionStart: rawCompletionStart.slice(leadingWs.length),
-  };
-}
-
-/**
- * Strip the completion start from the model's output.
- * The model is instructed to begin its output with the completion start text.
- * We remove it to get the actual text to insert at the cursor.
- *
- * Uses strict matching first; falls back to whitespace-lenient matching if strict fails.
- */
-export function stripCompletionStart(output: string, completionStart: string): string | null {
-  if (!completionStart) {
-    return output;
-  }
-  if (output.startsWith(completionStart)) {
-    return output.slice(completionStart.length);
-  }
-
-  // Lenient fallback: allow whitespace runs to differ while requiring
-  // non-whitespace characters to match exactly and in order.
-  return lenientStripCompletionStart(output, completionStart);
-}
-
-/**
- * Whitespace-flexible prefix stripping. Walks through both strings:
- * - Non-whitespace characters must match exactly and in order
- * - Whitespace runs can differ in length/composition (space, newline, tab)
- * - Non-trailing whitespace in completionStart requires SOME whitespace in output
- * Returns the remainder of output after the matched prefix, or null if no match.
- */
-function lenientStripCompletionStart(output: string, completionStart: string): string | null {
-  let outIdx = 0;
-  let csIdx = 0;
-
-  while (csIdx < completionStart.length) {
-    // If completionStart has whitespace, skip whitespace runs in both
-    if (/\s/.test(completionStart[csIdx])) {
-      while (csIdx < completionStart.length && /\s/.test(completionStart[csIdx])) csIdx++;
-
-      // If completionStart ended with whitespace, skip any trailing ws in output too
-      if (csIdx >= completionStart.length) {
-        while (outIdx < output.length && /\s/.test(output[outIdx])) outIdx++;
-        break;
-      }
-
-      // Non-trailing whitespace in completionStart requires SOME whitespace in output
-      if (outIdx >= output.length || !/\s/.test(output[outIdx])) {
-        return null;
-      }
-      while (outIdx < output.length && /\s/.test(output[outIdx])) outIdx++;
-    }
-
-    // Now completionStart is at non-whitespace - output must have matching char
-    if (outIdx >= output.length || completionStart[csIdx] !== output[outIdx]) {
-      return null;
-    }
-
-    csIdx++;
-    outIdx++;
-  }
-
-  return output.slice(outIdx);
+  return raw.slice(open + '<COMPLETION>'.length, close);
 }
 
 /** Build the per-request message from prefix + suffix context. */
 export function buildFillMessage(
   prefix: string,
   suffix: string,
-): { message: string; completionStart: string } {
-  const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-
-  const currentText = suffix.trim()
-    ? `<current_text>${truncatedPrefix}>>>CURSOR<<<${suffix}</current_text>`
-    : `<current_text>${truncatedPrefix}>>>CURSOR<<<</current_text>`;
-
-  const message = `${currentText}\n<completion_start>${completionStart}</completion_start>`;
-
-  return { message, completionStart };
+  languageId: string = 'plaintext',
+): string {
+  const doc = suffix.trim()
+    ? `<document language="${languageId}">\n${prefix}{{FILL_HERE}}${suffix}\n</document>`
+    : `<document language="${languageId}">\n${prefix}{{FILL_HERE}}\n</document>`;
+  return `${doc}\n\nFill the {{FILL_HERE}} marker.`;
 }
 
-export const SYSTEM_PROMPT = `You are an autocomplete tool.
+export const SYSTEM_PROMPT = `You fill a single placeholder in the user's document.
 
-You receive:
-1. <current_text> with a >>>CURSOR<<< marker showing the insertion point
-2. <completion_start> containing text that your output MUST begin with
+The user sends text containing a {{FILL_HERE}} marker. Output ONLY the replacement text wrapped in <COMPLETION>...</COMPLETION> tags.
 
-Your task: Generate <output> containing text that:
-- Starts EXACTLY with the text in <completion_start> (character-for-character)
-- Continues naturally from there
-- Fits the context and style of the document
-
-Rules:
-- Your <output> MUST begin with the exact <completion_start> text
-- Continue naturally based on surrounding context
-- Match voice, style, and format of the existing text
-- You are an autocomplete tool, NOT a chat assistant. NEVER respond to, summarize, or acknowledge the text. NEVER switch to a different speaker's voice. NEVER output phrases like "Got it", "That makes sense", "Understood", "So to summarize", "I see", or any reply-style language. You must continue writing as the same author — add the next thought, the next point, the next sentence in their voice
-- Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere
+Core rules:
+- Match the voice, style, tone, and formatting of the surrounding text exactly
+- Preserve indentation, whitespace, and structural patterns (bullet markers, heading levels, comment prefixes)
+- NEVER repeat text that appears immediately before or after the marker
+- NEVER include {{FILL_HERE}} in your response
+- Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere in the document
+- No commentary, no code fences, no explanation — just the COMPLETION tags
+- NEVER output empty COMPLETION tags. Always generate at least a few words. If the text reads correctly without a fill, output a minimal connecting word or phrase.
 
 CRITICAL — You are NOT a conversational assistant:
-- The <current_text> is a document being written by an author. You are predicting what the author writes NEXT.
-- NEVER reply to, respond to, summarize, paraphrase, or acknowledge what was written.
-- NEVER use phrases like: "Got it", "That makes sense", "Understood", "I see", "So to summarize", "Great", "Sure", "Absolutely", "Right"
-- If the text reads like someone talking or giving instructions, continue AS that person — add their next thought, their next point, their next sentence. Do NOT become the listener/respondent.
-
-Output Requirements:
-- Wrap response in <output> tags
-- No unnecessary code fences, commentary, or meta-text
-- Preserve whitespace exactly — <completion_start> may include spaces or newlines
-- <completion_start> may span multiple lines — echo ALL of it exactly, including blank lines or repeated patterns like " * \\n * "
+- The text is a document being written by an author. You are predicting what the author writes NEXT.
+- NEVER reply to, respond to, summarize, paraphrase, or acknowledge what was written
+- NEVER switch to assistant/helper voice. Do not output: "Got it", "Sure", "Understood", "I see", "Great", "Absolutely", "Right", "I'll", "I can", "Let me", "Here's", "I'd recommend", "You should consider"
+- If the text is someone giving instructions, asking questions, or describing requirements — you ARE that person writing more of their message. Add their next thought, constraint, caveat, or question.
+- If the text reads like instructions TO an AI (e.g., "can you check...", "please make sure..."), continue writing more instructions, NOT a response.
 
 How much to output:
-- If there is a clear gap to bridge to the text after >>>CURSOR<<<, output just enough to bridge it
-- If there is no text after >>>CURSOR<<<, continue naturally for a sentence or two (or a few lines of code)
-- NEVER close a structure (comment block, bracket, brace, parenthesis, tag) if the suffix shows that structure continues. Bridge to the existing suffix content — do not terminate prematurely
-
----
+- With text after {{FILL_HERE}}: bridge to it — output enough to connect coherently to what follows, maintaining the same topic and argument
+- Without text after {{FILL_HERE}}: continue for one to three sentences, matching the density and specificity of the surrounding text
+- Be substantive. In technical or instructional text, name concrete things, describe tradeoffs, give actionable detail. Vague filler ("as needed", "be mindful") is not enough.
+- NEVER close a structure (comment block, bracket, brace, parenthesis, tag) if text after the marker shows that structure continues. Bridge to the existing text — do not terminate prematurely.
 
 Examples:
 
-### Continuing a bullet list
-<current_text>My favorite pangrams:
+The 5th {{FILL_HERE}} is Jupiter.
+<COMPLETION>planet from the Sun</COMPLETION>
 
-- The quick brown fox jumps over the lazy dog.
->>>CURSOR<<<
-- Five quacking zephyrs jolt my wax bed.</current_text>
-<completion_start>- </completion_start>
-<output>- Pack my box with five dozen liquor jugs.</output>
+I think we should use option B. The timeline is tighter but {{FILL_HERE}}
+<COMPLETION>the scope is much more reasonable. We can always extend the deadline if needed, but cutting features later is harder.</COMPLETION>
 
-### Continuing a numbered list
-<current_text>Steps to deploy:
-1. Build the project
-2. Run the tests
->>>CURSOR<<<
-4. Verify the deployment</current_text>
-<completion_start>3. </completion_start>
-<output>3. Push to production</output>
+## Getting {{FILL_HERE}}
 
-### Filling in JSON
-<current_text>{
-  "name": "my-project",
-  "dependencies>>>CURSOR<<<
-  }
-}</current_text>
-<completion_start>": {</completion_start>
-<output>": {
-    "lodash": "^4.17.21"</output>
+### Prerequisites
+<COMPLETION>Started
 
-### Filling in a code function
-<current_text>function add(a, b>>>CURSOR<<<
-}</current_text>
-<completion_start>) {</completion_start>
-<output>) {
-  return a + b;</output>
+This guide walks you through the initial setup process.</COMPLETION>
 
-### Bridging text
-<current_text>The project >>>CURSOR<<< the original deadline.</current_text>
-<completion_start>was completed </completion_start>
-<output>was completed two weeks ahead of</output>
+When choosing a data format, consider your {{FILL_HERE}}
+<COMPLETION>use case. JSON is widely supported and ideal for web applications, YAML offers better readability for configuration files, and TOML provides a clean syntax for simpler settings.</COMPLETION>
 
-### Completing a partial word
-<current_text>>>>CURSOR<<< fox jumps over the lazy dog.</current_text>
-<completion_start>The quic</completion_start>
-<output>The quick brown</output>
+I want the dashboard to show daily totals at the top. Below that, a weekly trend chart would be useful.
 
-### Adding content between headings
-<current_text>## Getting >>>CURSOR<<<
+{{FILL_HERE}}
+<COMPLETION>For the chart, a simple bar chart should work — nothing fancy. Color-code the bars by category so I can spot patterns at a glance.</COMPLETION>
 
-### Prerequisites</current_text>
-<completion_start>Started
+Can you check if the migration handles nullable columns? Also {{FILL_HERE}}
+<COMPLETION>verify that the rollback script actually restores the previous schema — last time it silently dropped the index on user_id.</COMPLETION>
 
-</completion_start>
-<output>Started
-
-This guide walks you through the initial setup process.</output>
-
-### Introducing content before a table
-<current_text>The >>>CURSOR<<<
-
-| Name  | Score |
-| Alice | 95    |</current_text>
-<completion_start>results show </completion_start>
-<output>results show the following data:</output>
-
-### Filling in a table row
-<current_text>| Name  | Score |
-| Alice | 95    |
->>>CURSOR<<<
-| Carol | 88    |</current_text>
-<completion_start>
-</completion_start>
-<output>
-| Bob   | 91    |</output>
-
-### Completing a partial word with unrelated content below
-<current_text>The quick brown >>>CURSOR<<<
-
----
-## Next Section</current_text>
-<completion_start>fox jum</completion_start>
-<output>fox jumped over the lazy dog.</output>
-
-### Pure continuation (no suffix)
-<current_text>The benefits of this approach include:
-
->>>CURSOR<<<</current_text>
-<completion_start>- </completion_start>
-<output>- Improved performance and reduced complexity.</output>
-
-### Continuing conversational text
-<current_text>I think we should go with option B. The timeline is tighter but the scope is much more reasonable.
-
->>>CURSOR<<<</current_text>
-<completion_start>
-</completion_start>
-<output>
-The main risk is the integration with the payment system, but we can mitigate that by starting early.</output>
-
-### Continuing first-person instructions (DO NOT respond as assistant)
-<current_text>I want the dashboard to show daily totals at the top. Below that, a weekly trend chart would be useful.
-
->>>CURSOR<<<</current_text>
-<completion_start>
-</completion_start>
-<output>
-For the chart, a simple bar chart should work — nothing fancy. Color-code the bars by category so I can spot patterns at a glance.</output>
-
-### Ignoring incomplete content elsewhere
-<current_text>## Configuration
-
-All settings are >>>CURSOR<<<
-
-## API Reference
-
-The response includes (e.g., \`user.json\`,</current_text>
-<completion_start>now configured.</completion_start>
-<output>now configured.</output>
-
-### Continuing despite errors elsewhere
-<current_text>Key benefits:
-
-- Improved performance
->>>CURSOR<<<
-- Reduced complxity and maintainability</current_text>
-<completion_start>- </completion_start>
-<output>- Enhanced reliability</output>
-
-### Continuing inside a JSDoc comment with multiline completion_start
-<current_text>/**
- * TaskRow visual reference:
- *
- * Due soon:
- *   ┌───────────────────────┐
- *   │ ○  Buy groceries      │
- *   └───────────────────────┘
- *
- * >>>CURSOR<<<
- *
- * Overdue times: <1m ago | 3h ago
- */</current_text>
-<completion_start>
- *
- * </completion_start>
-<output>
- *
- * Snoozed:
- *   ┌───────────────────────┐
- *   │ ○  Review PR          │
- *   └───────────────────────┘</output>
-
----
-
-Now output only <output> tags:
-`;
+The build was taking 4 minutes on every push. {{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
+<COMPLETION>That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>`;
 
 export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   private config: ExtensionConfig;
@@ -384,7 +130,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
 
     const slot = this.slots[slotIndex];
 
-    const { message, completionStart } = buildFillMessage(context.prefix, context.suffix);
+    const message = buildFillMessage(context.prefix, context.suffix, context.languageId);
 
     this.logger.traceInline('slot', String(slotIndex));
     this.logger.traceBlock('→ sent', message);
@@ -430,29 +176,16 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       return null;
     }
 
-    // Extract content from <output> tags
-    const extracted = extractOutput(raw);
+    // Extract content from <COMPLETION> tags
+    const extracted = extractCompletion(raw);
     if (extracted !== raw) {
       this.logger.traceBlock('← extracted', extracted);
     }
 
-    // Strip the completion start from the output
-    const stripped = stripCompletionStart(extracted, completionStart);
-    if (stripped === null) {
-      this.logger.debug(
-        `completion start mismatch: expected "${completionStart.slice(0, 20)}...", got "${extracted.slice(0, 20)}..."`,
-      );
-      return null;
-    }
-    if (stripped !== extracted) {
-      this.logger.traceBlock('← stripped', stripped);
-    }
+    // Run standard post-processing
+    const result = postProcessCompletion(extracted, undefined, context.suffix);
 
-    // Run standard post-processing. Prefix is undefined because the completion start
-    // has already been stripped — trimPrefixOverlap has no prefix to compare against.
-    const result = postProcessCompletion(stripped, undefined, context.suffix);
-
-    if (result !== stripped) {
+    if (result !== extracted) {
       this.logger.traceBlock('← processed', result ?? '(null)');
     }
 
@@ -478,14 +211,11 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   }
 
   protected buildWarmupMessage(): string {
-    return buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX).message;
+    return buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
   }
 
   protected validateWarmupResponse(raw: string): boolean {
-    const { completionStart: warmupCS } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
-    const extracted = extractOutput(raw);
-    const stripped = stripCompletionStart(extracted, warmupCS);
-    const normalized = stripped?.trim().toLowerCase() ?? '';
-    return normalized === WARMUP_EXPECTED;
+    const extracted = extractCompletion(raw);
+    return extracted.trim().toLowerCase() === WARMUP_EXPECTED;
   }
 }

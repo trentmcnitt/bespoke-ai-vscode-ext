@@ -236,6 +236,24 @@ Current distribution: ~43% FULL, with 89 total scenarios.
 
 **Character count verification.** Run `npx tsx src/test/quality/measure-scenarios.ts` to see verified character counts, saturation distribution, truncation impact, and saturation declaration cross-checks. Never estimate — always verify.
 
+### Prompt variant comparison
+
+The comparison runner (`npm run test:quality:compare`) enables A/B/N testing of different prompt strategies against the full scenario suite. It uses the same scenarios and truncation infrastructure as the main quality runner.
+
+**How it works:**
+
+1. Set `PROMPT_VARIANTS=current,prose-optimized` (comma-separated variant IDs)
+2. Optionally filter by mode: `COMPARE_FILTER=prose`
+3. The runner creates a fresh `VariantProvider` (a `SlotPool` subclass) per scenario per variant
+4. Results land in `test-results/compare-{timestamp}/{variant-id}/{scenario-id}/`
+5. `summary.json` at the run root shows per-variant stats side by side
+
+**The `current` variant** imports `SYSTEM_PROMPT`, `buildFillMessage`, `extractOutput`, and `stripCompletionStart` directly from `src/providers/claude-code.ts`. It always reflects the production prompt — no copy to maintain.
+
+**Adding a new variant:** Define a `PromptVariant` in `src/test/quality/prompt-variants.ts` with a `systemPrompt` string and four methods: `buildMessage()`, `extractCompletion()`, `buildWarmupMessage()`, `validateWarmup()`. Register it in the `PROMPT_VARIANTS` record at the bottom of the file. It's immediately available via `PROMPT_VARIANTS=your-id`.
+
+**Interpreting results:** The comparison runner generates completions but does not judge quality — use Layer 2 evaluation on each variant's output subdirectory. Compare `completion.txt` files across variants for the same scenario to see how different prompt strategies handle the same editing context.
+
 ### What is NOT covered yet
 
 - Multi-file context (completions informed by other open files)

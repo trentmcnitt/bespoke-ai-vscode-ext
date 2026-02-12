@@ -43,7 +43,7 @@ Auto-detects prose vs code completion mode based on `document.languageId`.
 
 **Version control:** This project uses GitHub. Use `gh` for repository operations. Work directly on `main` unless asked to create a branch.
 
-**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, `<completion_start>` anchor, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect. If post-processing seems necessary:
+**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, examples, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect. If post-processing seems necessary:
 
 1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does.
 2. **The transformation must be provably safe** — it should only activate when the pattern is always erroneous (never legitimate content), not when it might be correct.
@@ -69,6 +69,7 @@ npm run test:unit:watch  # Vitest watch mode
 npm run test:api         # Claude Code integration tests (src/test/api/, needs claude CLI)
 npm run test:api:providers  # API vendor integration tests (real API calls, needs API keys)
 npm run test:quality     # LLM-as-judge completion quality tests (needs claude CLI)
+npm run test:quality:compare  # A/B/N prompt variant comparison (needs PROMPT_VARIANTS env var)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
 npm run install-ext      # Compile, package VSIX, and install into VSCodium
 ```
@@ -163,7 +164,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
   Subclassed by `ClaudeCodeProvider` and `CommandPool`.
 
 - `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
-  - **Prompt structure:** Uses a `>>>CURSOR<<<` marker approach — wraps document prefix + marker + suffix in `<current_text>` tags with a `<completion_start>` anchor. `extractOutput()` strips tags, `stripCompletionStart()` removes the echoed anchor. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
+  - **Prompt structure:** Uses a `{{FILL_HERE}}` marker approach — wraps document prefix + marker + suffix in `<document>` tags. The model outputs the fill text in `<COMPLETION>` tags. `extractCompletion()` extracts between the tags. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
   - **Slot pool:** Manages a 1-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
   - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when the slot is busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request executes fully regardless of cancellation signals.
 
@@ -463,6 +464,43 @@ TEST_MODEL=sonnet npm run test:quality   # quality tests with sonnet
 - `test-results/` — Generated outputs (gitignored)
 
 To add a new scenario, add a `TestScenario` object to the prose, code, or edge-case scenario array in `scenarios.ts`. To adjust judging criteria, edit `validator-prompt.md`.
+
+### Prompt Variant Comparison
+
+The comparison runner (`npm run test:quality:compare`) is a general-purpose A/B/N tool for testing prompt variants against the full scenario suite. It uses the same scenarios and truncation as the main quality runner but swaps in different prompt strategies via `PromptVariant` definitions in `prompt-variants.ts`.
+
+**Usage:**
+
+```bash
+# Compare two variants against all scenarios
+PROMPT_VARIANTS=current,prose-optimized npm run test:quality:compare
+
+# Compare three variants, prose scenarios only
+PROMPT_VARIANTS=current,prose-optimized,minuet COMPARE_FILTER=prose npm run test:quality:compare
+
+# Single variant (backward compat)
+PROMPT_VARIANT=current npm run test:quality:compare
+```
+
+**Environment variables:**
+
+| Variable          | Description                                                |
+| ----------------- | ---------------------------------------------------------- |
+| `PROMPT_VARIANTS` | Comma-separated list of variant IDs to compare             |
+| `PROMPT_VARIANT`  | Single variant ID (used if `PROMPT_VARIANTS` not set)      |
+| `COMPARE_FILTER`  | Filter by mode: `prose`, `code`, or `all` (default: `all`) |
+| `TEST_MODEL`      | Override the Claude Code model                             |
+
+**Available variants:** `current` (production baseline), `hole-filler` (Continue.dev/Taelin), `minimal-hole-filler` (Taelin v2), `enhanced-hole-filler` (Kilo Code), `minuet` (Minuet suffix-first), `prose-optimized` (custom). The `current` variant imports directly from `src/providers/claude-code.ts` so it stays in sync with production automatically.
+
+**Output:** Results go to `test-results/compare-{timestamp}/{variant-id}/{scenario-id}/` with the same per-scenario files as the main runner (`input.json`, `completion.txt`, `raw-response.txt`, `sent-message.txt`, `requirements.json`, `metadata.json`). A `summary.json` at the run root has per-variant aggregates (generated count, nulls, errors, duration). The `test-results/latest-compare` symlink points to the most recent run.
+
+**Adding a new variant:** Add a `PromptVariant` object to `src/test/quality/prompt-variants.ts` and register it in the `PROMPT_VARIANTS` record. Each variant defines a `systemPrompt` string and four methods: `buildMessage()`, `extractCompletion()`, `buildWarmupMessage()`, and `validateWarmup()`.
+
+**Key files:**
+
+- `src/test/quality/prompt-comparison.test.ts` — Comparison test runner
+- `src/test/quality/prompt-variants.ts` — Variant definitions and registry
 
 ## Known Limitations
 

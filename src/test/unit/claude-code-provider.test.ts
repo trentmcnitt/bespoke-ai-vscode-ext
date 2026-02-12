@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ClaudeCodeProvider,
-  extractOutput,
-  extractCompletionStart,
-  stripCompletionStart,
+  extractCompletion,
   buildFillMessage,
   WARMUP_PREFIX,
   WARMUP_SUFFIX,
@@ -20,8 +18,7 @@ import {
 
 /** Build a realistic warmup response that passes validation. */
 function makeWarmupResponse(): string {
-  const { completionStart } = buildFillMessage(WARMUP_PREFIX, WARMUP_SUFFIX);
-  return `<output>${completionStart}four</output>`;
+  return '<COMPLETION>four</COMPLETION>';
 }
 
 // Mock the SDK dynamic import
@@ -109,9 +106,8 @@ describe('ClaudeCodeProvider', () => {
     it('retries once on warmup failure then recovers', async () => {
       const goodWarmup = makeWarmupResponse();
       const proseCtx = makeProseContext();
-      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
-      const validCompletion = `<output>${proseCS} went home.</output>`;
-      const badWarmup = '<output>garbage response</output>';
+      const validCompletion = '<COMPLETION> went home.</COMPLETION>';
+      const badWarmup = '<COMPLETION>garbage response</COMPLETION>';
 
       // Attempt 1: slot 0 gets bad warmup → handleWarmupFailure kills all, schedules retry
       // Attempt 2 (retry): slot 0 gets good warmup → pool recovers
@@ -156,7 +152,7 @@ describe('ClaudeCodeProvider', () => {
     });
 
     it('disables pool after two consecutive warmup failures', async () => {
-      const badWarmup = '<output>garbage response</output>';
+      const badWarmup = '<COMPLETION>garbage response</COMPLETION>';
 
       // All attempts return bad warmups (1 slot: attempt + retry = 2)
       const streams = [
@@ -206,11 +202,10 @@ describe('ClaudeCodeProvider', () => {
     });
 
     it('recovers pool after degradation', async () => {
-      const badWarmup = '<output>garbage response</output>';
+      const badWarmup = '<COMPLETION>garbage response</COMPLETION>';
       const goodWarmup = makeWarmupResponse();
       const proseCtx = makeProseContext();
-      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
-      const validCompletion = `<output>${proseCS} went home.</output>`;
+      const validCompletion = '<COMPLETION> went home.</COMPLETION>';
 
       // First: warmup fails → pool degrades (1 slot: attempt + retry = 2)
       // Then: restart with good warmup → pool recovers (1 slot)
@@ -257,9 +252,8 @@ describe('ClaudeCodeProvider', () => {
   describe('recycleAll', () => {
     it('reinitializes all slots with fresh sessions', async () => {
       const proseCtx = makeProseContext();
-      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
-      const completion1 = `<output>${proseCS} ran away.</output>`;
-      const completion2 = `<output>${proseCS} came back.</output>`;
+      const completion1 = '<COMPLETION> ran away.</COMPLETION>';
+      const completion2 = '<COMPLETION> came back.</COMPLETION>';
 
       // Initial activation stream (1 slot) + post-recycle stream (1 slot)
       const streams = [
@@ -294,9 +288,7 @@ describe('ClaudeCodeProvider', () => {
 
   describe('stale consumer guard', () => {
     it('stale consumer does not trigger extra recycleSlot after recycleAll', async () => {
-      const proseCtx = makeProseContext();
-      const { completionStart: proseCS } = buildFillMessage(proseCtx.prefix, proseCtx.suffix);
-      const completion = `<output>${proseCS} went home.</output>`;
+      const completion = '<COMPLETION> went home.</COMPLETION>';
 
       // Initial activation stream (1) + recycleAll stream (1) = 2 total
       const streams = [
@@ -412,312 +404,94 @@ describe('ClaudeCodeProvider', () => {
   });
 });
 
-describe('extractOutput', () => {
-  it('extracts content between <output> tags', () => {
-    expect(extractOutput('<output>hello</output>')).toBe('hello');
+describe('extractCompletion', () => {
+  it('extracts content between <COMPLETION> tags', () => {
+    expect(extractCompletion('<COMPLETION>hello</COMPLETION>')).toBe('hello');
   });
 
   it('preserves leading whitespace inside tags', () => {
-    expect(extractOutput('<output>\n  return a + b;</output>')).toBe('\n  return a + b;');
+    expect(extractCompletion('<COMPLETION>\n  return a + b;</COMPLETION>')).toBe(
+      '\n  return a + b;',
+    );
   });
 
   it('falls back to raw text when no tags found', () => {
-    expect(extractOutput('just raw text')).toBe('just raw text');
+    expect(extractCompletion('just raw text')).toBe('just raw text');
   });
 
   it('falls back when only opening tag present', () => {
-    expect(extractOutput('<output>hello')).toBe('<output>hello');
+    expect(extractCompletion('<COMPLETION>hello')).toBe('<COMPLETION>hello');
   });
 
   it('falls back when only closing tag present', () => {
-    expect(extractOutput('hello</output>')).toBe('hello</output>');
+    expect(extractCompletion('hello</COMPLETION>')).toBe('hello</COMPLETION>');
   });
 
   it('falls back when close appears before open', () => {
-    expect(extractOutput('</output>text<output>')).toBe('</output>text<output>');
+    expect(extractCompletion('</COMPLETION>text<COMPLETION>')).toBe(
+      '</COMPLETION>text<COMPLETION>',
+    );
   });
 
-  it('returns empty string for empty output tags', () => {
-    expect(extractOutput('<output></output>')).toBe('');
+  it('returns empty string for empty COMPLETION tags', () => {
+    expect(extractCompletion('<COMPLETION></COMPLETION>')).toBe('');
   });
 
-  it('ignores text outside output tags', () => {
-    expect(extractOutput('thinking... <output>result</output> done')).toBe('result');
-  });
-});
-
-describe('extractCompletionStart', () => {
-  it('extracts last N characters from long prefix', () => {
-    const prefix = 'The quick brown fox jumps over the lazy dog.';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // COMPLETION_START_LENGTH is 10, forward search snaps to word boundary
-    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
-    expect(completionStart).toBe('lazy dog.');
-    expect(truncatedPrefix).toBe('The quick brown fox jumps over the ');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('uses entire prefix when shorter than threshold', () => {
-    const prefix = 'Short text';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    expect(completionStart).toBe('Short text');
-    expect(truncatedPrefix).toBe('');
-  });
-
-  it('handles empty prefix', () => {
-    const { truncatedPrefix, completionStart } = extractCompletionStart('');
-    expect(completionStart).toBe('');
-    expect(truncatedPrefix).toBe('');
-  });
-
-  it('handles prefix exactly at threshold length', () => {
-    const prefix = 'a'.repeat(10);
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    expect(completionStart).toBe(prefix);
-    expect(truncatedPrefix).toBe('');
-  });
-
-  it('preserves partial words in completion start', () => {
-    const prefix = 'Hello world, this is a partial wo';
-    const { completionStart } = extractCompletionStart(prefix);
-    // Should include the partial word "wo"
-    expect(completionStart).toContain('wo');
-  });
-
-  it('splits at word boundary to avoid cutting mid-word', () => {
-    const prefix = 'They seem so complex and wasteful (noise, h';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // Forward search finds the space after "wasteful"
-    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
-    expect(truncatedPrefix).toBe('They seem so complex and wasteful ');
-    expect(completionStart).toBe('(noise, h');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('splits at paragraph boundary when newlines are nearby', () => {
-    const prefix = "They power so much of our world.\n\nI've heard that ele";
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
-    expect(truncatedPrefix).toBe("They power so much of our world.\n\nI've heard ");
-    expect(completionStart).toBe('that ele');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('falls back to fixed cut when no word boundary found', () => {
-    // A prefix with no spaces in the search range
-    const prefix = 'x'.repeat(60);
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // No spaces to snap to, so falls back to the ideal cut point
-    expect(completionStart.length).toBe(10);
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('maximizes context in current_text for medium-length prefixes', () => {
-    // Simulates the real failure: model ignores completion_start when current_text is too short
-    const prefix = 'I was thinking about choosing colleges for my kids';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // Most of the prefix should be in truncatedPrefix (= visible in current_text)
-    // Leading whitespace is trimmed from completionStart and moved to truncatedPrefix
-    expect(truncatedPrefix).toBe('I was thinking about choosing colleges for ');
-    expect(completionStart).toBe('my kids');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('trims leading newlines from completionStart for partial tokens', () => {
-    // The partial-date case: prefix ends with "\n\n0" where "0" is a partial date
-    // Use a longer prefix so the cut happens near the end
-    const prefix = '#journal\n\n#### Notes about anything\n\n0';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // The cut happens at a word boundary, then leading whitespace is trimmed
-    // "\n\n0" after the cut becomes "0" with "\n\n" moved to truncatedPrefix
-    expect(truncatedPrefix).toBe('#journal\n\n#### Notes about anything\n\n');
-    expect(completionStart).toBe('0');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('handles pure whitespace prefix gracefully', () => {
-    const prefix = '\n\n\n';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // All whitespace moves to truncatedPrefix, completionStart is empty
-    expect(truncatedPrefix).toBe('\n\n\n');
-    expect(completionStart).toBe('');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-
-  it('preserves indentation spaces after trimming newlines', () => {
-    // Code indentation case: newline + spaces + partial token
-    const prefix = 'def foo():\n    return';
-    const { truncatedPrefix, completionStart } = extractCompletionStart(prefix);
-    // Newline and spaces move to truncatedPrefix
-    expect(truncatedPrefix).toBe('def foo():\n    ');
-    expect(completionStart).toBe('return');
-    expect(truncatedPrefix + completionStart).toBe(prefix);
-  });
-});
-
-describe('stripCompletionStart', () => {
-  it('strips matching completion start from output', () => {
-    const output = 'The quick brown fox';
-    const completionStart = 'The quick ';
-    expect(stripCompletionStart(output, completionStart)).toBe('brown fox');
-  });
-
-  it('returns full output when completion start is empty', () => {
-    expect(stripCompletionStart('hello world', '')).toBe('hello world');
-  });
-
-  it('returns null when output does not start with completion start', () => {
-    const output = 'Different text';
-    const completionStart = 'The quick';
-    expect(stripCompletionStart(output, completionStart)).toBeNull();
-  });
-
-  it('handles exact match (output equals completion start)', () => {
-    const text = 'exact match';
-    expect(stripCompletionStart(text, text)).toBe('');
-  });
-
-  it('preserves whitespace correctly', () => {
-    const output = '  indented text continues';
-    const completionStart = '  indented ';
-    expect(stripCompletionStart(output, completionStart)).toBe('text continues');
-  });
-
-  it('handles newlines in completion start', () => {
-    const output = 'line1\nline2 continues';
-    const completionStart = 'line1\nline2 ';
-    expect(stripCompletionStart(output, completionStart)).toBe('continues');
-  });
-
-  it('handles whitespace-only completion start', () => {
-    const output = '\n\nSome content here';
-    const completionStart = '\n\n';
-    expect(stripCompletionStart(output, completionStart)).toBe('Some content here');
-  });
-
-  describe('lenient whitespace matching', () => {
-    it('matches when newline vs space differs', () => {
-      // Model uses \n where completion_start has space
-      const output = ' *\n * content';
-      const completionStart = ' * * ';
-      expect(stripCompletionStart(output, completionStart)).toBe('content');
-    });
-
-    it('matches when whitespace run lengths differ', () => {
-      // Model uses single space where completion_start has double space
-      const output = 'a b content';
-      const completionStart = 'a  b ';
-      expect(stripCompletionStart(output, completionStart)).toBe('content');
-    });
-
-    it('fails when non-whitespace character counts differ', () => {
-      // JSDoc case: completionStart has 3 asterisks, output only has 2
-      const output = ' * \n * useTimezone()';
-      const completionStart = ' *\n * \n * ';
-      // Non-whitespace: * * * vs * *
-      // These don't match — model dropped one of the asterisks
-      expect(stripCompletionStart(output, completionStart)).toBeNull();
-    });
-
-    it('matches when completion_start has trailing whitespace output lacks', () => {
-      const output = ' * content';
-      const completionStart = ' * ';
-      expect(stripCompletionStart(output, completionStart)).toBe('content');
-    });
-
-    it('fails when non-whitespace chars differ', () => {
-      const output = 'abc content';
-      const completionStart = 'abd ';
-      expect(stripCompletionStart(output, completionStart)).toBeNull();
-    });
-
-    it('fails when non-whitespace chars missing', () => {
-      const output = 'ab content';
-      const completionStart = 'abc ';
-      expect(stripCompletionStart(output, completionStart)).toBeNull();
-    });
-
-    it('requires whitespace to be present in both, not dropped entirely', () => {
-      // completion_start has " a b", output has "ab" — whitespace dropped
-      const output = 'ab content';
-      const completionStart = ' a b ';
-      expect(stripCompletionStart(output, completionStart)).toBeNull();
-    });
-
-    it('handles mixed whitespace (space, tab, newline)', () => {
-      const output = 'a\tb\nc content';
-      const completionStart = 'a b c ';
-      expect(stripCompletionStart(output, completionStart)).toBe('content');
-    });
-
-    it('handles completion_start that is all whitespace with different lengths', () => {
-      const output = '\n\nSome content';
-      const completionStart = '\n\n\n';
-      expect(stripCompletionStart(output, completionStart)).toBe('Some content');
-    });
-
-    it('prefers strict match when both would work', () => {
-      // Strict match should be used when exact match exists
-      const output = 'hello world';
-      const completionStart = 'hello ';
-      expect(stripCompletionStart(output, completionStart)).toBe('world');
-    });
+  it('ignores text outside COMPLETION tags', () => {
+    expect(extractCompletion('thinking... <COMPLETION>result</COMPLETION> done')).toBe('result');
   });
 });
 
 describe('buildFillMessage', () => {
-  it('builds message with completion_start tag', () => {
+  it('builds message with document tags and fill marker', () => {
     const prefix = 'Hello world, this is some text';
     const suffix = ' and more content.';
-    const { message, completionStart } = buildFillMessage(prefix, suffix);
+    const message = buildFillMessage(prefix, suffix, 'markdown');
 
-    expect(message).toContain('<current_text>');
-    expect(message).toContain('>>>CURSOR<<<');
-    expect(message).toContain('</current_text>');
-    expect(message).toContain('<completion_start>');
-    expect(message).toContain('</completion_start>');
-    expect(message).toContain(completionStart);
+    expect(message).toContain('<document language="markdown">');
+    expect(message).toContain('{{FILL_HERE}}');
+    expect(message).toContain('</document>');
+    expect(message).toContain('Fill the {{FILL_HERE}} marker.');
   });
 
-  it('includes suffix after cursor', () => {
+  it('includes suffix after fill marker', () => {
     const prefix = 'The quick brown fox jumps over';
     const suffix = ' the lazy dog.';
-    const { message } = buildFillMessage(prefix, suffix);
+    const message = buildFillMessage(prefix, suffix);
 
-    expect(message).toContain('>>>CURSOR<<<' + suffix);
+    expect(message).toContain('{{FILL_HERE}} the lazy dog.');
   });
 
   it('handles empty suffix', () => {
     const prefix = 'Some text here';
-    const { message } = buildFillMessage(prefix, '');
+    const message = buildFillMessage(prefix, '');
 
-    expect(message).toContain('>>>CURSOR<<<</current_text>');
+    expect(message).toContain('{{FILL_HERE}}\n</document>');
   });
 
   it('handles whitespace-only suffix', () => {
     const prefix = 'Some text here';
-    const { message } = buildFillMessage(prefix, '   ');
+    const message = buildFillMessage(prefix, '   ');
 
     // Whitespace-only suffix is trimmed, so treated as no suffix
-    expect(message).toContain('>>>CURSOR<<<</current_text>');
+    expect(message).toContain('{{FILL_HERE}}\n</document>');
   });
 
-  it('returns completion start that matches end of prefix', () => {
-    const prefix = 'The quick brown fox jumps over the lazy dog.';
-    const { completionStart } = buildFillMessage(prefix, '');
-
-    expect(prefix.endsWith(completionStart)).toBe(true);
+  it('defaults to plaintext language', () => {
+    const message = buildFillMessage('hello', '');
+    expect(message).toContain('<document language="plaintext">');
   });
 
-  it('truncated prefix + completion start equals original prefix', () => {
-    const prefix = 'The quick brown fox jumps over the lazy dog.';
-    const suffix = ' More text here.';
-    const { message, completionStart } = buildFillMessage(prefix, suffix);
+  it('uses provided language ID', () => {
+    const message = buildFillMessage('hello', '', 'typescript');
+    expect(message).toContain('<document language="typescript">');
+  });
 
-    // Extract truncated prefix from message
-    const match = message.match(/<current_text>([\s\S]*?)>>>CURSOR<<</);
-    const truncatedPrefix = match?.[1] ?? '';
+  it('places prefix before fill marker and suffix after', () => {
+    const prefix = 'before cursor';
+    const suffix = ' after cursor';
+    const message = buildFillMessage(prefix, suffix);
 
-    expect(truncatedPrefix + completionStart).toBe(prefix);
+    expect(message).toContain('before cursor{{FILL_HERE}} after cursor');
   });
 });
