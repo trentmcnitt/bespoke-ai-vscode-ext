@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Claude Code",
-  "version": "0.3.5",
+  "version": "0.4.1",
   "publisher": "trenthm",
   "icon": "images/icon.png",
   "engines": {
@@ -67,6 +67,10 @@
         "title": "Bespoke: Chat"
       },
       {
+        "command": "bespoke-ai.doSelection",
+        "title": "Bespoke: Do"
+      },
+      {
         "command": "bespoke-ai.expand",
         "title": "Bespoke: Expand"
       },
@@ -105,13 +109,18 @@
           "group": "0_bespoke@4"
         },
         {
-          "command": "bespoke-ai.chatSelection",
+          "command": "bespoke-ai.doSelection",
           "when": "editorHasSelection",
           "group": "0_bespoke@5"
         },
         {
-          "command": "bespoke-ai.expand",
+          "command": "bespoke-ai.chatSelection",
+          "when": "editorHasSelection",
           "group": "0_bespoke@6"
+        },
+        {
+          "command": "bespoke-ai.expand",
+          "group": "0_bespoke@7"
         }
       ]
     },

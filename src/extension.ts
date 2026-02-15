@@ -16,6 +16,7 @@ import {
   alternativesSelection,
   condenseSelection,
   chatSelection,
+  doSelection,
 } from './commands/context-menu';
 import { expandCommand } from './commands/expand';
 import { UsageTracker } from './utils/usage-tracker';
@@ -466,6 +467,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('bespoke-ai.alternativesSelection', alternativesSelection),
     vscode.commands.registerCommand('bespoke-ai.condenseSelection', condenseSelection),
     vscode.commands.registerCommand('bespoke-ai.chatSelection', chatSelection),
+    vscode.commands.registerCommand('bespoke-ai.doSelection', doSelection),
   );
 
   context.subscriptions.push(

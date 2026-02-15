@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { escapeForDoubleQuotes, PROMPT_TEMPLATES } from './context-menu-utils';
+import { escapeForDoubleQuotes, PromptContext, PROMPT_TEMPLATES } from './context-menu-utils';
 
 /**
  * Opens a terminal in ViewColumn.Two and sends a Claude CLI command.
@@ -27,14 +27,28 @@ async function openClaudeTerminal(command: string): Promise<vscode.Terminal> {
 /**
  * Gets selection info from the active editor.
  * Returns null if no editor or selection is empty.
+ *
+ * Three states:
+ * - Clean saved file: filePath set, unsaved false — Claude reads and edits the file directly
+ * - Dirty saved file: filePath set, unsaved true — text embedded in prompt, file available for context
+ * - Untitled buffer: filePath null, unsaved true — text embedded, no file to reference
  */
-function getSelectionInfo(): { filePath: string; startLine: number; endLine: number } | null {
+function getSelectionInfo(): {
+  selectedText: string;
+  filePath: string | null;
+  startLine: number;
+  endLine: number;
+  unsaved: boolean;
+} | null {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.selection.isEmpty) {
     return null;
   }
 
-  const filePath = editor.document.uri.fsPath;
+  const selectedText = editor.document.getText(editor.selection);
+  const isUntitled = editor.document.isUntitled;
+  const filePath = isUntitled ? null : editor.document.uri.fsPath;
+  const unsaved = isUntitled || editor.document.isDirty;
   const startLine = editor.selection.start.line + 1; // 1-indexed
   // If selection ends at column 0, the user didn't select content on that line
   const endLine =
@@ -42,7 +56,24 @@ function getSelectionInfo(): { filePath: string; startLine: number; endLine: num
       ? editor.selection.end.line
       : editor.selection.end.line + 1;
 
-  return { filePath, startLine, endLine };
+  return { selectedText, filePath, startLine, endLine, unsaved };
+}
+
+/** Builds a PromptContext with the selected text escaped for shell embedding. */
+function buildPromptContext(sel: {
+  selectedText: string;
+  filePath: string | null;
+  startLine: number;
+  endLine: number;
+  unsaved: boolean;
+}): PromptContext {
+  return {
+    selectedText: escapeForDoubleQuotes(sel.selectedText),
+    filePath: sel.filePath ? escapeForDoubleQuotes(sel.filePath) : null,
+    startLine: sel.startLine,
+    endLine: sel.endLine,
+    unsaved: sel.unsaved,
+  };
 }
 
 /**
@@ -74,56 +105,32 @@ function buildClaudeCommand(prompt: string): string {
 export async function explainSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const commentary = await getUserInput({
-    prompt: 'Add context for Explain (optional)',
-    placeholder: 'e.g., "focus on the error handling" — press Enter to skip',
-    required: false,
-  });
-  if (commentary === undefined) return; // Escape pressed
-  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
-  const prompt = PROMPT_TEMPLATES.explain(sel.filePath, sel.startLine, sel.endLine, escaped);
+  const ctx = buildPromptContext(sel);
+  const prompt = PROMPT_TEMPLATES.explain(ctx);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function fixSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const commentary = await getUserInput({
-    prompt: 'Add context for Fix (optional)',
-    placeholder: 'e.g., "the return type is wrong" — press Enter to skip',
-    required: false,
-  });
-  if (commentary === undefined) return;
-  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
-  const prompt = PROMPT_TEMPLATES.fix(sel.filePath, sel.startLine, sel.endLine, escaped);
+  const ctx = buildPromptContext(sel);
+  const prompt = PROMPT_TEMPLATES.fix(ctx);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function alternativesSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const commentary = await getUserInput({
-    prompt: 'Add context for Alternatives (optional)',
-    placeholder: 'e.g., "prefer functional style" — press Enter to skip',
-    required: false,
-  });
-  if (commentary === undefined) return;
-  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
-  const prompt = PROMPT_TEMPLATES.alternatives(sel.filePath, sel.startLine, sel.endLine, escaped);
+  const ctx = buildPromptContext(sel);
+  const prompt = PROMPT_TEMPLATES.alternatives(ctx);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
 export async function condenseSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
-  const commentary = await getUserInput({
-    prompt: 'Add context for Condense (optional)',
-    placeholder: 'e.g., "keep the technical terms" — press Enter to skip',
-    required: false,
-  });
-  if (commentary === undefined) return;
-  const escaped = commentary ? escapeForDoubleQuotes(commentary) : undefined;
-  const prompt = PROMPT_TEMPLATES.condense(sel.filePath, sel.startLine, sel.endLine, escaped);
+  const ctx = buildPromptContext(sel);
+  const prompt = PROMPT_TEMPLATES.condense(ctx);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
@@ -132,11 +139,27 @@ export async function chatSelection(): Promise<void> {
   if (!sel) return;
   const userQuestion = await getUserInput({
     prompt: 'What would you like to discuss?',
-    placeholder: 'Type your question about the selected lines...',
+    placeholder: 'Type your question about the selected text...',
     required: true,
   });
   if (userQuestion === undefined) return; // Escape pressed
+  const ctx = buildPromptContext(sel);
   const escaped = escapeForDoubleQuotes(userQuestion);
-  const prompt = PROMPT_TEMPLATES.chat(sel.filePath, sel.startLine, sel.endLine, escaped);
+  const prompt = PROMPT_TEMPLATES.chat(ctx, escaped);
+  await openClaudeTerminal(buildClaudeCommand(prompt));
+}
+
+export async function doSelection(): Promise<void> {
+  const sel = getSelectionInfo();
+  if (!sel) return;
+  const instruction = await getUserInput({
+    prompt: 'What do you want to do with this text?',
+    placeholder: 'e.g., "convert to a bullet list", "make it more formal"',
+    required: true,
+  });
+  if (instruction === undefined) return; // Escape pressed
+  const ctx = buildPromptContext(sel);
+  const escaped = escapeForDoubleQuotes(instruction);
+  const prompt = PROMPT_TEMPLATES.do(ctx, escaped);
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
