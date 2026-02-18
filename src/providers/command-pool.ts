@@ -6,7 +6,10 @@ const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely
 const WARMUP_MESSAGE = 'Reply with exactly the word: READY';
 
 /** Maximum requests per slot before recycling. */
-const MAX_COMMAND_REUSES = 8;
+const MAX_COMMAND_REUSES = 4;
+
+/** Error text returned by Claude Code CLI when accumulated conversation exceeds context limit. */
+const PROMPT_TOO_LONG = 'Prompt is too long';
 
 export interface SendPromptOptions {
   timeoutMs?: number;
@@ -58,8 +61,27 @@ export class CommandPool extends SlotPool {
   /**
    * Send a prompt to the command pool and wait for the response.
    * Returns null text if the pool is unavailable, timed out, or cancelled.
+   *
+   * If the CLI returns "Prompt is too long" (conversation history exceeded
+   * context limit), the pool is recycled and the request is retried once.
    */
   async sendPrompt(message: string, options?: SendPromptOptions): Promise<SendPromptResult> {
+    const result = await this._doSendPrompt(message, options);
+
+    // Retry once on context overflow — recycle the pool to get a fresh subprocess
+    if (result.text?.trim() === PROMPT_TOO_LONG) {
+      this.logger.info('CommandPool: prompt too long (context overflow), recycling and retrying');
+      await this.recycleAll();
+      return this._doSendPrompt(message, options);
+    }
+
+    return result;
+  }
+
+  private async _doSendPrompt(
+    message: string,
+    options?: SendPromptOptions,
+  ): Promise<SendPromptResult> {
     if (!this.queryFn || !this.isAvailable()) {
       return { text: null, meta: null };
     }

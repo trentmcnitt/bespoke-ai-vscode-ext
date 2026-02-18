@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Claude Code",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "trenthm",
   "icon": "images/icon.png",
   "engines": {
