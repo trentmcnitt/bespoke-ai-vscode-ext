@@ -38,5 +38,8 @@ export interface ExtensionConfig {
     model: string;
     models: string[];
   };
+  contextMenu: {
+    permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
+  };
   logLevel: 'info' | 'debug' | 'trace';
 }

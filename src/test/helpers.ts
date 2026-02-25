@@ -28,6 +28,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     suffixChars: 2000,
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
+  contextMenu: { permissionMode: 'default' },
   logLevel: 'info',
 };
 
@@ -38,6 +39,7 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
+    contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },
   };
 }
 

@@ -3,7 +3,7 @@
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Claude Code",
   "version": "0.5.0",
-  "publisher": "trenthm",
+  "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
@@ -12,7 +12,7 @@
   },
   "homepage": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext#readme",
   "bugs": {
-    "url": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues"
+    "email": "feedback@mcnitt.io"
   },
   "keywords": [
     "ai",
@@ -203,6 +203,21 @@
           "type": "number",
           "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for code context"
+        },
+        "bespokeAI.contextMenu.permissionMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "default": "default",
+          "enumDescriptions": [
+            "Ask before every action (safest)",
+            "Auto-approve file reads and edits, ask for everything else",
+            "Skip all permission checks (use with caution)"
+          ],
+          "description": "Permission mode for context menu commands (Explain, Fix, Do)"
         }
       }
     }

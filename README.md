@@ -78,6 +78,18 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | `code.contextChars` | number | `2500`  | Prefix context window (characters) |
 | `code.suffixChars`  | number | `2000`  | Suffix context window (characters) |
 
+### Context Menu
+
+| Setting                      | Type   | Default     | Description                                              |
+| ---------------------------- | ------ | ----------- | -------------------------------------------------------- |
+| `contextMenu.permissionMode` | string | `"default"` | Permission mode for Explain, Fix, Do (see options below) |
+
+Permission mode options:
+
+- **`default`** — Ask before every action (safest)
+- **`acceptEdits`** — Auto-approve file reads and edits, ask for everything else
+- **`bypassPermissions`** — Skip all permission checks (use with caution)
+
 ## Commands & Keybindings
 
 | Command                               | Keybinding | Description                               |
@@ -93,7 +105,7 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | `Bespoke AI: Fix`                     | —          | Fix selected text (context menu)          |
 | `Bespoke AI: Do`                      | —          | Custom action on selection (context menu) |
 
-> **Note on context menu commands:** Explain, Fix, and Do open a Claude Code CLI session in a terminal with `--dangerously-skip-permissions`, which gives Claude full filesystem and shell access without per-action permission prompts. This is the same trust model as running Claude Code directly from the terminal. These commands are independent of the inline completion pool.
+> **Note on context menu commands:** Explain, Fix, and Do open a Claude Code CLI session in a terminal. By default, Claude asks for permission before reading or editing files. Change the `bespokeAI.contextMenu.permissionMode` setting to adjust this behavior.
 
 ## Setup
 

@@ -403,9 +403,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Context menu commands (open Claude CLI in terminal)
   context.subscriptions.push(
-    vscode.commands.registerCommand('bespoke-ai.explainSelection', explainSelection),
-    vscode.commands.registerCommand('bespoke-ai.fixSelection', fixSelection),
-    vscode.commands.registerCommand('bespoke-ai.doSelection', doSelection),
+    vscode.commands.registerCommand('bespoke-ai.explainSelection', () =>
+      explainSelection(lastConfig.contextMenu.permissionMode),
+    ),
+    vscode.commands.registerCommand('bespoke-ai.fixSelection', () =>
+      fixSelection(lastConfig.contextMenu.permissionMode),
+    ),
+    vscode.commands.registerCommand('bespoke-ai.doSelection', () =>
+      doSelection(lastConfig.contextMenu.permissionMode),
+    ),
   );
 
   context.subscriptions.push(
@@ -511,6 +517,12 @@ function loadConfig(): ExtensionConfig {
     claudeCode: {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
       models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
+    },
+    contextMenu: {
+      permissionMode: ws.get<'default' | 'acceptEdits' | 'bypassPermissions'>(
+        'contextMenu.permissionMode',
+        'default',
+      )!,
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };

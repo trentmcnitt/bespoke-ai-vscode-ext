@@ -95,30 +95,38 @@ async function getUserInput(options: {
   });
 }
 
+type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+
 /** Builds a Claude CLI command from a prompt. */
-function buildClaudeCommand(prompt: string): string {
-  return `claude --dangerously-skip-permissions "${prompt}"`;
+function buildClaudeCommand(prompt: string, permissionMode: PermissionMode): string {
+  let flags = '';
+  if (permissionMode === 'bypassPermissions') {
+    flags = ' --dangerously-skip-permissions';
+  } else if (permissionMode !== 'default') {
+    flags = ` --permission-mode ${permissionMode}`;
+  }
+  return `claude${flags} "${prompt}"`;
 }
 
 // --- Handlers ---
 
-export async function explainSelection(): Promise<void> {
+export async function explainSelection(permissionMode: PermissionMode): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
   const ctx = buildPromptContext(sel);
   const prompt = PROMPT_TEMPLATES.explain(ctx);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
+  await openClaudeTerminal(buildClaudeCommand(prompt, permissionMode));
 }
 
-export async function fixSelection(): Promise<void> {
+export async function fixSelection(permissionMode: PermissionMode): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
   const ctx = buildPromptContext(sel);
   const prompt = PROMPT_TEMPLATES.fix(ctx);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
+  await openClaudeTerminal(buildClaudeCommand(prompt, permissionMode));
 }
 
-export async function doSelection(): Promise<void> {
+export async function doSelection(permissionMode: PermissionMode): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;
   const instruction = await getUserInput({
@@ -130,5 +138,5 @@ export async function doSelection(): Promise<void> {
   const ctx = buildPromptContext(sel);
   const escaped = escapeForDoubleQuotes(instruction);
   const prompt = PROMPT_TEMPLATES.do(ctx, escaped);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
+  await openClaudeTerminal(buildClaudeCommand(prompt, permissionMode));
 }

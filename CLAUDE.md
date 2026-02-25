@@ -164,7 +164,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `PoolClient`. Captures visible editor text, sends it through `PoolClient.sendCommand()` for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
 
-- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Do). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process. Pure helpers live in `src/commands/context-menu-utils.ts`.
+- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Do). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process. The `bespokeAI.contextMenu.permissionMode` setting controls permission behavior: `default` (asks before every action), `acceptEdits` (auto-approves file reads/edits), or `bypassPermissions` (skips all checks). Pure helpers live in `src/commands/context-menu-utils.ts`.
 
 #### Mode Detection and Context Extraction
 
