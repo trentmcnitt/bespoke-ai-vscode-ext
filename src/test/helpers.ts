@@ -5,13 +5,7 @@ import { expect } from 'vitest';
 import { CompletionContext, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
-import {
-  extractCompletion,
-  buildFillMessage,
-  WARMUP_PREFIX,
-  WARMUP_SUFFIX,
-  WARMUP_EXPECTED,
-} from '../providers/claude-code';
+import { extractCompletion, WARMUP_EXPECTED } from '../providers/claude-code';
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,

@@ -134,9 +134,9 @@ export class PoolClient implements ICompletionProvider {
         }
       }
 
-      // Give up — force-acquire lock and become server
+      // Give up waiting — attempt lock acquisition as last resort and become server
       this.logger.error('Pool client: failed to connect after retries, forcing lock acquisition');
-      acquireLock(process.pid); // best-effort; becomeServer will overwrite lockfile in start()
+      acquireLock(process.pid); // best-effort; if this fails, becomeServer's listen() will fail if another server is active
       await this.becomeServer();
     } finally {
       this.activating = false;

@@ -66,6 +66,8 @@ export interface CompletionProvider {
   recycleAll?(): Promise<void>;
 }
 
+export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';
@@ -86,7 +88,7 @@ export interface ExtensionConfig {
     models: string[];
   };
   contextMenu: {
-    permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
+    permissionMode: PermissionMode;
   };
   logLevel: 'info' | 'debug' | 'trace';
 }

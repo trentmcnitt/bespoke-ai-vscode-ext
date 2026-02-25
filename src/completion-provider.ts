@@ -73,7 +73,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       return null;
     }
 
-    // In manual mode, only respond to explicit triggers (Ctrl+L / command palette)
+    // In manual mode, only respond to explicit triggers (Alt+Enter / command palette)
     if (
       this.config.triggerMode === 'manual' &&
       inlineContext.triggerKind === vscode.InlineCompletionTriggerKind.Automatic
@@ -101,7 +101,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     }
 
     // Suppress after punctuation that typically ends a thought or opens a new context
-    // Explicit triggers (Ctrl+L) bypass suppression — the user explicitly asked for a completion
+    // Explicit triggers (Alt+Enter) bypass suppression — the user explicitly asked for a completion
     if (!isExplicitTrigger) {
       const suppressSet = mode === 'code' ? CODE_SUPPRESS_AFTER : PROSE_SUPPRESS_AFTER;
       const lastChar = docContext.prefix.slice(-1);

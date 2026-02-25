@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { PermissionMode } from '../types';
 import { escapeForDoubleQuotes, PromptContext, PROMPT_TEMPLATES } from './context-menu-utils';
 
 /**
@@ -94,8 +95,6 @@ async function getUserInput(options: {
       : undefined,
   });
 }
-
-type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
 /** Builds a Claude CLI command from a prompt. */
 function buildClaudeCommand(prompt: string, permissionMode: PermissionMode): string {

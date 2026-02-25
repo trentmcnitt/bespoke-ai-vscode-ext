@@ -258,7 +258,6 @@ describe('UsageLedger', () => {
 
   it('record() catches I/O errors without throwing', () => {
     // Point ledger at a read-only path that can't be written
-    const badPath = path.join(tmpDir, 'nonexistent', 'deep', 'nested', 'file.jsonl');
     // Don't create the directory — the constructor's ensureDirectory may create it,
     // but we can break things by making the file a directory
     const dirAsFile = path.join(tmpDir, 'dir-as-file');

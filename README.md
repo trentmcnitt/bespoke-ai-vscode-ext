@@ -5,7 +5,7 @@
 <h1 align="center">Bespoke AI</h1>
 
 <p align="center">
-  <strong>Claude-powered AI autocomplete for VS Code on macOS — built on the Agent SDK</strong>
+  <strong>Claude Code-powered AI autocomplete for VS Code — built on the Agent SDK</strong>
 </p>
 
 <p align="center">
@@ -19,6 +19,8 @@
 
 **🤖 AI-assisted prompt writing** — Use AI to help you write better prompts to AI.
 
+**✨ One-click commit messages** — Hit the sparkle button in Source Control to generate a commit message from your staged diffs.
+
 ### 🖼️ Screenshots
 
 **Writing** — autocompleting a prompt to Claude:
@@ -28,6 +30,10 @@
 **Code** — filling in a function body from the name and context:
 
 <img src="images/demo-code.jpg" alt="Code completion demo" width="700">
+
+**Commit messages** — the sparkle button in Source Control:
+
+<img src="images/source-control.png" alt="Commit message sparkle button" width="400">
 
 ## 💡 Why This Exists
 
@@ -44,7 +50,7 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 - **🖊️ Writing completions** — Natural continuation that matches the tone and format of surrounding text. Works in markdown, plaintext, LaTeX, and more.
 - **💻 Code completions** — Fill-in-the-middle with prefix + suffix context. Auto-detected by file type.
 - **🧠 Mode detection** — Auto-switches between writing and code based on file type. Unknown languages default to writing.
-- **📝 Commit messages** — Generate AI commit messages from staged diffs in the Source Control panel.
+- **✨ Commit messages** — One-click AI commit messages. The sparkle button in Source Control generates a message from your staged diffs and drops it into the message box.
 - **✏️ Suggest edits** — One-command typo, grammar, and bug fixes for visible text.
 - **🔧 Context menu** — Right-click to Explain, Fix, or Do custom actions on selected text.
 
@@ -59,9 +65,9 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 4. Have an active Claude subscription (Pro, Team, or Enterprise)
 5. Start typing — completions appear as ghost text after a ~2 second pause
 
-> **Tip:** Press `Ctrl+L` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Ctrl+L only).
+> **Tip:** Press `Alt+Enter` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
 
-> **Platform:** Tested on macOS. Linux should work but is untested. Windows is not currently supported.
+> **Platform:** macOS and Linux. Windows is not currently supported.
 
 ### Modes
 
@@ -80,13 +86,13 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>General</strong></summary>
 
-| Setting         | Default     | Description                                                                  |
-| --------------- | ----------- | ---------------------------------------------------------------------------- |
-| `enabled`       | `true`      | Master on/off toggle                                                         |
-| `mode`          | `"auto"`    | Completion mode (auto-detects)                                               |
-| `triggerPreset` | `"relaxed"` | Trigger preset: `relaxed` (~2s), `eager` (~800ms), `on-demand` (Ctrl+L only) |
-| `debounceMs`    | `2000`      | Override the debounce delay from your trigger preset                         |
-| `logLevel`      | `"info"`    | Logging verbosity in Output channel                                          |
+| Setting         | Default     | Description                                                                     |
+| --------------- | ----------- | ------------------------------------------------------------------------------- |
+| `enabled`       | `true`      | Master on/off toggle                                                            |
+| `mode`          | `"auto"`    | Completion mode (auto-detects)                                                  |
+| `triggerPreset` | `"relaxed"` | Trigger preset: `relaxed` (~2s), `eager` (~800ms), `on-demand` (Alt+Enter only) |
+| `debounceMs`    | `2000`      | Override the debounce delay from your trigger preset                            |
+| `logLevel`      | `"info"`    | Logging verbosity in Output channel                                             |
 
 </details>
 
@@ -130,17 +136,17 @@ Options:
 
 ## 📋 Commands
 
-| Command                   | Keybinding | Description                            |
-| ------------------------- | ---------- | -------------------------------------- |
-| `Trigger Completion`      | `Ctrl+L`   | Manually trigger a completion          |
-| `Toggle Enabled`          | —          | Toggle the extension on/off            |
-| `Cycle Mode`              | —          | Cycle through auto → writing → code    |
-| `Clear Completion Cache`  | —          | Clear the LRU cache                    |
-| `Show Menu`               | —          | Status bar menu                        |
-| `Generate Commit Message` | —          | AI commit message from staged diffs    |
-| `Suggest Edits`           | —          | Fix typos/grammar/bugs in visible text |
-| `Explain` / `Fix` / `Do`  | —          | Context menu actions on selected text  |
-| `Restart Pools`           | —          | Restart Claude Code subprocesses       |
+| Command                   | Keybinding  | Description                            |
+| ------------------------- | ----------- | -------------------------------------- |
+| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion          |
+| `Toggle Enabled`          | —           | Toggle the extension on/off            |
+| `Cycle Mode`              | —           | Cycle through auto → writing → code    |
+| `Clear Completion Cache`  | —           | Clear the LRU cache                    |
+| `Show Menu`               | —           | Status bar menu                        |
+| `Generate Commit Message` | —           | AI commit message from staged diffs    |
+| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text |
+| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text  |
+| `Restart Pools`           | —           | Restart Claude Code subprocesses       |
 
 > **Note:** Explain, Fix, and Do open a Claude Code CLI session in a terminal. Permission behavior is controlled by the `contextMenu.permissionMode` setting.
 
@@ -171,7 +177,7 @@ Each subprocess serves up to 8 completions before recycling. A latest-request-wi
 
 - Check the status bar — is it showing "AI Off"? Click to re-enable.
 - If it shows "Setup needed", the Claude Code CLI may not be installed or authenticated.
-- Check if trigger preset is "on-demand" — in that mode, press `Ctrl+L` to trigger.
+- Check if trigger preset is "on-demand" — in that mode, press `Alt+Enter` to trigger.
 - Open the Output panel ("Bespoke AI") and check for errors.
 - Run the "Bespoke AI: Restart Pools" command from the Command Palette.
 

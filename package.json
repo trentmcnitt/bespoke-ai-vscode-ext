@@ -1,7 +1,7 @@
 {
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
-  "description": "Inline ghost-text completions for prose and code using Claude Code",
+  "description": "AI autocomplete for prose and code, plus one-click commit messages — powered by Claude Code (macOS/Linux)",
   "version": "0.6.0",
   "publisher": "trentmcnitt",
   "license": "MIT",
@@ -111,8 +111,8 @@
     "keybindings": [
       {
         "command": "bespoke-ai.trigger",
-        "key": "ctrl+l",
-        "mac": "ctrl+l",
+        "key": "alt+enter",
+        "mac": "alt+enter",
         "when": "editorTextFocus"
       }
     ],
@@ -145,7 +145,7 @@
           "enumDescriptions": [
             "Auto-trigger with ~2s debounce. Completions appear after a relaxed pause.",
             "Auto-trigger with ~800ms debounce. Completions fire quickly after you stop typing.",
-            "Manual only (Ctrl+L). No auto-trigger — completions appear only when you ask."
+            "Manual only (Alt+Enter). No auto-trigger — completions appear only when you ask."
           ],
           "description": "Controls when completions appear. Override the debounce timing with bespokeAI.debounceMs."
         },
@@ -162,7 +162,7 @@
         "bespokeAI.debounceMs": {
           "type": "number",
           "default": 2000,
-          "description": "Override the debounce delay from your trigger preset. Manual trigger (Ctrl+L) always fires immediately."
+          "description": "Override the debounce delay from your trigger preset. Manual trigger (Alt+Enter) always fires immediately."
         },
         "bespokeAI.logLevel": {
           "type": "string",
@@ -178,7 +178,7 @@
           "type": "string",
           "default": "haiku",
           "scope": "application",
-          "description": "Claude Code model to use (e.g. haiku, sonnet, opus). Global setting shared across all windows."
+          "description": "Claude Code model to use (e.g. haiku, sonnet, opus). Also changeable via the status bar menu."
         },
         "bespokeAI.claudeCode.models": {
           "type": "array",

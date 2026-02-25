@@ -5,7 +5,6 @@ This file contains instructions and reference material for Claude Code (claude.a
 **Related docs:**
 
 - `DEV_LOG.md` — Reverse-chronological development decisions and lessons learned. Update it when making significant changes or discovering important behaviors.
-- `ROADMAP.md` — Tracks planned, exploratory, and deferred features.
 - `FEATURE_MAP.md` — Competitive landscape analysis and open-source reference guide. Check it before implementing a feature that may already exist in an open-source project.
 - `README.md` — Public-facing project documentation for the VS Code marketplace.
 - `CHANGELOG.md` — Release history and version notes.
@@ -112,9 +111,9 @@ PoolServer
 
 **Commit message / Suggest edits:** Command invoked → `PoolClient.sendCommand()` → (local or socket) → `PoolServer` → `CommandPool.sendPrompt()` → result returned to caller.
 
-**Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Ctrl+L only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compat: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
+**Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Alt+Enter only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compat: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
 
-**Debounce:** Resolved from the trigger preset (default 2000ms for relaxed). Explicit triggers (Ctrl+L) always use zero-delay.
+**Debounce:** Resolved from the trigger preset (default 2000ms for relaxed). Explicit triggers (Alt+Enter) always use zero-delay.
 
 ### Pool Server
 
@@ -139,7 +138,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). Shows a one-time welcome notification on first run via `globalState`. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes, models, and trigger presets.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Ctrl+L or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over Unix socket IPC).
 
@@ -311,7 +310,7 @@ Commit message and suggest-edit commands use the `CommandPool` (via `PoolClient.
 If completions stop working entirely:
 
 1. Check status bar — is it showing "AI Off"? Toggle enabled via the status bar menu. If it shows "Setup needed", the CLI may be missing or unauthenticated.
-2. Check if `bespokeAI.triggerPreset` is set to `on-demand` — in that mode, completions only appear on explicit Ctrl+L invocation.
+2. Check if `bespokeAI.triggerPreset` is set to `on-demand` — in that mode, completions only appear on explicit Alt+Enter invocation.
 3. Open Output panel ("Bespoke AI") — check for errors.
 4. Run the "Bespoke AI: Restart Pools" command.
 5. If still broken: check for orphaned processes with `pkill -f "claude.*dangerously-skip-permissions"`.

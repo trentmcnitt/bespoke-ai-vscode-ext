@@ -2,7 +2,7 @@
 
 _Comprehensive landscape analysis — February 1 2026_
 
-This document maps every significant AI code completion product and their features against Bespoke AI's current capabilities for gap analysis and roadmap planning. Star counts, pricing, and feature details are approximate as of the date above. See `ROADMAP.md` for prioritization decisions informed by this analysis.
+This document maps every significant AI code completion product and their features against Bespoke AI's current capabilities for gap analysis and roadmap planning. Star counts, pricing, and feature details are approximate as of the date above.
 
 ---
 
@@ -48,9 +48,9 @@ This document maps every significant AI code completion product and their featur
 | Post-processing pipeline        | Yes (prefix/suffix overlap trimming)                |
 | LRU cache                       | Yes (50 entries, 5-min TTL)                         |
 | Debouncing                      | Yes (2000ms default, AbortSignal-aware)             |
-| Profiles                        | Yes (named config presets with deep merge)          |
+| Profiles                        | No                                                  |
 | Usage tracking                  | Yes (per-session counts + character tracking)       |
-| Benchmarking                    | Yes (automated parameter sweep + LLM-as-judge)      |
+| Benchmarking                    | Yes (LLM-as-judge quality tests)                    |
 
 ---
 
@@ -60,7 +60,7 @@ The core autocomplete experience — ghost text suggestions as you type.
 
 | Product              | Open Source | Ghost Text            | Multi-line          | FIM | Partial Accept | NES / Next Edit            | Syntax Highlight | Snooze |
 | -------------------- | ----------- | --------------------- | ------------------- | --- | -------------- | -------------------------- | ---------------- | ------ |
-| **Bespoke AI**       | No          | Yes                   | Yes                 | Yes | Yes (built-in) | No                         | Yes (built-in)   | No     |
+| **Bespoke AI**       | Yes         | Yes                   | Yes                 | Yes | Yes (built-in) | No                         | Yes (built-in)   | No     |
 | **GitHub Copilot**   | No          | Yes                   | Yes                 | Yes | Yes (word)     | Yes (GA)                   | Yes              | Yes    |
 | **Cursor**           | No          | Yes                   | Yes (multi-edit)    | Yes | Yes (word)     | Yes (jump in/across files) | Yes              | No     |
 | **Windsurf/Codeium** | No          | Yes (Supercomplete)   | Yes                 | Yes | —              | No                         | —                | —      |
@@ -159,7 +159,7 @@ The core autocomplete experience — ghost text suggestions as you type.
 
 | Product            | Type         | Fully Local        | Self-Host      | Air-Gapped | No Telemetry        | License     |
 | ------------------ | ------------ | ------------------ | -------------- | ---------- | ------------------- | ----------- |
-| **Bespoke AI**     | Extension    | No                 | N/A            | No         | Yes                 | Proprietary |
+| **Bespoke AI**     | Extension    | No                 | N/A            | No         | Yes                 | MIT         |
 | **GitHub Copilot** | Extension    | No                 | No             | No         | No                  | Proprietary |
 | **Cursor**         | IDE          | No                 | No             | No         | Opt-in Privacy Mode | Proprietary |
 | **Windsurf**       | IDE + Ext    | Enterprise         | Enterprise VPC | Enterprise | Opt-in              | Proprietary |

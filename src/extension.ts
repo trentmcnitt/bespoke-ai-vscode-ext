@@ -29,7 +29,7 @@ const PRESET_ICONS: Record<TriggerPreset, string> = {
 const PRESET_DESCRIPTIONS: Record<TriggerPreset, string> = {
   relaxed: 'auto, ~2s delay',
   eager: 'auto, ~800ms delay',
-  'on-demand': 'Ctrl+L only',
+  'on-demand': 'Alt+Enter only',
 };
 
 type StatusBarState = 'initializing' | 'ready' | 'setup-needed' | 'disabled';
@@ -798,7 +798,7 @@ async function activateWithPreflight(
     context.globalState.update(WELCOME_SHOWN_KEY, true);
     vscode.window
       .showInformationMessage(
-        'Bespoke AI is ready! Press Ctrl+L to trigger a completion anytime.',
+        'Bespoke AI is ready! Press Alt+Enter to trigger a completion anytime.',
         'Open Settings',
       )
       .then((action) => {

@@ -80,8 +80,8 @@ function trimPrefixOverlap(completion: string, prefix: string): string {
   const lineFragment = lastNewline >= 0 ? prefix.slice(lastNewline + 1) : prefix;
 
   // Skip if fragment is empty, whitespace-only, or too long.
-  // The 150-char limit accommodates anchor echoes up to 120 chars
-  // (extractAnchor maxLength default in claude-code.ts) with margin.
+  // The 150-char limit prevents false positives on very long line fragments
+  // where a prefix match is more likely to be legitimate repeated content.
   if (!lineFragment || !lineFragment.trim() || lineFragment.length > 150) {
     return completion;
   }

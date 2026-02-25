@@ -66,7 +66,7 @@ Right now the completion provider passes a different delay depending on config.b
 
 Here's what I'm thinking for the approach. The Debouncer constructor currently takes a fixed delayMs. Instead, change it to accept either a number (backward compatible) or a function that returns a number. The function would be called each time debounce() is invoked, so the delay can change dynamically if the user switches backends mid-session.
 
-The tricky part is the explicit trigger override. When the user presses Ctrl+L, we pass overrideDelayMs of 0 to skip the debounce entirely. That needs to keep working regardless of the delay resolver. So the override should take precedence over whatever the resolver returns.
+The tricky part is the explicit trigger override. When the user presses Alt+Enter, we pass overrideDelayMs of 0 to skip the debounce entirely. That needs to keep working regardless of the delay resolver. So the override should take precedence over whatever the resolver returns.
 
 For the tests, you'll need to update the debouncer tests in src/test/unit/debouncer.test.ts. The existing tests use a fixed delay, so add new test cases that pass a function and verify it gets called on each debounce invocation. Also add a test that verifies the override still works when using a function resolver — pass overrideDelayMs of 0 and confirm the resolver is never called in that case.
 

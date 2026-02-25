@@ -102,7 +102,7 @@ export class PoolServer {
 
     try {
       await new Promise<void>((resolve, reject) => {
-        this.server!.on('error', reject);
+        this.server!.once('error', reject);
         this.server!.listen(SOCKET_PATH, () => {
           this.logger.info(`Pool server listening on ${SOCKET_PATH}`);
           resolve();
@@ -265,12 +265,7 @@ export class PoolServer {
 
       case 'recycle':
         try {
-          if (request.pool === 'completion' || request.pool === 'all') {
-            await this.completionProvider.recycleAll();
-          }
-          if (request.pool === 'command' || request.pool === 'all') {
-            await this.commandPool.recycleAll();
-          }
+          await this.handleRecycleDirect(request.pool);
           response = { type: 'recycle', id: request.id, success: true };
         } catch (err) {
           response = {
@@ -397,21 +392,17 @@ export class PoolServer {
   }
 
   private async handleConfigUpdate(request: ConfigUpdateRequest): Promise<PoolResponse> {
-    if (request.model && request.model !== this.config.claudeCode.model) {
-      const oldModel = this.config.claudeCode.model;
-      this.config.claudeCode.model = request.model;
-
-      this.logger.info(`Pool server: model changed ${oldModel} → ${request.model}, recycling`);
-
-      // Update both pools
-      this.completionProvider.updateConfig(this.config);
-      this.commandPool.updateModel(request.model);
-
-      // Recycle to apply new model
-      await Promise.all([this.completionProvider.recycleAll(), this.commandPool.recycleAll()]);
+    try {
+      await this.handleConfigUpdateDirect(request);
+      return { type: 'config-update', id: request.id, success: true };
+    } catch (err) {
+      return {
+        type: 'config-update',
+        id: request.id,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
-
-    return { type: 'config-update', id: request.id, success: true };
   }
 
   private sendResponse(socket: net.Socket, response: PoolResponse): void {

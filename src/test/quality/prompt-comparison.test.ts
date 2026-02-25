@@ -434,7 +434,7 @@ describe.skipIf(shouldSkip)(
         /* */
       }
       try {
-        fs.symlinkSync(RUN_DIR, latestPath);
+        fs.symlinkSync(path.basename(RUN_DIR), latestPath);
       } catch {
         /* */
       }
