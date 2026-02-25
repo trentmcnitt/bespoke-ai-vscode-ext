@@ -4,24 +4,13 @@ import * as path from 'path';
 import { DEFAULT_MODEL, ExtensionConfig } from './types';
 import { CompletionProvider } from './completion-provider';
 import { PoolClient } from './pool-server/client';
-import { BackendRouter } from './providers/backend-router';
-import { ApiCompletionProvider } from './providers/api';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
-import {
-  explainSelection,
-  fixSelection,
-  alternativesSelection,
-  condenseSelection,
-  chatSelection,
-  doSelection,
-} from './commands/context-menu';
-import { expandCommand } from './commands/expand';
+import { explainSelection, fixSelection, doSelection } from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
-import { getAllPresets } from './providers/api';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -34,8 +23,6 @@ const MODE_ICONS: Record<string, string> = {
 let statusBarItem: vscode.StatusBarItem;
 let completionProvider: CompletionProvider;
 let poolClient: PoolClient;
-let apiProvider: ApiCompletionProvider | null = null;
-let backendRouter: BackendRouter;
 let logger: Logger;
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
@@ -97,12 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
     logger.info('Extension disabled at startup — pools not started');
   }
 
-  // Create API completion provider and backend router
-  apiProvider = new ApiCompletionProvider(config, logger, usageLedger);
-  backendRouter = new BackendRouter(poolClient, apiProvider, config);
-  context.subscriptions.push({ dispose: () => apiProvider?.dispose() });
-
-  completionProvider = new CompletionProvider(config, backendRouter, logger, usageTracker);
+  completionProvider = new CompletionProvider(config, poolClient, logger, usageTracker);
   context.subscriptions.push({ dispose: () => completionProvider.dispose() });
 
   completionProvider.setRequestCallbacks(
@@ -188,59 +170,18 @@ export function activate(context: vscode.ExtensionContext) {
         });
       }
 
-      // --- Backend section ---
-      items.push({ label: 'Backend', kind: vscode.QuickPickItemKind.Separator });
-      const backends = ['claude-code', 'api'] as const;
-      for (const b of backends) {
-        const isCurrent = config.backend === b;
-        const icon = b === 'claude-code' ? '$(terminal)' : '$(cloud)';
+      // --- Model section ---
+      items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
+      for (const model of config.claudeCode.models) {
+        const isCurrent = config.claudeCode.model === model;
         const item: vscode.QuickPickItem = {
-          label: `${icon} ${b}`,
+          label: `$(server) ${model}`,
           description: isCurrent ? '(current)' : '',
         };
         items.push(item);
         handlers.set(item, () => {
-          ws.update('backend', b, vscode.ConfigurationTarget.Global);
+          ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
         });
-      }
-
-      // --- Claude Code Model section ---
-      if (config.backend === 'claude-code') {
-        items.push({ label: 'Claude Code Model', kind: vscode.QuickPickItemKind.Separator });
-        for (const model of config.claudeCode.models) {
-          const isCurrent = config.claudeCode.model === model;
-          const item: vscode.QuickPickItem = {
-            label: `$(server) ${model}`,
-            description: isCurrent ? '(current)' : '',
-          };
-          items.push(item);
-          handlers.set(item, () => {
-            ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
-          });
-        }
-      }
-
-      // --- API Preset section ---
-      if (config.backend === 'api') {
-        items.push({ label: 'API Preset', kind: vscode.QuickPickItemKind.Separator });
-        const presets = getAllPresets();
-        for (const preset of presets) {
-          const isCurrent = config.api.activePreset === preset.id;
-          const providerIcon =
-            preset.provider === 'anthropic'
-              ? '$(hubot)'
-              : preset.provider === 'ollama'
-                ? '$(server-environment)'
-                : '$(cloud)';
-          const item: vscode.QuickPickItem = {
-            label: `${providerIcon} ${preset.displayName}`,
-            description: isCurrent ? `(current) ${preset.modelId}` : preset.modelId,
-          };
-          items.push(item);
-          handlers.set(item, () => {
-            ws.update('api.activePreset', preset.id, vscode.ConfigurationTarget.Global);
-          });
-        }
       }
 
       // --- Actions section ---
@@ -464,9 +405,6 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.explainSelection', explainSelection),
     vscode.commands.registerCommand('bespoke-ai.fixSelection', fixSelection),
-    vscode.commands.registerCommand('bespoke-ai.alternativesSelection', alternativesSelection),
-    vscode.commands.registerCommand('bespoke-ai.condenseSelection', condenseSelection),
-    vscode.commands.registerCommand('bespoke-ai.chatSelection', chatSelection),
     vscode.commands.registerCommand('bespoke-ai.doSelection', doSelection),
   );
 
@@ -484,16 +422,6 @@ export function activate(context: vscode.ExtensionContext) {
         logger.error(`Pool restart failed: ${err}`);
         vscode.window.showErrorMessage(`Bespoke AI: Pool restart failed — ${err}`);
       }
-    }),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('bespoke-ai.expand', async () => {
-      if (!lastConfig.enabled) {
-        vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
-        return;
-      }
-      await expandCommand(poolClient, completionProvider, lastConfig, logger, usageLedger);
     }),
   );
 
@@ -536,17 +464,6 @@ export function activate(context: vscode.ExtensionContext) {
           poolClient.updateConfig(newConfig);
         }
 
-        // Clear cache when backend or model card changes
-        if (
-          newConfig.backend !== prevConfig.backend ||
-          newConfig.api.activePreset !== prevConfig.api.activePreset
-        ) {
-          logger.info(
-            `Backend → ${newConfig.backend}${newConfig.backend === 'api' ? ` (${newConfig.api.activePreset})` : ''} (clearing cache)`,
-          );
-          completionProvider.clearCache();
-        }
-
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
       }
@@ -571,7 +488,7 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
-  logger.info(`Activated | backend=${config.backend} | logLevel=${config.logLevel}`);
+  logger.info(`Activated | logLevel=${config.logLevel}`);
 }
 
 function loadConfig(): ExtensionConfig {
@@ -579,7 +496,6 @@ function loadConfig(): ExtensionConfig {
 
   return {
     enabled: ws.get<boolean>('enabled', true)!,
-    backend: ws.get<'claude-code' | 'api'>('backend', 'claude-code')!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
     triggerMode: ws.get<'auto' | 'manual'>('triggerMode', 'auto')!,
     debounceMs: ws.get<number>('debounceMs', 8000)!,
@@ -596,10 +512,6 @@ function loadConfig(): ExtensionConfig {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
       models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
     },
-    api: {
-      activePreset: ws.get<string>('api.activePreset', 'anthropic-haiku-4-5')!,
-      debounceMs: ws.get<number>('api.debounceMs', 400)!,
-    },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
 }
@@ -608,20 +520,13 @@ function updateStatusBar(config: ExtensionConfig) {
   if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
     statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
-  } else if (config.backend === 'api') {
-    const cardLabel = config.api.activePreset.replace(/^(anthropic|openai|xai|ollama|gemini)-/, '');
-    const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
-    statusBarItem.text = `${triggerIcon} ${config.mode} | API: ${cardLabel}`;
-
-    const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, api (${config.api.activePreset}) (click for menu)`;
   } else {
     const modelLabel = shortenModelName(config.claudeCode.model);
     const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
-    statusBarItem.text = `${triggerIcon} ${config.mode} | CC: ${modelLabel}`;
+    statusBarItem.text = `${triggerIcon} ${config.mode} | ${modelLabel}`;
 
     const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, claude-code (${config.claudeCode.model}) (click for menu)`;
+    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, ${config.claudeCode.model} (click for menu)`;
   }
   statusBarItem.show();
 }
@@ -633,12 +538,8 @@ function updateStatusBarSpinner(spinning: boolean) {
   }
 
   if (spinning) {
-    const backendPrefix = config.backend === 'api' ? 'API' : 'CC';
-    const modelLabel =
-      config.backend === 'api'
-        ? config.api.activePreset.replace(/^(anthropic|openai|xai|ollama|gemini)-/, '')
-        : shortenModelName(config.claudeCode.model);
-    statusBarItem.text = `$(loading~spin) ${config.mode} | ${backendPrefix}: ${modelLabel}`;
+    const modelLabel = shortenModelName(config.claudeCode.model);
+    statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
   } else {
     updateStatusBar(config);
   }
@@ -783,7 +684,6 @@ export function deactivate() {
   // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
   // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
-  apiProvider?.dispose();
   poolClient?.dispose();
   logger?.dispose();
 }

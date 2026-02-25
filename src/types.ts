@@ -20,14 +20,8 @@ export interface CompletionProvider {
   recycleAll?(): Promise<void>;
 }
 
-export interface ExpandResult {
-  suggestions: string[];
-  range: { startLine: number; startCharacter: number; endLine: number; endCharacter: number };
-}
-
 export interface ExtensionConfig {
   enabled: boolean;
-  backend: 'claude-code' | 'api';
   mode: 'auto' | 'prose' | 'code';
   triggerMode: 'auto' | 'manual';
   debounceMs: number;
@@ -43,10 +37,6 @@ export interface ExtensionConfig {
   claudeCode: {
     model: string;
     models: string[];
-  };
-  api: {
-    activePreset: string;
-    debounceMs: number;
   };
   logLevel: 'info' | 'debug' | 'trace';
 }

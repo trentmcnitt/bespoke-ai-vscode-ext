@@ -5,3 +5,6 @@ dist/
 test-results/
 prompt-dump*.txt
 .tmp/
+.env*
+*.log
+.DS_Store

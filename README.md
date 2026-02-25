@@ -22,24 +22,24 @@ The mode is auto-detected but can be overridden via settings or the status bar m
 
 ### Backend
 
-**Claude Code** — via `@anthropic-ai/claude-agent-sdk`. The extension spawns Claude Code subprocesses and reuses them across multiple completions (1-slot pool, up to 8 completions per slot before recycling). Uses a `>>>CURSOR<<<` marker approach with `<completion_start>` anchoring. Same prompt structure for prose and code — the model infers the content type.
+Uses the Claude Code CLI via `@anthropic-ai/claude-agent-sdk`. The extension spawns Claude Code subprocesses and reuses them across multiple completions (1-slot pool, up to 8 completions per slot before recycling). Same prompt structure for prose and code — the model infers the content type.
 
-Requires the `claude` CLI to be installed. No API key needed (uses Claude Code subscription).
+Requires the `claude` CLI to be installed and a Claude subscription (Pro, Team, or Enterprise).
 
 ### Request Lifecycle
 
 ```
 User types
-  → VS Code fires InlineCompletionItemProvider
-  → Detect mode (prose/code)
-  → Extract prefix + suffix from document
-  → Check LRU cache (50 entries, 5min TTL)
-  → Debounce (8000ms default)
-  → Acquire a slot from the session pool
-  → Build prompt with >>>CURSOR<<< marker
-  → Get completion from Claude Code
-  → Post-process (strip echoed prefix, trim suffix overlap)
-  → Cache result → return InlineCompletionItem
+  -> VS Code fires InlineCompletionItemProvider
+  -> Detect mode (prose/code)
+  -> Extract prefix + suffix from document
+  -> Check LRU cache (50 entries, 5min TTL)
+  -> Debounce (8000ms default)
+  -> Acquire a slot from the session pool
+  -> Build prompt with fill marker
+  -> Get completion from Claude Code
+  -> Post-process (strip echoed prefix, trim suffix overlap)
+  -> Cache result -> return InlineCompletionItem
 ```
 
 ## Configuration
@@ -63,43 +63,35 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | `claudeCode.model`  | string   | `"opus"`                      | Active model (e.g., haiku, sonnet, opus) |
 | `claudeCode.models` | string[] | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
 
-### Commit Message
-
-| Setting                      | Type   | Default | Description                                        |
-| ---------------------------- | ------ | ------- | -------------------------------------------------- |
-| `commitMessage.systemPrompt` | string | `""`    | Custom system prompt for commit message generation |
-
 ### Prose Mode
 
-| Setting              | Type     | Default                     | Description                               |
-| -------------------- | -------- | --------------------------- | ----------------------------------------- |
-| `prose.contextChars` | number   | `2000`                      | Prefix context window (characters)        |
-| `prose.suffixChars`  | number   | `2500`                      | Suffix context window (characters)        |
-| `prose.fileTypes`    | string[] | `["markdown", "plaintext"]` | Additional language IDs to treat as prose |
+| Setting              | Type     | Default | Description                               |
+| -------------------- | -------- | ------- | ----------------------------------------- |
+| `prose.contextChars` | number   | `2500`  | Prefix context window (characters)        |
+| `prose.suffixChars`  | number   | `2000`  | Suffix context window (characters)        |
+| `prose.fileTypes`    | string[] | `[]`    | Additional language IDs to treat as prose |
 
 ### Code Mode
 
 | Setting             | Type   | Default | Description                        |
 | ------------------- | ------ | ------- | ---------------------------------- |
-| `code.contextChars` | number | `4000`  | Prefix context window (characters) |
-| `code.suffixChars`  | number | `2500`  | Suffix context window (characters) |
+| `code.contextChars` | number | `2500`  | Prefix context window (characters) |
+| `code.suffixChars`  | number | `2000`  | Suffix context window (characters) |
 
 ## Commands & Keybindings
 
-| Command                               | Keybinding | Description                             |
-| ------------------------------------- | ---------- | --------------------------------------- |
-| `Bespoke AI: Trigger Completion`      | `Ctrl+L`   | Manually trigger a completion           |
-| `Bespoke AI: Toggle Enabled`          | —          | Toggle the extension on/off             |
-| `Bespoke AI: Cycle Mode`              | —          | Cycle through auto → prose → code       |
-| `Bespoke AI: Clear Completion Cache`  | —          | Clear the LRU cache                     |
-| `Bespoke AI: Show Menu`               | —          | Status bar menu (click status bar)      |
-| `Bespoke AI: Generate Commit Message` | —          | AI-generated commit message via SCM     |
-| `Bespoke AI: Suggest Edits`           | —          | Fix typos/grammar/bugs in visible text  |
-| `Bespoke: Explain`                    | —          | Explain selected code (context menu)    |
-| `Bespoke: Fix`                        | —          | Fix selected code (context menu)        |
-| `Bespoke: Alternatives`               | —          | Suggest alternatives (context menu)     |
-| `Bespoke: Condense`                   | —          | Condense selected text (context menu)   |
-| `Bespoke: Chat`                       | —          | Chat about selected code (context menu) |
+| Command                               | Keybinding | Description                               |
+| ------------------------------------- | ---------- | ----------------------------------------- |
+| `Bespoke AI: Trigger Completion`      | `Ctrl+L`   | Manually trigger a completion             |
+| `Bespoke AI: Toggle Enabled`          | —          | Toggle the extension on/off               |
+| `Bespoke AI: Cycle Mode`              | —          | Cycle through auto -> prose -> code       |
+| `Bespoke AI: Clear Completion Cache`  | —          | Clear the LRU cache                       |
+| `Bespoke AI: Show Menu`               | —          | Status bar menu (click status bar)        |
+| `Bespoke AI: Generate Commit Message` | —          | AI-generated commit message via SCM       |
+| `Bespoke AI: Suggest Edits`           | —          | Fix typos/grammar/bugs in visible text    |
+| `Bespoke AI: Explain`                 | —          | Explain selected text (context menu)      |
+| `Bespoke AI: Fix`                     | —          | Fix selected text (context menu)          |
+| `Bespoke AI: Do`                      | —          | Custom action on selection (context menu) |
 
 ## Setup
 
@@ -107,7 +99,7 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 
 - Node.js 18+
 - VS Code or VSCodium 1.85+
-- `claude` CLI installed (Claude Code subscription)
+- `claude` CLI installed (requires a Claude subscription — Pro, Team, or Enterprise)
 
 ### Install & Build
 
@@ -134,7 +126,7 @@ npm run install-ext    # Compile, package VSIX, install into VSCodium
 ```sh
 npm run check          # Lint + type-check
 npm run test:unit      # Unit tests
-npm run test:api       # API integration tests (needs claude CLI)
+npm run test:api       # Claude Code integration tests (needs claude CLI)
 npm run test:quality   # LLM-as-judge quality tests (needs claude CLI)
 ```
 
@@ -142,10 +134,10 @@ npm run test:quality   # LLM-as-judge quality tests (needs claude CLI)
 
 **Prose-first defaults.** Unrecognized language IDs fall back to prose mode, not code. This reflects the primary use case.
 
-**Single backend.** Claude Code is the sole provider. Direct API providers (Anthropic, Ollama) were removed to simplify the architecture. See `API_RETURN_NOTES.md` for context on this decision and notes on potentially restoring them.
+**Single backend.** Claude Code CLI is the sole provider, keeping the architecture simple and leveraging Claude's subscription model.
 
 **Session reuse.** Each Claude Code subprocess serves up to 8 completions before recycling via a 1-slot pool.
 
 **No streaming.** Ghost text must be returned as a complete string. The VS Code inline completion API doesn't support incremental rendering.
 
-**LRU cache with TTL.** Prevents redundant API calls when the user's cursor returns to a previously-completed position. 50 entries, 5-minute TTL.
+**LRU cache with TTL.** Prevents redundant calls when the user's cursor returns to a previously-completed position. 50 entries, 5-minute TTL.

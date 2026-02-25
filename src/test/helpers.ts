@@ -13,13 +13,8 @@ import {
   WARMUP_EXPECTED,
 } from '../providers/claude-code';
 
-export function loadApiKey(): string {
-  return process.env.ANTHROPIC_API_KEY ?? '';
-}
-
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
-  backend: 'claude-code',
   mode: 'auto',
   triggerMode: 'auto',
   debounceMs: 8000,
@@ -33,7 +28,6 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     suffixChars: 2000,
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
-  api: { activePreset: 'anthropic-haiku-4-5', debounceMs: 400 },
   logLevel: 'info',
 };
 
@@ -42,7 +36,6 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     ...DEFAULT_CONFIG,
     ...overrides,
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
-    api: { ...DEFAULT_CONFIG.api, ...overrides.api },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
   };

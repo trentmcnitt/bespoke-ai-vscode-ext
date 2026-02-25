@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import {
   CompletionContext,
   CompletionProvider as ICompletionProvider,
-  ExpandResult,
   ExtensionConfig,
 } from './types';
 import { detectMode } from './mode-detector';
@@ -26,7 +25,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private config: ExtensionConfig;
   private logger: Logger;
   private tracker?: UsageTracker;
-  private expandResult: ExpandResult | null = null;
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
@@ -40,7 +38,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.config = config;
     this.provider = provider;
     this.cache = new LRUCache();
-    this.debouncer = new Debouncer(this.getDebounceDelay(config));
+    this.debouncer = new Debouncer(config.debounceMs);
     this.logger = logger;
     this.tracker = tracker;
   }
@@ -52,25 +50,12 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
-    this.debouncer.setDelay(this.getDebounceDelay(config));
+    this.debouncer.setDelay(config.debounceMs);
     this.provider.updateConfig?.(config);
-  }
-
-  /** Resolve the effective debounce delay based on active backend. */
-  private getDebounceDelay(config: ExtensionConfig): number {
-    if (config.backend === 'api') {
-      return config.api.debounceMs;
-    }
-    return config.debounceMs;
-  }
-
-  setExpandResult(result: ExpandResult): void {
-    this.expandResult = result;
   }
 
   clearCache(): void {
     this.cache.clear();
-    this.expandResult = null;
     this.logger.info('Cache cleared');
   }
 
@@ -86,19 +71,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   ): Promise<vscode.InlineCompletionItem[] | null> {
     if (!this.config.enabled) {
       return null;
-    }
-
-    // Consume pending expand result (one-shot injection from the expand command)
-    if (this.expandResult) {
-      const result = this.expandResult;
-      this.expandResult = null;
-      const range = new vscode.Range(
-        result.range.startLine,
-        result.range.startCharacter,
-        result.range.endLine,
-        result.range.endCharacter,
-      );
-      return result.suggestions.map((text) => new vscode.InlineCompletionItem(text, range));
     }
 
     // In manual mode, only respond to explicit triggers (Ctrl+L / command palette)
@@ -178,7 +150,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     // Log request start with structured format
     this.logger.requestStart(reqId, {
       mode,
-      backend: this.config.backend,
+      backend: 'claude-code',
       file: docContext.fileName,
       prefixLen: docContext.prefix.length,
       suffixLen: docContext.suffix.length,
@@ -215,9 +187,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
       // Record successful completion in usage tracker
       const inputChars = docContext.prefix.length + docContext.suffix.length;
-      const modelLabel =
-        this.config.backend === 'api' ? this.config.api.activePreset : this.config.claudeCode.model;
-      this.tracker?.record(modelLabel, inputChars, result.length);
+      this.tracker?.record(this.config.claudeCode.model, inputChars, result.length);
 
       // Cache and return
       this.cache.set(cacheKey, result);
@@ -227,13 +197,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       );
       return [item];
     } catch (err: unknown) {
-      this.logger.error(`✗ #${reqId} | ${this.config.backend} error`, err);
+      this.logger.error(`✗ #${reqId} | error`, err);
       this.tracker?.recordError();
       const now = Date.now();
       if (now - this.lastErrorToastTime > 60_000) {
         this.lastErrorToastTime = now;
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Bespoke AI: ${this.config.backend} error — ${msg}`);
+        vscode.window.showErrorMessage(`Bespoke AI: error — ${msg}`);
       }
       return null;
     } finally {
@@ -242,7 +212,6 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   }
 
   dispose(): void {
-    this.expandResult = null;
     this.debouncer.dispose();
   }
 }

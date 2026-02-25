@@ -53,27 +53,6 @@ export const PROMPT_TEMPLATES = {
     const { hint, readFile } = inlineContext(ctx);
     return `Fix any issues in the following text${hint}. Show the corrected version.${readFile}\n\n${ctx.selectedText}`;
   },
-  alternatives: (ctx: PromptContext) => {
-    if (ctx.filePath && !ctx.unsaved) {
-      return `Give me 3 alternative ways to phrase lines ${ctx.startLine}-${ctx.endLine} of \\\`${ctx.filePath}\\\`. ${READ_CONTEXT_INSTRUCTION}`;
-    }
-    const { hint, readFile } = inlineContext(ctx);
-    return `Give me 3 alternative ways to phrase the following text${hint}.${readFile}\n\n${ctx.selectedText}`;
-  },
-  condense: (ctx: PromptContext) => {
-    if (ctx.filePath && !ctx.unsaved) {
-      return `Make lines ${ctx.startLine}-${ctx.endLine} of \\\`${ctx.filePath}\\\` more concise while preserving the meaning. ${READ_CONTEXT_INSTRUCTION}`;
-    }
-    const { hint, readFile } = inlineContext(ctx);
-    return `Make the following text${hint} more concise while preserving the meaning.${readFile}\n\n${ctx.selectedText}`;
-  },
-  chat: (ctx: PromptContext, userQuestion: string) => {
-    if (ctx.filePath && !ctx.unsaved) {
-      return `Regarding lines ${ctx.startLine}-${ctx.endLine} of \\\`${ctx.filePath}\\\`: ${userQuestion}. ${READ_CONTEXT_INSTRUCTION}`;
-    }
-    const { hint, readFile } = inlineContext(ctx);
-    return `Regarding the following text${hint}: ${userQuestion}.${readFile}\n\n${ctx.selectedText}`;
-  },
   do: (ctx: PromptContext, instruction: string) => {
     if (ctx.filePath && !ctx.unsaved) {
       return `Apply the following to lines ${ctx.startLine}-${ctx.endLine} of \\\`${ctx.filePath}\\\`: ${instruction}. ${READ_CONTEXT_INSTRUCTION} Apply changes directly.`;

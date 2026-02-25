@@ -118,37 +118,6 @@ export async function fixSelection(): Promise<void> {
   await openClaudeTerminal(buildClaudeCommand(prompt));
 }
 
-export async function alternativesSelection(): Promise<void> {
-  const sel = getSelectionInfo();
-  if (!sel) return;
-  const ctx = buildPromptContext(sel);
-  const prompt = PROMPT_TEMPLATES.alternatives(ctx);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
-}
-
-export async function condenseSelection(): Promise<void> {
-  const sel = getSelectionInfo();
-  if (!sel) return;
-  const ctx = buildPromptContext(sel);
-  const prompt = PROMPT_TEMPLATES.condense(ctx);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
-}
-
-export async function chatSelection(): Promise<void> {
-  const sel = getSelectionInfo();
-  if (!sel) return;
-  const userQuestion = await getUserInput({
-    prompt: 'What would you like to discuss?',
-    placeholder: 'Type your question about the selected text...',
-    required: true,
-  });
-  if (userQuestion === undefined) return; // Escape pressed
-  const ctx = buildPromptContext(sel);
-  const escaped = escapeForDoubleQuotes(userQuestion);
-  const prompt = PROMPT_TEMPLATES.chat(ctx, escaped);
-  await openClaudeTerminal(buildClaudeCommand(prompt));
-}
-
 export async function doSelection(): Promise<void> {
   const sel = getSelectionInfo();
   if (!sel) return;

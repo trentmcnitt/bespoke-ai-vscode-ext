@@ -2,13 +2,32 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
   "description": "Inline ghost-text completions for prose and code using Claude Code",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "publisher": "trenthm",
+  "license": "MIT",
   "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext"
+  },
+  "homepage": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext#readme",
+  "bugs": {
+    "url": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues"
+  },
+  "keywords": [
+    "ai",
+    "autocomplete",
+    "claude",
+    "completions",
+    "ghost-text",
+    "inline-completions",
+    "prose"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Machine Learning",
     "Other"
   ],
   "activationEvents": [
@@ -48,31 +67,15 @@
       },
       {
         "command": "bespoke-ai.explainSelection",
-        "title": "Bespoke: Explain"
+        "title": "Bespoke AI: Explain"
       },
       {
         "command": "bespoke-ai.fixSelection",
-        "title": "Bespoke: Fix"
-      },
-      {
-        "command": "bespoke-ai.alternativesSelection",
-        "title": "Bespoke: Alternatives"
-      },
-      {
-        "command": "bespoke-ai.condenseSelection",
-        "title": "Bespoke: Condense"
-      },
-      {
-        "command": "bespoke-ai.chatSelection",
-        "title": "Bespoke: Chat"
+        "title": "Bespoke AI: Fix"
       },
       {
         "command": "bespoke-ai.doSelection",
-        "title": "Bespoke: Do"
-      },
-      {
-        "command": "bespoke-ai.expand",
-        "title": "Bespoke: Expand"
+        "title": "Bespoke AI: Do"
       },
       {
         "command": "bespoke-ai.restartPools",
@@ -99,28 +102,9 @@
           "group": "0_bespoke@2"
         },
         {
-          "command": "bespoke-ai.alternativesSelection",
-          "when": "editorHasSelection",
-          "group": "0_bespoke@3"
-        },
-        {
-          "command": "bespoke-ai.condenseSelection",
-          "when": "editorHasSelection",
-          "group": "0_bespoke@4"
-        },
-        {
           "command": "bespoke-ai.doSelection",
           "when": "editorHasSelection",
-          "group": "0_bespoke@5"
-        },
-        {
-          "command": "bespoke-ai.chatSelection",
-          "when": "editorHasSelection",
-          "group": "0_bespoke@6"
-        },
-        {
-          "command": "bespoke-ai.expand",
-          "group": "0_bespoke@7"
+          "group": "0_bespoke@3"
         }
       ]
     },
@@ -129,12 +113,6 @@
         "command": "bespoke-ai.trigger",
         "key": "ctrl+l",
         "mac": "ctrl+l",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "bespoke-ai.expand",
-        "key": "ctrl+shift+l",
-        "mac": "ctrl+shift+l",
         "when": "editorTextFocus"
       }
     ],
@@ -145,15 +123,6 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable inline completions"
-        },
-        "bespokeAI.backend": {
-          "type": "string",
-          "enum": [
-            "claude-code",
-            "api"
-          ],
-          "default": "claude-code",
-          "description": "Backend for inline completions: claude-code (CLI subprocess) or api (direct API calls)"
         },
         "bespokeAI.mode": {
           "type": "string",
@@ -234,16 +203,6 @@
           "type": "number",
           "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for code context"
-        },
-        "bespokeAI.api.activePreset": {
-          "type": "string",
-          "default": "anthropic-haiku-4-5",
-          "description": "Active preset ID for API backend (e.g. anthropic-haiku-4-5, openai-gpt-4o-mini, xai-grok-4-1-fast)"
-        },
-        "bespokeAI.api.debounceMs": {
-          "type": "number",
-          "default": 400,
-          "description": "Debounce delay in milliseconds for API backend completions"
         }
       }
     }
@@ -258,12 +217,10 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
-    "test:api:providers": "vitest run --config vitest.api-provider.config.ts",
     "test:quality": "vitest run --config vitest.quality.config.ts",
     "test:quality:compare": "vitest run --config vitest.quality.config.ts -- src/test/quality/prompt-comparison.test.ts",
-    "benchmark": "tsx src/benchmark/runner.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
-    "install-ext": "npm run compile && vsce package --allow-missing-repository --skip-license -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",
+    "install-ext": "npm run compile && vsce package -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",
     "format": "prettier --write 'src/**/*.ts' '*.{json,mjs,md}'",
     "format:check": "prettier --check 'src/**/*.ts' '*.{json,mjs,md}'",
     "prepare": "husky"
@@ -291,12 +248,7 @@
     "typescript": "^5.3.0",
     "vitest": "^4.0.18"
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "openai": "^4.78.0"
-  },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
-    "@google/genai": "^1.0.0"
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77"
   }
 }
