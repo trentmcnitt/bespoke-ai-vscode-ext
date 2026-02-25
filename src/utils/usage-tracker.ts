@@ -64,7 +64,10 @@ export class UsageTracker {
     todayStart.setHours(0, 0, 0, 0);
     const midnightMs = todayStart.getTime();
 
-    const todayEntries = this.entries.filter((e) => e.time >= midnightMs);
+    // Prune entries older than midnight to bound memory (before computing snapshot)
+    this.entries = this.entries.filter((e) => e.time >= midnightMs);
+
+    const todayEntries = this.entries;
     const windowStart = now - this.rateWindowMs;
     const windowEntries = this.entries.filter((e) => e.time >= windowStart);
 
@@ -79,9 +82,6 @@ export class UsageTracker {
     const totalCacheLookups = this._cacheHits + this._cacheMisses;
     const cacheHitRate =
       totalCacheLookups > 0 ? Math.round((this._cacheHits / totalCacheLookups) * 100) : 0;
-
-    // Prune entries older than midnight to bound memory
-    this.entries = this.entries.filter((e) => e.time >= midnightMs);
 
     return {
       totalToday: todayEntries.length,

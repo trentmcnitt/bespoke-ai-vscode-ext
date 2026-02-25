@@ -27,11 +27,16 @@ describe('escapeForDoubleQuotes', () => {
   });
 
   it('leaves safe characters unchanged', () => {
-    expect(escapeForDoubleQuotes("hello world! it's fine")).toBe("hello world! it's fine");
+    expect(escapeForDoubleQuotes("hello world it's fine")).toBe("hello world it's fine");
+  });
+
+  it('escapes exclamation marks (bash history expansion)', () => {
+    expect(escapeForDoubleQuotes('fix this!')).toBe('fix this\\!');
+    expect(escapeForDoubleQuotes('!!')).toBe('\\!\\!');
   });
 
   it('escapes all special characters combined', () => {
-    expect(escapeForDoubleQuotes('a\\b"c$d`e')).toBe('a\\\\b\\"c\\$d\\`e');
+    expect(escapeForDoubleQuotes('a\\b"c$d`e!f')).toBe('a\\\\b\\"c\\$d\\`e\\!f');
   });
 });
 

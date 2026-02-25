@@ -73,8 +73,8 @@ export class PoolClient implements ICompletionProvider {
 
   /** Model reported by server in client-hello response */
   private serverModel: string | null = null;
-  /** Last used model for completions (for status display) */
-  lastUsedModel: string | null = null;
+  /** Guards against concurrent attemptTakeOver calls */
+  private takingOver = false;
 
   constructor(options: PoolClientOptions) {
     this.config = options.config;
@@ -91,8 +91,10 @@ export class PoolClient implements ICompletionProvider {
 
   async activate(): Promise<void> {
     if (this.activating) return;
-    // Reset disposed flag to allow re-activation after disable/enable cycle
+    // Reset state to allow re-activation after disable/enable cycle
     this.disposed = false;
+    this.reconnectAttempts = 0;
+    this.takingOver = false;
     this.activating = true;
 
     try {
@@ -132,8 +134,9 @@ export class PoolClient implements ICompletionProvider {
         }
       }
 
-      // Give up and become server forcefully
-      this.logger.error('Pool client: failed to connect after retries, becoming server');
+      // Give up — force-acquire lock and become server
+      this.logger.error('Pool client: failed to connect after retries, forcing lock acquisition');
+      acquireLock(process.pid); // best-effort; becomeServer will overwrite lockfile in start()
       await this.becomeServer();
     } finally {
       this.activating = false;
@@ -253,8 +256,7 @@ export class PoolClient implements ICompletionProvider {
         this.logger.info('Pool client: server shutting down, will attempt reconnect');
         this.socket?.destroy();
         this.socket = null;
-        // Try to become the new server
-        this.attemptTakeOver();
+        // The 'close' event handler (handleDisconnect) will call attemptTakeOver
         break;
 
       case 'pool-degraded':
@@ -275,29 +277,35 @@ export class PoolClient implements ICompletionProvider {
   }
 
   private async attemptTakeOver(): Promise<void> {
-    if (this.disposed || this.role === 'server') return;
+    if (this.disposed || this.role === 'server' || this.takingOver) return;
+    this.takingOver = true;
 
-    this.reconnectAttempts++;
-    await this.delay(RECONNECT_DELAY_MS * this.reconnectAttempts);
+    try {
+      this.reconnectAttempts++;
+      await this.delay(RECONNECT_DELAY_MS * this.reconnectAttempts);
 
-    // Try to connect first (another client may have become server)
-    const connected = await this.tryConnect();
-    if (connected) {
-      this.reconnectAttempts = 0;
-      return;
-    }
+      // Try to connect first (another client may have become server)
+      const connected = await this.tryConnect();
+      if (connected) {
+        this.reconnectAttempts = 0;
+        return;
+      }
 
-    // Try to acquire lock and become server
-    if (acquireLock(process.pid)) {
-      await this.becomeServer();
-      return;
-    }
+      // Try to acquire lock and become server
+      if (acquireLock(process.pid)) {
+        await this.becomeServer();
+        return;
+      }
 
-    // Retry connect
-    if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      this.attemptTakeOver();
-    } else {
-      this.logger.error('Pool client: failed to reconnect or become server');
+      // Retry
+      if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        this.takingOver = false; // allow re-entry for retry
+        await this.attemptTakeOver();
+      } else {
+        this.logger.error('Pool client: failed to reconnect or become server');
+      }
+    } finally {
+      this.takingOver = false;
     }
   }
 
@@ -363,9 +371,9 @@ export class PoolClient implements ICompletionProvider {
           prefix: request.prefix,
           suffix: request.suffix,
           mode: request.mode,
-          languageId: '',
-          fileName: '',
-          filePath: '',
+          languageId: request.languageId,
+          fileName: request.fileName,
+          filePath: request.filePath,
         };
         const abortController = new AbortController();
         const text = await this.server.getCompletion(context, abortController.signal);
@@ -403,13 +411,41 @@ export class PoolClient implements ICompletionProvider {
           commandPool: this.server.getCommandPoolStats(),
         };
 
-      default:
+      case 'config-update': {
+        await this.server.handleConfigUpdateDirect(request);
+        return { type: 'config-update', id: request.id, success: true };
+      }
+
+      case 'recycle': {
+        await this.server.handleRecycleDirect(request.pool);
+        return { type: 'recycle', id: request.id, success: true };
+      }
+
+      case 'warmup':
+        return { type: 'warmup', id: request.id, success: true };
+
+      case 'dispose':
+        setImmediate(() => this.server?.dispose());
+        return { type: 'dispose', id: request.id, success: true };
+
+      case 'client-hello':
+        return {
+          type: 'client-hello',
+          id: request.id,
+          success: true,
+          serverId: this.clientId,
+          model: this.server.getModel(),
+        };
+
+      default: {
+        const unhandled = request as PoolRequest;
         return {
           type: 'error',
-          id: request.id,
-          success: false,
-          error: `Unhandled local request type: ${request.type}`,
+          id: unhandled.id,
+          success: false as const,
+          error: `Unhandled local request type: ${unhandled.type}`,
         };
+      }
     }
   }
 
@@ -439,6 +475,9 @@ export class PoolClient implements ICompletionProvider {
         prefix: context.prefix,
         suffix: context.suffix,
         mode: context.mode,
+        languageId: context.languageId,
+        fileName: context.fileName,
+        filePath: context.filePath,
       });
 
       if (response.type === 'completion' && response.success) {

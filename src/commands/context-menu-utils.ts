@@ -1,6 +1,6 @@
-/** Escapes characters that are special inside double-quoted shell strings: \ " $ ` */
+/** Escapes characters that are special inside double-quoted shell strings: \ " $ ` ! */
 export function escapeForDoubleQuotes(input: string): string {
-  return input.replace(/[\\"`$]/g, '\\$&');
+  return input.replace(/[\\"`$!]/g, '\\$&');
 }
 
 /** Context passed to prompt templates. */

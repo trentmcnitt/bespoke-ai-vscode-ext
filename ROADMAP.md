@@ -64,7 +64,7 @@ Include content from neighboring open files in the completion prompt. Copilot sa
 - Prioritize: same directory > same language > recently edited
 - Take first 200-500 lines per file, cap at 3-5 files total
 - Run in parallel with existing context gathering, never block the completion
-- Complements the existing context oracle (oracle analyzes imports/types, this provides raw neighboring content)
+- Provides neighboring file content as additional context for completions
 
 **Reference:** Continue.dev's `extensions/vscode/src/util/ideUtils.ts` for tab enumeration.
 
@@ -89,7 +89,7 @@ Stop generation early at suffix overlap or repetition instead of waiting for the
 - Currently, post-processing runs after the full response is received
 - Stream-time filtering would operate on the raw stream, character-by-character
 - Key transforms: stop at suffix match, stop at line repetition, stop at function boundaries
-- Only applicable to streaming backends — Claude Code delivers complete results, so this is deferred until API providers are restored. See `API_RETURN_NOTES.md`.
+- Only applicable to streaming backends — Claude Code delivers complete results.
 - Risk: Continue.dev's stream transforms are a major source of their bugs (premature truncation, #3994)
 
 **Reference:** Continue.dev's `core/autocomplete/filtering/streamTransforms/`.
@@ -114,7 +114,7 @@ Query VS Code's language server for type definitions and function signatures nea
 - Must be non-blocking: `Promise.race()` with 50-100ms timeout
 - Cache results aggressively (symbols don't change often)
 - Note: Continue.dev built this then **disabled it** due to performance issues
-- Our context oracle already serves a similar purpose via agent-based analysis. Evaluate whether LSP adds enough value on top.
+- Evaluate whether the added context justifies the performance cost
 
 **Reference:** Continue.dev's `extensions/vscode/src/autocomplete/lsp.ts`.
 
@@ -154,7 +154,7 @@ Since the Claude Code backend reuses the same session for up to 8 completions pe
 
 ### FIM Template Library
 
-Model-specific FIM prompt templates for optimal completion quality across different local models. Only relevant if API providers (especially Ollama) are restored. See `API_RETURN_NOTES.md`.
+Model-specific FIM prompt templates for optimal completion quality across different local models. Only relevant with direct API backends (especially Ollama).
 
 **Reference:** Continue.dev's `core/autocomplete/templating/AutocompleteTemplate.ts` (13+ model families).
 
@@ -235,7 +235,7 @@ Embed the full codebase into a vector store for semantic retrieval.
 **Why deferred:**
 
 - Significant infrastructure (embedding pipeline, vector store, chunking strategy, index maintenance)
-- Open-tab context + context oracle should cover most context needs without embeddings
+- Open-tab context should cover most context needs without embeddings
 - If needed later, Tabby and Twinny have open-source implementations to reference
 
 ### MCP Support

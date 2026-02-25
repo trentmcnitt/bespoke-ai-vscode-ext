@@ -97,13 +97,3 @@ export function detectMode(languageId: string, config: ExtensionConfig): Complet
   // Fallback: default to prose (user's primary use case is writing)
   return 'prose';
 }
-
-/**
- * @deprecated Use detectMode() function directly instead.
- * This class wrapper is kept for backward compatibility.
- */
-export class ModeDetector {
-  detectMode(languageId: string, config: ExtensionConfig): CompletionMode {
-    return detectMode(languageId, config);
-  }
-}

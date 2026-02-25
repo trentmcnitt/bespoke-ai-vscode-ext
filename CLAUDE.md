@@ -1,12 +1,14 @@
 # CLAUDE.md
 
-This file contains instructions and reference material for Claude Code (claude.ai/code) when working with this repository. Update this file when adding or removing components, changing workflows, or modifying the architecture — keep it in sync with the codebase.
+This file contains instructions and reference material for Claude Code (claude.ai/code) when working with this repository. Update this file when adding or removing components, changing workflows, or modifying the architecture — see [Updating This File](#updating-this-file) for the checklist. Keep it in sync with the codebase.
 
 **Related docs:**
 
 - `DEV_LOG.md` — Reverse-chronological development decisions and lessons learned. Update it when making significant changes or discovering important behaviors.
 - `ROADMAP.md` — Tracks planned, exploratory, and deferred features.
 - `FEATURE_MAP.md` — Competitive landscape analysis and open-source reference guide. Check it before implementing a feature that may already exist in an open-source project.
+- `README.md` — Public-facing project documentation for the VS Code marketplace.
+- `CHANGELOG.md` — Release history and version notes.
 - `docs/` — Research and reference documents. Key files:
   - `docs/autocomplete-approach.md` — Autocomplete philosophy, prompt design, and testing strategy
   - `docs/claude-code-cli-reference.md` — CLI flags and usage
@@ -28,17 +30,19 @@ Uses the Claude Code CLI via `@anthropic-ai/claude-agent-sdk`. Requires a Claude
 
 ## Working Rules
 
-**Feature scope:** Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, and context menu commands unless explicitly asked. Do not fix accepted limitations (see [Known Limitations](#known-limitations)) or introduce post-processing without explicit approval.
+**Feature scope:** Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, and context menu commands (Explain, Fix, Do) unless explicitly asked. Do not fix items listed under [Known Limitations](#known-limitations) or introduce post-processing without explicit approval.
 
-**Interpreting pasted content:** When the user pastes log output, error messages, or other unaccompanied diagnostic content, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix.
+**Interpreting pasted content:** When the user pastes log output, error messages, or other diagnostic content without an explicit instruction, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix. If the diagnosed issue matches a [Known Limitation](#known-limitations), explain the trade-off rather than proposing a fix.
 
-**Error handling pattern:** The backend catches abort errors and returns `null`; all other errors propagate to the completion orchestrator, which logs them via the `Logger`. The orchestrator shows errors to the user via `showErrorMessage`, rate-limited to one notification per 60 seconds. New code should follow this same pattern.
+**Error handling pattern:** `ClaudeCodeProvider` and `CommandPool` catch abort errors and return `null`; all other errors propagate to the completion orchestrator, which logs them via the `Logger`. The orchestrator shows errors to the user via `showErrorMessage`, rate-limited to one notification per 60 seconds. New code should follow this same pattern.
 
 **Pre-commit gate:** Run `npm run check` before creating any commit. Only proceed if it passes.
 
 **Version control:** This project uses GitHub. Use `gh` for repository operations. Work directly on `main` unless asked to create a branch.
 
-**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, examples, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect. If post-processing seems necessary:
+**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, examples, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect.
+
+Fixing bugs in existing post-processing follows normal debugging workflow. The protocol below applies to **adding new** post-processing steps. If prompt engineering cannot solve the problem and the user approves adding post-processing:
 
 1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does.
 2. **The transformation must be provably safe** — it should only activate when the pattern is always erroneous (never legitimate content), not when it might be correct.
@@ -142,7 +146,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 - `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a logical container that holds one Claude Code subprocess — the slot persists across subprocess recycling; the subprocess inside it is replaced. Manages slot lifecycle: init (spawn subprocess) → warmup (validate with a test prompt) → consume (handle user requests) → reuse (serve another request on the same subprocess) → recycle (terminate old subprocess and spawn a new one when `maxRequests` is reached). Also provides:
   - Circuit breaker — automatically stops sending requests after repeated consecutive failures
   - Generation guards — each request cycle gets a monotonically increasing number; responses from a previous generation are discarded
-  - Single-waiter queue — only the most recent caller waits for a busy slot; older waiters get `null`
+  - Latest-request-wins queue — only the most recent caller waits for a busy slot; older waiters get `null`
   - Warmup retry, `recycleAll`/`restart`/`dispose`
 
   Subclassed by `ClaudeCodeProvider` and `CommandPool`.
@@ -152,7 +156,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
   - **Slot pool:** Manages a 1-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
   - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when the slot is busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request executes fully regardless of cancellation signals.
 
-- `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 24 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
+- `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 4 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
 
 #### Standalone Commands
 
@@ -202,7 +206,7 @@ Additional type definitions: `src/types/git.d.ts` provides type definitions for 
 
 ### Adding a New Setting
 
-Adding or modifying a VS Code setting requires coordinated changes to:
+Adding or modifying a VS Code setting requires coordinated changes. Steps 1–4 are always required. Steps 5–7 apply only when the setting needs runtime propagation.
 
 | #   | File                        | What to change                                                                        |
 | --- | --------------------------- | ------------------------------------------------------------------------------------- |
@@ -235,7 +239,7 @@ Each `RegressionScenario` extends `TestScenario` with:
 
 When making codebase changes, update the corresponding CLAUDE.md sections:
 
-| Change type          | Update                                           |
+| Change type          | CLAUDE.md section to update                      |
 | -------------------- | ------------------------------------------------ |
 | New source file      | Module Reference                                 |
 | New setting          | "Adding a New Setting" table if workflow changes |
@@ -307,11 +311,12 @@ Commit message and suggest-edit commands use the `CommandPool` (via `PoolClient.
 If completions stop working entirely:
 
 1. Check status bar — is it showing "AI Off"? Toggle enabled via the status bar menu.
-2. Open Output panel ("Bespoke AI") — check for errors.
-3. Run the "Bespoke AI: Restart Pools" command.
-4. If still broken: check for orphaned processes with `pkill -f "claude.*dangerously-skip-permissions"`.
-5. If still broken: check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
-6. If still broken: disable and re-enable the extension.
+2. Check if `bespokeAI.triggerMode` is set to `manual` — in manual mode, completions only appear on explicit Ctrl+L invocation.
+3. Open Output panel ("Bespoke AI") — check for errors.
+4. Run the "Bespoke AI: Restart Pools" command.
+5. If still broken: check for orphaned processes with `pkill -f "claude.*dangerously-skip-permissions"`.
+6. If still broken: check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
+7. If still broken: disable and re-enable the extension.
 
 ## Testing
 
@@ -345,7 +350,7 @@ If any suite fails, report the failure and stop (the `&&` chaining enforces this
 | Layer 2 | Follow stdout instructions | Evaluate each `completion.txt` against validator | `layer2-summary.md` written            |
 | Skip    | Report skip reason         | If all scenarios skipped (e.g., no SDK)          | Layer 2 does not apply                 |
 
-Do not report quality tests as complete until Layer 2 is done. After Layer 2 evaluation, report the results to the user. Do not attempt fixes unless asked.
+**Do not report quality tests as complete until Layer 2 is done.** After Layer 2 evaluation, report the results to the user. Do not attempt fixes unless asked.
 
 ### Unit Tests
 

@@ -95,24 +95,33 @@ export class PoolServer {
       }
     }
 
-    // Write lockfile
-    fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.pid, timestamp: Date.now() }));
+    // Lockfile is already written by acquireLock() — no need to overwrite here.
 
     // Create and start server
     this.server = net.createServer((socket) => this.handleConnection(socket));
 
-    await new Promise<void>((resolve, reject) => {
-      this.server!.on('error', reject);
-      this.server!.listen(SOCKET_PATH, () => {
-        this.logger.info(`Pool server listening on ${SOCKET_PATH}`);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.server!.on('error', reject);
+        this.server!.listen(SOCKET_PATH, () => {
+          this.logger.info(`Pool server listening on ${SOCKET_PATH}`);
+          resolve();
+        });
       });
-    });
 
-    // Activate providers
-    await Promise.all([this.completionProvider.activate(), this.commandPool.activate()]);
+      // Activate providers
+      await Promise.all([this.completionProvider.activate(), this.commandPool.activate()]);
 
-    this.logger.info('Pool server: providers activated');
+      this.logger.info('Pool server: providers activated');
+    } catch (err) {
+      // Clean up lockfile on failure so other clients can acquire it
+      try {
+        if (fs.existsSync(LOCK_PATH)) fs.unlinkSync(LOCK_PATH);
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw err;
+    }
   }
 
   // --- Public methods for local access when client is also server ---
@@ -150,6 +159,28 @@ export class PoolServer {
 
   async restartPools(): Promise<void> {
     await Promise.all([this.completionProvider.restart(), this.commandPool.restart()]);
+  }
+
+  /** Direct config update for local fast path (bypasses IPC serialization). */
+  async handleConfigUpdateDirect(request: ConfigUpdateRequest): Promise<void> {
+    if (request.model && request.model !== this.config.claudeCode.model) {
+      const oldModel = this.config.claudeCode.model;
+      this.config.claudeCode.model = request.model;
+      this.logger.info(`Pool server: model changed ${oldModel} → ${request.model}, recycling`);
+      this.completionProvider.updateConfig(this.config);
+      this.commandPool.updateModel(request.model);
+      await Promise.all([this.completionProvider.recycleAll(), this.commandPool.recycleAll()]);
+    }
+  }
+
+  /** Direct recycle for local fast path (bypasses IPC serialization). */
+  async handleRecycleDirect(pool: 'completion' | 'command' | 'all'): Promise<void> {
+    if (pool === 'completion' || pool === 'all') {
+      await this.completionProvider.recycleAll();
+    }
+    if (pool === 'command' || pool === 'all') {
+      await this.commandPool.recycleAll();
+    }
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -289,10 +320,9 @@ export class PoolServer {
       prefix: request.prefix,
       suffix: request.suffix,
       mode: request.mode,
-      // These fields are not used by the provider with tools disabled
-      languageId: '',
-      fileName: '',
-      filePath: '',
+      languageId: request.languageId || 'plaintext',
+      fileName: request.fileName || '',
+      filePath: request.filePath || '',
     };
 
     // AbortSignal not used by pool (ignored once slot acquired)
@@ -519,16 +549,6 @@ export function acquireLock(pid: number): boolean {
       // Winner died immediately — could retry, but simpler to just fail
     }
     return false;
-  }
-}
-
-export function releaseLock(): void {
-  try {
-    if (fs.existsSync(LOCK_PATH)) {
-      fs.unlinkSync(LOCK_PATH);
-    }
-  } catch {
-    // Ignore errors during cleanup
   }
 }
 

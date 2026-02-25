@@ -15,6 +15,9 @@ export interface CompletionRequest {
   prefix: string;
   suffix: string;
   mode: CompletionMode;
+  languageId: string;
+  fileName: string;
+  filePath: string;
 }
 
 export interface CommandRequest {

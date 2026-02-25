@@ -187,13 +187,12 @@ async function doSuggestEdit(
       'Discard',
     );
   } finally {
-    // Clean up virtual document content (always, even on error)
+    // Close the diff tab before cleaning up virtual document content,
+    // so VS Code doesn't re-request content from empty providers.
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
     contentStore.delete(`original:${key}`);
     contentStore.delete(`corrected:${key}`);
   }
-
-  // Close the diff tab
-  await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
 
   if (choice !== 'Apply') {
     logger.info('Suggest edit: discarded by user');
