@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — Onboarding and First-Run Experience
+
+- **Trigger presets:** New `triggerPreset` setting with three options — `relaxed` (~2s delay, new default), `eager` (~800ms), and `on-demand` (Ctrl+L only). Replaces the triggerMode/debounceMs combination for easier configuration. Custom `debounceMs` still works as an override.
+- **Default model changed to Haiku:** Faster responses for a better out-of-box experience. Switch to Sonnet or Opus via the status bar menu.
+- **Pre-flight checks:** Shows an error notification when Claude Code CLI is missing, with a link to the install guide. Warmup failures now suggest checking authentication.
+- **Status bar states:** Shows "Starting..." during pool initialization and "Setup needed" if something goes wrong.
+- **First-run welcome:** One-time notification with Ctrl+L shortcut reminder on first activation.
+- **README improvements:** Added install command, authentication step, trigger preset docs, and troubleshooting section.
+
 ## 0.5.0 — Public Release
 
 Initial public release on the VS Code Marketplace.

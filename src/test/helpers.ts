@@ -16,8 +16,9 @@ import {
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
   mode: 'auto',
+  triggerPreset: 'relaxed',
   triggerMode: 'auto',
-  debounceMs: 8000,
+  debounceMs: 2000,
   prose: {
     contextChars: 2500,
     suffixChars: 2000,

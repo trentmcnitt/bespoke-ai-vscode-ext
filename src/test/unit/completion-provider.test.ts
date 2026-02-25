@@ -199,7 +199,7 @@ describe('CompletionProvider', () => {
         token as any,
       );
 
-      await vi.advanceTimersByTimeAsync(8000);
+      await vi.advanceTimersByTimeAsync(2000);
       const result = await resultPromise;
 
       expect(result).not.toBeNull();

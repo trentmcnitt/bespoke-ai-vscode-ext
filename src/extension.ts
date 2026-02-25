@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
-import { DEFAULT_MODEL, ExtensionConfig } from './types';
+import { DEFAULT_MODEL, ExtensionConfig, TriggerPreset, resolvePreset } from './types';
 import { CompletionProvider } from './completion-provider';
 import { PoolClient } from './pool-server/client';
 import { Logger } from './utils/logger';
@@ -20,7 +20,25 @@ const MODE_ICONS: Record<string, string> = {
   code: '$(code)',
 };
 
+const PRESET_LABELS: TriggerPreset[] = ['relaxed', 'eager', 'on-demand'];
+const PRESET_ICONS: Record<TriggerPreset, string> = {
+  relaxed: '$(watch)',
+  eager: '$(zap)',
+  'on-demand': '$(hand)',
+};
+const PRESET_DESCRIPTIONS: Record<TriggerPreset, string> = {
+  relaxed: 'auto, ~2s delay',
+  eager: 'auto, ~800ms delay',
+  'on-demand': 'Ctrl+L only',
+};
+
+type StatusBarState = 'initializing' | 'ready' | 'setup-needed' | 'disabled';
+
+const SETUP_URL = 'https://docs.anthropic.com/en/docs/claude-code/setup';
+const WELCOME_SHOWN_KEY = 'bespokeAI.welcomeShown';
+
 let statusBarItem: vscode.StatusBarItem;
+let statusBarState: StatusBarState = 'initializing';
 let completionProvider: CompletionProvider;
 let poolClient: PoolClient;
 let logger: Logger;
@@ -56,14 +74,20 @@ export function activate(context: vscode.ExtensionContext) {
     clientId,
     onPoolDegraded: async (pool) => {
       if (pool === 'completion') {
+        updateStatusBar(lastConfig, 'setup-needed');
         const action = await vscode.window.showErrorMessage(
-          'Bespoke AI: Autocomplete unavailable — warmup validation failed after retry.',
+          'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.',
           'Restart',
+          'Open Terminal',
         );
         if (action === 'Restart') {
           poolClient.restart().catch((err) => {
             logger.error(`Pool restart failed: ${err}`);
           });
+        } else if (action === 'Open Terminal') {
+          const terminal = vscode.window.createTerminal('Claude Login');
+          terminal.show();
+          terminal.sendText('claude');
         }
       } else {
         logger.error('CommandPool degraded');
@@ -77,8 +101,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Only start pools if enabled — disabled = hard kill (no subprocesses)
   if (config.enabled) {
-    poolClient.activate().catch((err) => {
-      logger.error(`Pool client activation failed: ${err}`);
+    activateWithPreflight(config, context).catch((err) => {
+      logger.error(`Pool activation failed: ${err}`);
     });
   } else {
     logger.info('Extension disabled at startup — pools not started');
@@ -113,7 +137,7 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'bespoke-ai.showMenu';
   context.subscriptions.push(statusBarItem);
-  updateStatusBar(config);
+  updateStatusBar(config, config.enabled ? 'initializing' : 'disabled');
 
   // Commands
   context.subscriptions.push(
@@ -184,21 +208,22 @@ export function activate(context: vscode.ExtensionContext) {
         });
       }
 
+      // --- Trigger Preset section ---
+      items.push({ label: 'Trigger', kind: vscode.QuickPickItemKind.Separator });
+      for (const preset of PRESET_LABELS) {
+        const isCurrent = config.triggerPreset === preset;
+        const item: vscode.QuickPickItem = {
+          label: `${PRESET_ICONS[preset]} ${preset}`,
+          description: `${PRESET_DESCRIPTIONS[preset]}${isCurrent ? ' (current)' : ''}`,
+        };
+        items.push(item);
+        handlers.set(item, () => {
+          ws.update('triggerPreset', preset, vscode.ConfigurationTarget.Global);
+        });
+      }
+
       // --- Actions section ---
       items.push({ label: 'Actions', kind: vscode.QuickPickItemKind.Separator });
-
-      const triggerItem: vscode.QuickPickItem = {
-        label: config.triggerMode === 'auto' ? '$(zap) Auto-trigger' : '$(zap) On-demand',
-        description:
-          config.triggerMode === 'auto'
-            ? 'click to switch to on-demand'
-            : 'click to switch to auto',
-      };
-      items.push(triggerItem);
-      handlers.set(triggerItem, () => {
-        const next = config.triggerMode === 'auto' ? 'manual' : 'auto';
-        ws.update('triggerMode', next, vscode.ConfigurationTarget.Global);
-      });
 
       const toggleItem: vscode.QuickPickItem = {
         label: config.enabled ? '$(debug-pause) Disable' : '$(debug-start) Enable',
@@ -451,11 +476,17 @@ export function activate(context: vscode.ExtensionContext) {
             poolClient.dispose();
           } else {
             logger.info('Enabled — restarting pools');
-            // Re-activate the same client instance to preserve references
+            updateStatusBar(newConfig, 'initializing');
             poolClient.updateConfig(newConfig);
-            poolClient.activate().catch((err) => {
-              logger.error(`Pool client activation failed: ${err}`);
-            });
+            poolClient
+              .activate()
+              .then(() => {
+                updateStatusBar(newConfig, 'ready');
+              })
+              .catch((err) => {
+                logger.error(`Pool client activation failed: ${err}`);
+                updateStatusBar(newConfig, 'setup-needed');
+              });
           }
         }
 
@@ -500,11 +531,30 @@ export function activate(context: vscode.ExtensionContext) {
 function loadConfig(): ExtensionConfig {
   const ws = vscode.workspace.getConfiguration('bespokeAI');
 
+  const isExplicit = <T>(key: string) => {
+    const i = ws.inspect<T>(key);
+    return (
+      i?.globalValue !== undefined ||
+      i?.workspaceValue !== undefined ||
+      i?.workspaceFolderValue !== undefined
+    );
+  };
+
+  const { triggerPreset, triggerMode, debounceMs } = resolvePreset({
+    presetExplicitlySet: isExplicit<string>('triggerPreset'),
+    presetValue: ws.get<string>('triggerPreset', 'relaxed')!,
+    triggerModeExplicitlySet: isExplicit<string>('triggerMode'),
+    triggerModeValue: ws.get<string>('triggerMode', 'auto')!,
+    debounceExplicitlySet: isExplicit<number>('debounceMs'),
+    debounceValue: ws.get<number>('debounceMs', 2000)!,
+  });
+
   return {
     enabled: ws.get<boolean>('enabled', true)!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
-    triggerMode: ws.get<'auto' | 'manual'>('triggerMode', 'auto')!,
-    debounceMs: ws.get<number>('debounceMs', 8000)!,
+    triggerPreset,
+    triggerMode,
+    debounceMs,
     prose: {
       contextChars: ws.get<number>('prose.contextChars', 2500)!,
       suffixChars: ws.get<number>('prose.suffixChars', 2000)!,
@@ -528,17 +578,23 @@ function loadConfig(): ExtensionConfig {
   };
 }
 
-function updateStatusBar(config: ExtensionConfig) {
+function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
+  if (state) statusBarState = state;
+
   if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
     statusBarItem.tooltip = 'Bespoke AI: Disabled (click for menu)';
+  } else if (statusBarState === 'initializing') {
+    statusBarItem.text = '$(loading~spin) Starting...';
+    statusBarItem.tooltip = 'Bespoke AI: Initializing pools...';
+  } else if (statusBarState === 'setup-needed') {
+    statusBarItem.text = '$(warning) Setup needed';
+    statusBarItem.tooltip = 'Bespoke AI: Click for setup guidance';
   } else {
     const modelLabel = shortenModelName(config.claudeCode.model);
-    const triggerIcon = config.triggerMode === 'auto' ? '$(zap)' : '$(hand)';
-    statusBarItem.text = `${triggerIcon} ${config.mode} | ${modelLabel}`;
-
-    const triggerLabel = config.triggerMode === 'auto' ? 'auto' : 'manual';
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${triggerLabel} trigger, ${config.claudeCode.model} (click for menu)`;
+    const presetIcon = PRESET_ICONS[config.triggerPreset] ?? '$(zap)';
+    statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel}`;
+    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
   }
   statusBarItem.show();
 }
@@ -690,6 +746,67 @@ async function showUsageDetail(): Promise<void> {
     title: 'Bespoke AI — Usage Details',
     placeHolder: 'Session and persistent usage statistics',
   });
+}
+
+async function runPreflightCheck(): Promise<'ok' | 'no-sdk'> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sdk = (await import('@anthropic-ai/claude-agent-sdk')) as any;
+    const queryFn = sdk.query ?? sdk.default?.query;
+    if (!queryFn) return 'no-sdk';
+    return 'ok';
+  } catch {
+    return 'no-sdk';
+  }
+}
+
+async function activateWithPreflight(
+  config: ExtensionConfig,
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  // Status bar is already set to 'initializing' by the caller before statusBarItem is created.
+
+  const preflight = await runPreflightCheck();
+  if (preflight === 'no-sdk') {
+    logger.error('Pre-flight: Claude Code CLI not found');
+    updateStatusBar(config, 'setup-needed');
+    vscode.window
+      .showErrorMessage(
+        'Bespoke AI: Claude Code CLI not found. Install Claude Code to get started.',
+        'Open Install Guide',
+      )
+      .then((action) => {
+        if (action === 'Open Install Guide') {
+          vscode.env.openExternal(vscode.Uri.parse(SETUP_URL));
+        }
+      });
+    return;
+  }
+
+  // SDK available — activate pools
+  try {
+    await poolClient.activate();
+    updateStatusBar(config, 'ready');
+  } catch (err) {
+    logger.error(`Pool client activation failed: ${err}`);
+    updateStatusBar(config, 'setup-needed');
+    return;
+  }
+
+  // First-run welcome notification
+  if (!context.globalState.get<boolean>(WELCOME_SHOWN_KEY)) {
+    context.globalState.update(WELCOME_SHOWN_KEY, true);
+    vscode.window
+      .showInformationMessage(
+        'Bespoke AI is ready! Press Ctrl+L to trigger a completion anytime.',
+        'Open Settings',
+      )
+      .then((action) => {
+        if (action === 'Open Settings') {
+          vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+        }
+      });
+  }
 }
 
 export function deactivate() {

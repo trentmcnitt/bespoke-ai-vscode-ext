@@ -108,13 +108,13 @@ PoolServer
   └── CommandPool (commit message, suggest edits)
 ```
 
-**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (8000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path or Unix socket IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
+**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (2000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path or Unix socket IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
 
 **Commit message / Suggest edits:** Command invoked → `PoolClient.sendCommand()` → (local or socket) → `PoolServer` → `CommandPool.sendPrompt()` → result returned to caller.
 
-**Trigger mode:** The `bespokeAI.triggerMode` setting controls whether completions auto-fire on typing (`auto`, default) or require an explicit Ctrl+L trigger (`manual`). In `manual` mode, `provideInlineCompletionItems` returns empty for automatic triggers — only explicit invocations proceed.
+**Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Ctrl+L only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compat: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
 
-**Debounce:** The `bespokeAI.debounceMs` setting (default 8000ms) controls debounce delay. Explicit triggers (Ctrl+L) always use zero-delay.
+**Debounce:** Resolved from the trigger preset (default 2000ms for relaxed). Explicit triggers (Ctrl+L) always use zero-delay.
 
 ### Pool Server
 
@@ -137,7 +137,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Core Pipeline
 
-- `src/extension.ts` — Activation entry point. Loads config, creates Logger/PoolClient/CompletionProvider, registers the inline completion provider, status bar, and commands. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes and models.
+- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). Shows a one-time welcome notification on first run via `globalState`. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes, models, and trigger presets.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Ctrl+L or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
@@ -198,7 +198,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `PoolClient` implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model).
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `PoolClient` implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model). Also exports `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
 
@@ -310,8 +310,8 @@ Commit message and suggest-edit commands use the `CommandPool` (via `PoolClient.
 
 If completions stop working entirely:
 
-1. Check status bar — is it showing "AI Off"? Toggle enabled via the status bar menu.
-2. Check if `bespokeAI.triggerMode` is set to `manual` — in manual mode, completions only appear on explicit Ctrl+L invocation.
+1. Check status bar — is it showing "AI Off"? Toggle enabled via the status bar menu. If it shows "Setup needed", the CLI may be missing or unauthenticated.
+2. Check if `bespokeAI.triggerPreset` is set to `on-demand` — in that mode, completions only appear on explicit Ctrl+L invocation.
 3. Open Output panel ("Bespoke AI") — check for errors.
 4. Run the "Bespoke AI: Restart Pools" command.
 5. If still broken: check for orphaned processes with `pkill -f "claude.*dangerously-skip-permissions"`.
@@ -388,7 +388,7 @@ Quality tests (`src/test/quality/`) evaluate whether completions are actually go
 
 **Scenario design:** Each scenario declares a `saturation` field (whether raw text exceeds the production context window) and the test runner applies production-equivalent truncation. For design principles (over-window content, saturation balance, anchor documents), see `docs/autocomplete-approach.md` Section 5. Verify character counts with `npx tsx src/test/quality/measure-scenarios.ts`.
 
-**Testing different models:** By default, all integration and quality tests use the model from `makeConfig()` (currently `opus`). Override with `TEST_MODEL`:
+**Testing different models:** By default, all integration and quality tests use the model from `makeConfig()` (currently `haiku`). Override with `TEST_MODEL`:
 
 ```bash
 TEST_MODEL=haiku npm run test:api       # API tests with haiku

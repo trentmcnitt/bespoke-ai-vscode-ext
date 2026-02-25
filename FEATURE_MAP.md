@@ -47,7 +47,7 @@ This document maps every significant AI code completion product and their featur
 | Vision / image input            | No                                                  |
 | Post-processing pipeline        | Yes (prefix/suffix overlap trimming)                |
 | LRU cache                       | Yes (50 entries, 5-min TTL)                         |
-| Debouncing                      | Yes (8000ms default, AbortSignal-aware)             |
+| Debouncing                      | Yes (2000ms default, AbortSignal-aware)             |
 | Profiles                        | Yes (named config presets with deep merge)          |
 | Usage tracking                  | Yes (per-session counts + character tracking)       |
 | Benchmarking                    | Yes (automated parameter sweep + LLM-as-judge)      |
