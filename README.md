@@ -158,4 +158,4 @@ npm run test:quality   # LLM-as-judge quality tests (needs claude CLI)
 
 ## Author
 
-Built by [Trent McNitt](https://github.com/trentmcnitt) — available for contract work on [Upwork](https://www.upwork.com/freelancers/trentmcnitt).
+Built by [Trent McNitt](https://github.com/trentmcnitt) — available for contract work on [Upwork](https://www.upwork.com/freelancers/~01e01437b5f36dc7e5).
