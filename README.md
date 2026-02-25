@@ -93,6 +93,8 @@ All settings are under `bespokeAI.*` in VS Code/VSCodium settings.
 | `Bespoke AI: Fix`                     | —          | Fix selected text (context menu)          |
 | `Bespoke AI: Do`                      | —          | Custom action on selection (context menu) |
 
+> **Note on context menu commands:** Explain, Fix, and Do open a Claude Code CLI session in a terminal with `--dangerously-skip-permissions`, which gives Claude full filesystem and shell access without per-action permission prompts. This is the same trust model as running Claude Code directly from the terminal. These commands are independent of the inline completion pool.
+
 ## Setup
 
 ### Prerequisites
@@ -141,3 +143,7 @@ npm run test:quality   # LLM-as-judge quality tests (needs claude CLI)
 **No streaming.** Ghost text must be returned as a complete string. The VS Code inline completion API doesn't support incremental rendering.
 
 **LRU cache with TTL.** Prevents redundant calls when the user's cursor returns to a previously-completed position. 50 entries, 5-minute TTL.
+
+## Author
+
+Built by [Trent McNitt](https://github.com/trentmcnitt) — available for contract work on [Upwork](https://www.upwork.com/freelancers/trentmcnitt).

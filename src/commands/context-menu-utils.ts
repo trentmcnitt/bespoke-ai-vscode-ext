@@ -1,4 +1,12 @@
-/** Escapes characters that are special inside double-quoted shell strings: \ " $ ` ! */
+/**
+ * Escapes characters that are special inside double-quoted shell strings: \ " $ ` !
+ *
+ * Note: newlines are not escaped — they become literal newlines inside a
+ * double-quoted bash/zsh string (continuation mode, not command separators).
+ * This is injection-safe, but multi-line selections may produce unexpected
+ * terminal behavior since vscode.Terminal.sendText() sends each \n as a
+ * simulated keypress.
+ */
 export function escapeForDoubleQuotes(input: string): string {
   return input.replace(/[\\"`$!]/g, '\\$&');
 }
