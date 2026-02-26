@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0 — Windows Support
+
+- **Windows support:** Platform-aware IPC using named pipes on Windows and Unix domain sockets on macOS/Linux. The pool server, lockfile, and client connection all work cross-platform.
+- **Hardened `os.userInfo()` handling:** Graceful fallback when username lookup fails in restricted environments.
+- **Centralized state directory:** All code now uses the shared `STATE_DIR` constant from `ipc-path.ts`.
+- **Cleanup:** Removed wrapper indirection in pool server exports, simplified `ensureStateDir()`.
+
 ## 0.6.0 — Onboarding and First-Run Experience
 
 - **Trigger presets:** New `triggerPreset` setting with three options — `relaxed` (~2s delay, new default), `eager` (~800ms), and `on-demand` (Alt+Enter only). Replaces the triggerMode/debounceMs combination for easier configuration. Custom `debounceMs` still works as an override.

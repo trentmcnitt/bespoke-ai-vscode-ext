@@ -19,6 +19,19 @@ const IS_WINDOWS = process.platform === 'win32';
 export const STATE_DIR = path.join(os.homedir(), '.bespokeai');
 
 /**
+ * Current username for per-user IPC isolation.
+ * Falls back to environment variables or 'default' if os.userInfo() throws
+ * (can happen on Windows under certain domain/service account configurations).
+ */
+export function getUsername(): string {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return process.env.USERNAME ?? process.env.USER ?? 'default';
+  }
+}
+
+/**
  * IPC endpoint path.
  *
  * On macOS/Linux this is a Unix domain socket file.
@@ -27,7 +40,7 @@ export const STATE_DIR = path.join(os.homedir(), '.bespokeai');
  */
 export function getIpcPath(): string {
   if (IS_WINDOWS) {
-    return `\\\\.\\pipe\\bespokeai-pool-${os.userInfo().username}`;
+    return `\\\\.\\pipe\\bespokeai-pool-${getUsername()}`;
   }
   return path.join(STATE_DIR, 'pool.sock');
 }
@@ -71,7 +84,5 @@ export function cleanupStaleEndpoint(): void {
  * Called before writing the lockfile or (on Unix) creating the socket.
  */
 export function ensureStateDir(): void {
-  if (!fs.existsSync(STATE_DIR)) {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-  }
+  fs.mkdirSync(STATE_DIR, { recursive: true });
 }

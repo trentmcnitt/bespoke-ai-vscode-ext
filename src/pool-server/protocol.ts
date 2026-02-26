@@ -1,7 +1,7 @@
 /**
  * IPC Protocol for Global Pool Server
  *
- * JSON-RPC style messages over Unix domain socket.
+ * JSON-RPC style messages over IPC (Unix domain socket or named pipe).
  * Each message is a newline-delimited JSON object.
  */
 

@@ -23,13 +23,7 @@ import {
   serializeMessage,
   parseMessage,
 } from './protocol';
-import {
-  LOCK_PATH,
-  getIpcPath,
-  ipcEndpointMayExist,
-  cleanupStaleEndpoint,
-  ensureStateDir,
-} from './ipc-path';
+import { LOCK_PATH, getIpcPath, cleanupStaleEndpoint, ensureStateDir } from './ipc-path';
 
 export interface PoolServerOptions {
   config: ExtensionConfig;
@@ -88,7 +82,7 @@ export class PoolServer {
     try {
       cleanupStaleEndpoint();
     } catch (err) {
-      this.logger.error(`Failed to remove stale socket: ${err}`);
+      this.logger.error(`Failed to remove stale endpoint: ${err}`);
       throw err;
     }
 
@@ -535,12 +529,4 @@ export function acquireLock(pid: number): boolean {
     }
     return false;
   }
-}
-
-export function getSocketPath(): string {
-  return getIpcPath();
-}
-
-export function socketExists(): boolean {
-  return ipcEndpointMayExist();
 }

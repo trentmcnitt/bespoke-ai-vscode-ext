@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
 import * as path from 'path';
 import { DEFAULT_MODEL, ExtensionConfig, TriggerPreset, resolvePreset } from './types';
 import { CompletionProvider } from './completion-provider';
@@ -11,6 +10,7 @@ import { suggestEdit, originalContentProvider, correctedContentProvider } from '
 import { explainSelection, fixSelection, doSelection } from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
+import { STATE_DIR } from './pool-server';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -57,10 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   usageTracker = new UsageTracker();
 
-  usageLedger = new UsageLedger(
-    path.join(os.homedir(), '.bespokeai', 'usage-ledger.jsonl'),
-    logger,
-  );
+  usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
 
   // Generate unique client ID for this VS Code window

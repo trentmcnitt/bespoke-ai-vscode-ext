@@ -24,14 +24,8 @@ import {
   serializeMessage,
   parseMessage,
 } from './protocol';
-import {
-  PoolServer,
-  acquireLock,
-  getSocketPath,
-  socketExists,
-  isProcessAlive,
-  readLockfile,
-} from './server';
+import { PoolServer, acquireLock, isProcessAlive, readLockfile } from './server';
+import { getIpcPath, ipcEndpointMayExist } from './ipc-path';
 
 const CONNECT_TIMEOUT_MS = 2000;
 const RECONNECT_DELAY_MS = 500;
@@ -144,7 +138,7 @@ export class PoolClient implements ICompletionProvider {
   }
 
   private async tryConnect(): Promise<boolean> {
-    if (!socketExists()) {
+    if (!ipcEndpointMayExist()) {
       return false;
     }
 
@@ -155,7 +149,7 @@ export class PoolClient implements ICompletionProvider {
       }
       this.connecting = true;
 
-      const socket = net.createConnection(getSocketPath());
+      const socket = net.createConnection(getIpcPath());
       let resolved = false;
 
       const cleanup = () => {
