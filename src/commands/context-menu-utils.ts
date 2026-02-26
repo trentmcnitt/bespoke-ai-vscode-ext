@@ -1,6 +1,10 @@
 /**
  * Escapes characters that are special inside double-quoted shell strings: \ " $ ` !
  *
+ * Note: This uses bash/zsh escaping rules. On Windows with PowerShell or cmd.exe,
+ * these escapes may not be correct. Context menu commands work best when the VS Code
+ * terminal is configured to use a bash-compatible shell (Git Bash, WSL, or similar).
+ *
  * Note: newlines are not escaped — they become literal newlines inside a
  * double-quoted bash/zsh string (continuation mode, not command separators).
  * This is injection-safe, but multi-line selections may produce unexpected

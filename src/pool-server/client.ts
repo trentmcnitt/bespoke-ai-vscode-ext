@@ -1,9 +1,9 @@
 /**
  * Pool Client
  *
- * Connects to the global pool server via Unix socket.
- * Implements CompletionProvider interface for seamless integration.
- * If no server exists, becomes the server (leader election).
+ * Connects to the global pool server via IPC (Unix socket on macOS/Linux,
+ * named pipe on Windows). Implements CompletionProvider interface for
+ * seamless integration. If no server exists, becomes the server (leader election).
  */
 
 import * as net from 'net';

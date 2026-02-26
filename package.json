@@ -1,7 +1,7 @@
 {
   "name": "bespoke-ai",
   "displayName": "Bespoke AI",
-  "description": "AI autocomplete for prose and code, plus one-click commit messages — powered by Claude Code (macOS/Linux)",
+  "description": "AI autocomplete for prose and code, plus one-click commit messages — powered by Claude Code",
   "version": "0.6.0",
   "publisher": "trentmcnitt",
   "license": "MIT",

@@ -59,7 +59,10 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search "Bespoke AI")
 2. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup):
    ```bash
+   # macOS / Linux
    curl -fsSL https://claude.ai/install.sh | bash
+   # Windows (or any platform via npm)
+   npm install -g @anthropic-ai/claude-code
    ```
 3. Authenticate — run `claude` in your terminal and follow the login prompts
 4. Have an active Claude subscription (Pro, Team, or Enterprise)
@@ -67,7 +70,9 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 > **Tip:** Press `Alt+Enter` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
 
-> **Platform:** macOS and Linux. Windows is not currently supported.
+> **Note:** If `Alt+Enter` doesn't work, VS Code's built-in Inline Chat bindings may be intercepting it. Open Keyboard Shortcuts (`Ctrl+K Ctrl+S`), search for `alt+enter`, and remove the conflicting "Inline Chat" entries that use bare `Alt+Enter`.
+
+> **Platform:** macOS, Linux, and Windows.
 
 ### Modes
 
@@ -157,7 +162,7 @@ User types → Mode detection → Context extraction → LRU cache check
   → Debounce → Pool server → Agent SDK → Claude Code → Cleanup → Ghost text
 ```
 
-Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), the extension manages Claude Code subprocesses through a **shared pool server** architecture. Multiple VS Code windows share a single set of subprocesses via Unix socket IPC. The first window becomes the leader (via lockfile); subsequent windows connect as clients. If the leader closes, clients automatically elect a new one.
+Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), the extension manages Claude Code subprocesses through a **shared pool server** architecture. Multiple VS Code windows share a single set of subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The first window becomes the leader (via lockfile); subsequent windows connect as clients. If the leader closes, clients automatically elect a new one.
 
 Each subprocess serves up to 8 completions before recycling. A latest-request-wins queue ensures only the most recent request proceeds when the user is typing quickly.
 
@@ -183,7 +188,7 @@ Each subprocess serves up to 8 completions before recycling. A latest-request-wi
 
 **"Claude Code CLI not found"?**
 
-- Install Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`
+- Install Claude Code: `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) or `npm install -g @anthropic-ai/claude-code` (Windows)
 - Restart VS Code after installation.
 
 **"Authentication required"?**
@@ -193,7 +198,9 @@ Each subprocess serves up to 8 completions before recycling. A latest-request-wi
 
 **Still not working?**
 
-- Check for orphaned processes: `pkill -f "claude.*dangerously-skip-permissions"`
+- Check for orphaned processes:
+  - macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`
+  - Windows: Use Task Manager to end `node.exe` processes running Claude
 - Check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
 - Disable and re-enable the extension.
 
@@ -209,8 +216,8 @@ npm run test:quality              # LLM-as-judge quality tests
 
 ## 🗺️ Roadmap
 
-- [ ] Linux support
-- [ ] Windows support
+- [x] ~~Linux support~~
+- [x] ~~Windows support~~
 - [ ] Custom instructions file
 - [ ] Open-tab context
 

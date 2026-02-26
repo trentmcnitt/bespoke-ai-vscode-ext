@@ -2,13 +2,11 @@
  * Global Pool Server
  *
  * Manages shared ClaudeCodeProvider and CommandPool instances for all VS Code windows.
- * Listens on a Unix domain socket at ~/.bespokeai/pool.sock.
+ * Listens on a Unix domain socket (macOS/Linux) or named pipe (Windows).
  */
 
 import * as net from 'net';
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import { ClaudeCodeProvider } from '../providers/claude-code';
@@ -25,10 +23,13 @@ import {
   serializeMessage,
   parseMessage,
 } from './protocol';
-
-const SOCKET_DIR = path.join(os.homedir(), '.bespokeai');
-const SOCKET_PATH = path.join(SOCKET_DIR, 'pool.sock');
-const LOCK_PATH = path.join(SOCKET_DIR, 'pool.lock');
+import {
+  LOCK_PATH,
+  getIpcPath,
+  ipcEndpointMayExist,
+  cleanupStaleEndpoint,
+  ensureStateDir,
+} from './ipc-path';
 
 export interface PoolServerOptions {
   config: ExtensionConfig;
@@ -80,19 +81,15 @@ export class PoolServer {
   }
 
   async start(): Promise<void> {
-    // Ensure socket directory exists
-    if (!fs.existsSync(SOCKET_DIR)) {
-      fs.mkdirSync(SOCKET_DIR, { recursive: true });
-    }
+    // Ensure state directory exists (for lockfile; on Unix, also for socket file)
+    ensureStateDir();
 
-    // Clean up stale socket file
-    if (fs.existsSync(SOCKET_PATH)) {
-      try {
-        fs.unlinkSync(SOCKET_PATH);
-      } catch (err) {
-        this.logger.error(`Failed to remove stale socket: ${err}`);
-        throw err;
-      }
+    // Clean up stale socket file (no-op on Windows — named pipes auto-cleanup)
+    try {
+      cleanupStaleEndpoint();
+    } catch (err) {
+      this.logger.error(`Failed to remove stale socket: ${err}`);
+      throw err;
     }
 
     // Lockfile is already written by acquireLock() — no need to overwrite here.
@@ -100,11 +97,12 @@ export class PoolServer {
     // Create and start server
     this.server = net.createServer((socket) => this.handleConnection(socket));
 
+    const ipcPath = getIpcPath();
     try {
       await new Promise<void>((resolve, reject) => {
         this.server!.once('error', reject);
-        this.server!.listen(SOCKET_PATH, () => {
-          this.logger.info(`Pool server listening on ${SOCKET_PATH}`);
+        this.server!.listen(ipcPath, () => {
+          this.logger.info(`Pool server listening on ${ipcPath}`);
           resolve();
         });
       });
@@ -449,11 +447,9 @@ export class PoolServer {
     this.completionProvider.dispose();
     this.commandPool.dispose();
 
-    // Clean up socket and lock files
+    // Clean up IPC endpoint and lock files
     try {
-      if (fs.existsSync(SOCKET_PATH)) {
-        fs.unlinkSync(SOCKET_PATH);
-      }
+      cleanupStaleEndpoint();
       if (fs.existsSync(LOCK_PATH)) {
         fs.unlinkSync(LOCK_PATH);
       }
@@ -497,9 +493,7 @@ export function isProcessAlive(pid: number): boolean {
 export function acquireLock(pid: number): boolean {
   try {
     // Ensure directory exists
-    if (!fs.existsSync(SOCKET_DIR)) {
-      fs.mkdirSync(SOCKET_DIR, { recursive: true });
-    }
+    ensureStateDir();
 
     const existing = readLockfile();
 
@@ -544,9 +538,9 @@ export function acquireLock(pid: number): boolean {
 }
 
 export function getSocketPath(): string {
-  return SOCKET_PATH;
+  return getIpcPath();
 }
 
 export function socketExists(): boolean {
-  return fs.existsSync(SOCKET_PATH);
+  return ipcEndpointMayExist();
 }

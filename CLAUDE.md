@@ -101,13 +101,13 @@ Increment the patch version (third number) by default for each install. For larg
 CompletionProvider (orchestrator — cache, debounce, mode detection)
   ↓
 PoolClient (Claude Code CLI backend)
-  ↓ (local fast path or Unix socket IPC)
+  ↓ (local fast path or IPC)
 PoolServer
   ├── ClaudeCodeProvider (inline completions)
   └── CommandPool (commit message, suggest edits)
 ```
 
-**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (2000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path or Unix socket IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
+**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (2000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path or IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
 
 **Commit message / Suggest edits:** Command invoked → `PoolClient.sendCommand()` → (local or socket) → `PoolServer` → `CommandPool.sendPrompt()` → result returned to caller.
 
@@ -119,15 +119,16 @@ PoolServer
 
 The pool server is a shared-process architecture that allows multiple VS Code windows to share a single set of Claude Code subprocesses.
 
-**Leader election:** The first VS Code window to start tries to connect to an existing server at `~/.bespokeai/pool.sock`. If none exists, it acquires a lockfile (`~/.bespokeai/pool.lock`) using atomic `wx` (write-exclusive, fail-if-exists) file creation to prevent races, then starts a `PoolServer` listening on the Unix socket. All subsequent windows connect as clients. If the server window closes, clients detect the disconnection and race to become the new server (takeover with exponential back-off).
+**Leader election:** The first VS Code window to start tries to connect to an existing server via IPC (Unix socket at `~/.bespokeai/pool.sock` on macOS/Linux, named pipe on Windows). If none exists, it acquires a lockfile (`~/.bespokeai/pool.lock`) using atomic `wx` (write-exclusive, fail-if-exists) file creation to prevent races, then starts a `PoolServer` listening on the IPC endpoint. All subsequent windows connect as clients. If the server window closes, clients detect the disconnection and race to become the new server (takeover with exponential back-off).
 
-**IPC protocol:** Newline-delimited JSON messages over the Unix domain socket. Request types: `completion`, `command`, `config-update`, `recycle`, `status`, `warmup`, `dispose`, `client-hello`. Server pushes events (`server-shutting-down`, `pool-degraded`) to all connected clients.
+**IPC protocol:** Newline-delimited JSON messages over the IPC channel (Unix socket or named pipe). Request types: `completion`, `command`, `config-update`, `recycle`, `status`, `warmup`, `dispose`, `client-hello`. Server pushes events (`server-shutting-down`, `pool-degraded`) to all connected clients.
 
 **Local fast path:** When the `PoolClient` is also the server (leader), requests bypass the socket entirely and call `PoolServer` methods directly — zero serialization overhead.
 
 **Key files:**
 
-- `src/pool-server/client.ts` — `PoolClient` class. Implements `CompletionProvider` interface. Leader election, socket connection, reconnection with retry, takeover on server loss.
+- `src/pool-server/ipc-path.ts` — Platform-aware IPC path utilities. Returns Unix socket path on macOS/Linux and named pipe path on Windows. Provides helpers for stale endpoint cleanup and state directory management.
+- `src/pool-server/client.ts` — `PoolClient` class. Implements `CompletionProvider` interface. Leader election, IPC connection, reconnection with retry, takeover on server loss.
 - `src/pool-server/server.ts` — `PoolServer` class. Manages `ClaudeCodeProvider` and `CommandPool` instances, handles IPC requests, lockfile utilities.
 - `src/pool-server/protocol.ts` — IPC message type definitions, serialization/parsing helpers.
 - `src/pool-server/index.ts` — Re-exports for external consumers.
@@ -140,7 +141,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
-- `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over Unix socket IPC).
+- `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over IPC).
 
 - `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a logical container that holds one Claude Code subprocess — the slot persists across subprocess recycling; the subprocess inside it is replaced. Manages slot lifecycle: init (spawn subprocess) → warmup (validate with a test prompt) → consume (handle user requests) → reuse (serve another request on the same subprocess) → recycle (terminate old subprocess and spawn a new one when `maxRequests` is reached). Also provides:
   - Circuit breaker — automatically stops sending requests after repeated consecutive failures
@@ -313,7 +314,7 @@ If completions stop working entirely:
 2. Check if `bespokeAI.triggerPreset` is set to `on-demand` — in that mode, completions only appear on explicit Alt+Enter invocation.
 3. Open Output panel ("Bespoke AI") — check for errors.
 4. Run the "Bespoke AI: Restart Pools" command.
-5. If still broken: check for orphaned processes with `pkill -f "claude.*dangerously-skip-permissions"`.
+5. If still broken: check for orphaned processes. On macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`. On Windows: use Task Manager to end `node.exe` processes running Claude.
 6. If still broken: check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
 7. If still broken: disable and re-enable the extension.
 
@@ -451,4 +452,4 @@ These are deliberate trade-offs. Do not attempt to fix them unless explicitly as
 - The extension does not validate config values. Invalid settings pass through to the backend as-is.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
 - Context menu commands (Explain, Fix, Do) do not check the `bespokeAI.enabled` setting because they launch standalone Claude CLI processes independent of the pool server. They work even when inline completions are disabled.
-- **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If someone force-kills VS Code (e.g., `kill -9`), subprocesses may survive until they timeout or are manually cleaned with: `pkill -f "claude.*dangerously-skip-permissions"`
+- **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If someone force-kills VS Code (e.g., `kill -9`), subprocesses may survive until they timeout or are manually cleaned. On macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`. On Windows: use Task Manager to end `node.exe` processes running Claude.
