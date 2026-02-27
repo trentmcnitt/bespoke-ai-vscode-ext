@@ -5,7 +5,7 @@
 <h1 align="center">Bespoke AI</h1>
 
 <p align="center">
-  <strong>AI autocomplete and commit messages for VS Code — powered by Claude Code</strong>
+  <strong>AI autocomplete and commit messages for VS Code — powered by Claude Code or your API key</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 **🖊️ Writing, not just code** — Inline completions for prompts, journals, notes, and docs — plus all the code completions you'd expect.
 
-**🚀 No API costs** — Uses your existing Claude subscription (Pro, Team, or Enterprise). No per-token billing. Full access to Haiku, Sonnet, and Opus.
+**🚀 Flexible backends** — Use your Claude subscription (no per-token billing) OR bring your own API key (Anthropic, OpenAI, xAI, Ollama).
 
 **🤖 AI-assisted prompt writing** — Use AI to help you write better prompts to AI.
 
@@ -58,6 +58,8 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 ## 🚀 Getting Started
 
+### Option A: Claude Code CLI (default)
+
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search "Bespoke AI")
 2. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup):
    ```bash
@@ -69,6 +71,18 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 3. Authenticate — run `claude` in your terminal and follow the login prompts
 4. Have an active Claude subscription (Pro, Team, or Enterprise)
 5. Start typing — completions appear as ghost text after a ~2 second pause
+
+### Option B: API Key
+
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai)
+2. Set `bespokeAI.backend` to `"api"` in VS Code settings
+3. Set your API key as an environment variable (e.g., `ANTHROPIC_API_KEY`) or add it to `~/.creds/api-keys.env`
+4. Optionally change the preset via `bespokeAI.api.preset` (default: `anthropic-haiku`)
+5. Start typing — completions appear as ghost text
+
+**Available presets:** `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4o-mini`, `xai-grok`, `ollama-default`
+
+> **Note:** Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend and are hidden in API mode.
 
 > **Tip:** Press `Alt+Enter` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
 
@@ -104,7 +118,18 @@ All settings live under `bespokeAI.*` in VS Code settings.
 </details>
 
 <details>
-<summary><strong>Model</strong></summary>
+<summary><strong>Backend</strong></summary>
+
+| Setting       | Default             | Description                                         |
+| ------------- | ------------------- | --------------------------------------------------- |
+| `backend`     | `"claude-code"`     | Active backend: `claude-code` (CLI) or `api` (HTTP) |
+| `api.preset`  | `"anthropic-haiku"` | API preset to use when backend is `api`             |
+| `api.presets` | _(all built-in)_    | Array of enabled preset IDs                         |
+
+</details>
+
+<details>
+<summary><strong>Model (Claude Code backend)</strong></summary>
 
 | Setting             | Default                       | Description                              |
 | ------------------- | ----------------------------- | ---------------------------------------- |
@@ -161,22 +186,23 @@ Options:
 
 ```
 User types → Mode detection → Context extraction → LRU cache check
-  → Debounce → Pool server → Agent SDK → Claude Code → Cleanup → Ghost text
+  → Debounce → Backend Router → Claude Code CLI or API → Cleanup → Ghost text
 ```
 
-Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), the extension manages Claude Code subprocesses through a **shared pool server** architecture. Multiple VS Code windows share a single set of subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The first window becomes the leader (via lockfile); subsequent windows connect as clients. If the leader closes, clients automatically elect a new one.
+A **backend router** dispatches requests to the active backend. The **Claude Code CLI** backend uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and manages subprocesses through a shared pool server — multiple VS Code windows share subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The **API** backend makes direct HTTP calls to Anthropic, OpenAI-compatible, or local Ollama endpoints.
 
-Each subprocess serves up to 8 completions before recycling. A latest-request-wins queue ensures only the most recent request proceeds when the user is typing quickly.
+All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Anthropic API, preamble stripping for OpenAI-compat).
 
 **Key design decisions:**
 
 | Decision               | Rationale                                                        |
 | ---------------------- | ---------------------------------------------------------------- |
 | Writing-first defaults | Unrecognized languages fall back to writing, not code            |
-| Single backend         | Claude Code CLI only — simple architecture, subscription pricing |
+| Dual backend           | Claude Code CLI for subscribers, API for key-based access        |
+| Shared prompts         | Same system prompt across all backends — only extraction differs |
 | No streaming           | VS Code's inline completion API requires complete strings        |
 | LRU cache (50 entries) | 5-minute TTL prevents redundant calls when revisiting positions  |
-| Session reuse          | One subprocess serves many requests — avoids cold-start per call |
+| Session reuse (CLI)    | One subprocess serves many requests — avoids cold-start per call |
 
 ## 🔍 Troubleshooting
 
@@ -225,6 +251,7 @@ npm run test:quality              # LLM-as-judge quality tests
 
 - [x] ~~Linux support~~
 - [x] ~~Windows support~~
+- [x] ~~API backend~~ (Anthropic, OpenAI, xAI, Ollama)
 - [ ] Custom instructions file
 - [ ] Open-tab context
 

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from './utils/logger';
 import { UsageLedger } from './utils/usage-ledger';
-import { PoolClient } from './pool-server/client';
+import { BackendRouter } from './providers/backend-router';
 import { buildFullCommitPrompt, parseCommitMessage } from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
 import type { GitExtension, Repository } from './types/git';
@@ -12,7 +12,7 @@ const TIMEOUT_MS = 60_000;
 let inFlight = false;
 
 export async function generateCommitMessage(
-  poolClient: PoolClient,
+  router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
@@ -22,21 +22,21 @@ export async function generateCommitMessage(
   }
   inFlight = true;
   try {
-    await doGenerateCommitMessage(poolClient, logger, ledger);
+    await doGenerateCommitMessage(router, logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
 async function doGenerateCommitMessage(
-  poolClient: PoolClient,
+  router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
   logger.info('Commit message generation started');
 
   // Check pool availability
-  if (!poolClient.isCommandPoolAvailable()) {
+  if (!router.isCommandAvailable()) {
     vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
     return;
   }
@@ -141,7 +141,7 @@ async function doGenerateCommitMessage(
       const controller = new AbortController();
       token.onCancellationRequested(() => controller.abort());
 
-      return poolClient.sendCommand(fullMessage, {
+      return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
       });
@@ -159,7 +159,7 @@ async function doGenerateCommitMessage(
   const project = workspaceRoot ? path.basename(workspaceRoot) : '';
   ledger?.record({
     source: 'commit-message',
-    model: meta?.model || poolClient.getCurrentModel(),
+    model: meta?.model || router.getCurrentModel(),
     project,
     durationMs: meta?.durationMs ?? durationMs,
     durationApiMs: meta?.durationApiMs,

@@ -1,7 +1,7 @@
 import { Logger } from '../utils/logger';
 import { SlotPool, ResultMetadata } from './slot-pool';
 
-const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely. Output only what is requested — no commentary, preamble, or meta-text.`;
+export const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely. Output only what is requested — no commentary, preamble, or meta-text.`;
 
 const WARMUP_MESSAGE = 'Reply with exactly the word: READY';
 

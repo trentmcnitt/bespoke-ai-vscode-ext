@@ -10,6 +10,7 @@ import { extractCompletion, WARMUP_EXPECTED } from '../providers/claude-code';
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
   mode: 'auto',
+  backend: 'claude-code',
   triggerPreset: 'relaxed',
   triggerMode: 'auto',
   debounceMs: 2000,
@@ -23,6 +24,16 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     suffixChars: 2000,
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
+  api: {
+    preset: 'anthropic-haiku',
+    presets: [
+      'anthropic-haiku',
+      'anthropic-sonnet',
+      'openai-gpt-4o-mini',
+      'xai-grok',
+      'ollama-default',
+    ],
+  },
   contextMenu: { permissionMode: 'default' },
   logLevel: 'info',
 };
@@ -32,6 +43,7 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     ...DEFAULT_CONFIG,
     ...overrides,
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
+    api: { ...DEFAULT_CONFIG.api, ...overrides.api },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
     contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },

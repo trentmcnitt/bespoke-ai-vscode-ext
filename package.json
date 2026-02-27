@@ -94,17 +94,17 @@
       "editor/context": [
         {
           "command": "bespoke-ai.explainSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@1"
         },
         {
           "command": "bespoke-ai.fixSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@2"
         },
         {
           "command": "bespoke-ai.doSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@3"
         }
       ]
@@ -174,6 +174,39 @@
           ],
           "default": "info",
           "description": "Logging verbosity in the Output channel"
+        },
+        "bespokeAI.backend": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "api"
+          ],
+          "default": "claude-code",
+          "enumDescriptions": [
+            "Claude Code CLI (requires Claude subscription)",
+            "Direct API (requires API key)"
+          ],
+          "description": "Completion backend. Claude Code CLI uses your Claude subscription; Direct API uses your API key."
+        },
+        "bespokeAI.api.preset": {
+          "type": "string",
+          "default": "anthropic-haiku",
+          "scope": "application",
+          "description": "Active API model preset. Also changeable via the status bar menu."
+        },
+        "bespokeAI.api.presets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "anthropic-haiku",
+            "anthropic-sonnet",
+            "openai-gpt-4o-mini",
+            "xai-grok",
+            "ollama-default"
+          ],
+          "description": "Available API presets shown in the status bar menu."
         },
         "bespokeAI.claudeCode.model": {
           "type": "string",
@@ -281,6 +314,8 @@
     "vitest": "^4.0.18"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.77"
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "openai": "^6.25.0"
   }
 }

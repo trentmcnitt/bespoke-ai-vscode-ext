@@ -71,6 +71,7 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';
+  backend: 'claude-code' | 'api';
   triggerPreset: TriggerPreset;
   triggerMode: 'auto' | 'manual';
   debounceMs: number;
@@ -86,6 +87,10 @@ export interface ExtensionConfig {
   claudeCode: {
     model: string;
     models: string[];
+  };
+  api: {
+    preset: string;
+    presets: string[];
   };
   contextMenu: {
     permissionMode: PermissionMode;

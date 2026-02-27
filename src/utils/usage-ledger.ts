@@ -2,12 +2,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from './logger';
 
-export type LedgerSource = 'completion' | 'commit-message' | 'suggest-edit' | 'warmup' | 'startup';
+export type LedgerSource =
+  | 'completion'
+  | 'command'
+  | 'commit-message'
+  | 'suggest-edit'
+  | 'warmup'
+  | 'startup';
 
 export interface LedgerEntry {
   ts: number;
   source: LedgerSource;
   model: string;
+  backend?: 'claude-code' | 'api';
   project?: string;
   durationMs: number;
   durationApiMs?: number;

@@ -25,7 +25,7 @@ Bespoke AI is a personal AI toolkit for VS Code (works identically in VSCodium).
 
 Auto-detects prose vs code completion mode based on `document.languageId`.
 
-Uses the Claude Code CLI via `@anthropic-ai/claude-agent-sdk`. Requires a Claude subscription.
+Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`, requires a Claude subscription) and **direct API** (via Anthropic or OpenAI-compatible providers, requires an API key). The `bespokeAI.backend` setting controls which is active. Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend.
 
 ## Working Rules
 
@@ -77,7 +77,7 @@ Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
 
 Pressing F5 in VS Code launches the Extension Development Host using the `npm:watch` build task.
 
-esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). Externals (provided at runtime or loaded dynamically): `vscode`, `@anthropic-ai/claude-agent-sdk`. Optional dependencies: `@anthropic-ai/claude-agent-sdk` (Claude Code backend).
+esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). Externals (provided at runtime or loaded dynamically): `vscode`, `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`, `openai`. Optional dependencies: `@anthropic-ai/claude-agent-sdk` (Claude Code backend), `@anthropic-ai/sdk` (Anthropic API adapter), `openai` (OpenAI-compat adapter).
 
 ### Versioning and Installation
 
@@ -100,16 +100,18 @@ Increment the patch version (third number) by default for each install. For larg
 ```
 CompletionProvider (orchestrator — cache, debounce, mode detection)
   ↓
-PoolClient (Claude Code CLI backend)
-  ↓ (local fast path or IPC)
-PoolServer
-  ├── ClaudeCodeProvider (inline completions)
-  └── CommandPool (commit message, suggest edits)
+BackendRouter (routes to active backend based on config.backend)
+  ├── claude-code: PoolClient → PoolServer → ClaudeCodeProvider + CommandPool
+  └── api: ApiCompletionProvider / ApiCommandProvider → Adapters → HTTP APIs
 ```
 
-**Inline completions:** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (2000ms default, zero-delay for explicit `Invoke` trigger) → `PoolClient.getCompletion()` → (local fast path or IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
+**Inline completions (Claude Code backend):** User types → VS Code calls `provideInlineCompletionItems` → detect mode → extract document context → check LRU (Least Recently Used) cache (returns immediately on hit) → debounce (2000ms default, zero-delay for explicit `Invoke` trigger) → `BackendRouter.getCompletion()` → `PoolClient.getCompletion()` → (local fast path or IPC to `PoolServer`) → `ClaudeCodeProvider` builds prompt and calls Claude Code CLI → post-process result → cache result → return `InlineCompletionItem`.
 
-**Commit message / Suggest edits:** Command invoked → `PoolClient.sendCommand()` → (local or socket) → `PoolServer` → `CommandPool.sendPrompt()` → result returned to caller.
+**Inline completions (API backend):** Same orchestrator flow → `BackendRouter.getCompletion()` → `ApiCompletionProvider.getCompletion()` → selects `PromptStrategy` from preset → builds prompt via shared `buildFillMessage()` → adapter makes HTTP call → extracts completion via strategy → post-process → cache → return.
+
+**Commit message / Suggest edits (Claude Code):** Command invoked → `BackendRouter.sendCommand()` → `PoolClient.sendCommand()` → `PoolServer` → `CommandPool.sendPrompt()` → result returned.
+
+**Commit message / Suggest edits (API):** Command invoked → `BackendRouter.sendCommand()` → `ApiCommandProvider.sendPrompt()` → adapter HTTP call → result returned.
 
 **Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Alt+Enter only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compat: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
 
@@ -137,9 +139,9 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Core Pipeline
 
-- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). Shows a one-time welcome notification on first run via `globalState`. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes, models, and trigger presets.
+- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/BackendRouter/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation (Claude Code backend only) — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). In API mode, appends `(API)` to status bar and shows the active preset name instead of CLI model. Shows a one-time welcome notification on first run via `globalState`. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes, models, trigger presets, backends, and API presets. Sets `bespokeAI.cliAvailable` context variable to control context menu visibility.
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `PoolClient`). Exposes `clearCache()` and `setRequestCallbacks()`.
+- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `BackendRouter`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
 - `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over IPC).
 
@@ -151,18 +153,44 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
   Subclassed by `ClaudeCodeProvider` and `CommandPool`.
 
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
-  - **Prompt structure:** Uses a `{{FILL_HERE}}` marker approach — wraps document prefix + marker + suffix in `<document>` tags. The model outputs the fill text in `<COMPLETION>` tags. `extractCompletion()` extracts between the tags. `buildFillMessage()` is the single source of truth for message construction. Same prompt for prose and code.
+- `src/providers/prompt-strategy.ts` — Shared prompt module for all completion backends. Exports `SYSTEM_PROMPT`, `buildFillMessage()`, and `extractCompletion()` as the canonical prompt components. Defines the `PromptStrategy` interface and three implementations:
+  - **`tagExtraction`** — Default for Claude Code CLI. Expects `<COMPLETION>` tags in response.
+  - **`prefillExtraction`** — For Anthropic direct API. Adds assistant prefill with last ~40 chars of prefix inside `<COMPLETION>` tag, extracts by finding closing tag.
+  - **`instructionExtraction`** — For OpenAI-compatible models. Falls back to stripping code fences and preamble patterns if `<COMPLETION>` tags are absent.
+
+  `getPromptStrategy(id)` provides a registry lookup. Strategy IDs (`PromptStrategyId`) are used by presets to select extraction behavior.
+
+- `src/providers/backend-router.ts` — Routes between Claude Code CLI and API backends based on `config.backend`. Implements `CompletionProvider` for the completion orchestrator. Also exposes `sendCommand()` for commit message and suggest-edit routing, `isCommandAvailable()`, `getCurrentModel()`, `getBackend()`, and `getApiProvider()`. Propagates config updates to all sub-providers.
+
+- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool. Imports `SYSTEM_PROMPT`, `buildFillMessage`, and `extractCompletion` from `prompt-strategy.ts` and re-exports them for backward compatibility.
   - **Slot pool:** Manages a 1-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
   - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when the slot is busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request executes fully regardless of cancellation signals.
 
 - `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 4 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
 
+#### API Provider
+
+- `src/providers/api/types.ts` — Type definitions for the API backend. `Preset` defines a model configuration (provider, model ID, base URL, API key env var, prompt strategy, pricing). `ApiAdapter` is the interface for HTTP adapters. `ApiAdapterResult` carries response text, token usage, model name, and duration.
+
+- `src/providers/api/presets.ts` — Built-in preset registry. Five presets: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4o-mini` and `xai-grok` (instruction strategy), `ollama-default` (instruction strategy, local). Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `calculateCost()`, and `DEFAULT_PRESET_ID`.
+
+- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter. Dynamic import of `@anthropic-ai/sdk`. Supports assistant prefill, prompt caching, and cache-read token tracking.
+
+- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter. Dynamic import of `openai` package. Covers OpenAI, xAI, and Ollama via configurable `baseURL`. Ollama special-case: no API key required, connection errors return `null` silently.
+
+- `src/providers/api/adapters/index.ts` — Adapter factory. `createAdapter(preset)` returns the appropriate `ApiAdapter` implementation.
+
+- `src/providers/api/api-provider.ts` — `ApiCompletionProvider` implementing `CompletionProvider`. Selects `PromptStrategy` from preset, builds prompt via shared `buildFillMessage()`, calls adapter, extracts completion. Circuit breaker: 5 consecutive failures → open, auto-recover after 30s. Logs via `Logger`, records to `UsageLedger`.
+
+- `src/providers/api/api-command-provider.ts` — `ApiCommandProvider` for commit messages and suggest-edits via API. `sendPrompt()` accepts system prompt, user message, and optional abort signal. Same circuit breaker pattern as `ApiCompletionProvider`.
+
+- `src/providers/api/index.ts` — Re-exports all public API types and classes.
+
 #### Standalone Commands
 
-- `src/commit-message.ts` — Generates commit messages via the `PoolClient`. Reads diffs from VS Code's built-in Git extension, sends them through `PoolClient.sendCommand()` to the command pool, and writes the result into the Source Control panel's commit message input box. Independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
+- `src/commit-message.ts` — Generates commit messages via the `BackendRouter`. Reads diffs from VS Code's built-in Git extension, sends them through `BackendRouter.sendCommand()` (routes to `PoolClient` or `ApiCommandProvider` based on active backend), and writes the result into the Source Control panel's commit message input box. Independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
 
-- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `PoolClient`. Captures visible editor text, sends it through `PoolClient.sendCommand()` for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
+- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `BackendRouter`. Captures visible editor text, sends it through `BackendRouter.sendCommand()` for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
 
 - `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Do). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process. The `bespokeAI.contextMenu.permissionMode` setting controls permission behavior: `default` (asks before every action), `acceptEdits` (auto-approves file reads/edits), or `bypassPermissions` (skips all checks). Pure helpers live in `src/commands/context-menu-utils.ts`.
 
@@ -184,6 +212,8 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/utils/message-channel.ts` — Async message channel utility used by the Claude Code backend for inter-process communication.
 
+- `src/utils/api-key-store.ts` — Resolves API keys from `process.env` first, then `~/.creds/api-keys.env` file. Lazy-loads and caches the creds file. Used by API adapters to find keys like `ANTHROPIC_API_KEY`.
+
 - `src/utils/model-name.ts` — `shortenModelName()` pure function for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`).
 
 - `src/utils/workspace.ts` — `getWorkspaceRoot()` utility for resolving the workspace folder path.
@@ -198,7 +228,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `PoolClient` implements. `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model). Also exports `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, presets array). Also exports `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
 
@@ -274,7 +304,7 @@ Example:
           ⋮ (445 chars total)
           function foo() {
 [TRACE]   → sent (764 chars):
-          <current_text>...</current_text>
+          <document>...</document>
 [DEBUG 00:51:12.374] ◀ #a7f3 | 835ms | 9 chars | slot=0
 [TRACE]   ← raw:
           }
@@ -290,7 +320,7 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 
 | Symptom source                                    | Action                                                                       |
 | ------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Prompt construction (model receives wrong input)  | Fix `buildFillMessage()` in `claude-code.ts`                                 |
+| Prompt construction (model receives wrong input)  | Fix `buildFillMessage()` in `prompt-strategy.ts`                             |
 | Model output (correct input, wrong response)      | Adjust system prompt or model parameters                                     |
 | Pool/IPC (message corruption, timeout, reconnect) | Debug `PoolClient`/`PoolServer` communication                                |
 | Post-processing                                   | Review `post-process.ts` (last resort — see [Working Rules](#working-rules)) |
@@ -299,7 +329,7 @@ When fixing a completion bug, consider also adding the failing case as a regress
 
 ### Debugging Command Issues
 
-Commit message and suggest-edit commands use the `CommandPool` (via `PoolClient.sendCommand()`). Diagnosis approach:
+Commit message and suggest-edit commands route through `BackendRouter.sendCommand()` — in Claude Code mode this delegates to `PoolClient.sendCommand()` / `CommandPool`, in API mode to `ApiCommandProvider.sendPrompt()`. Diagnosis approach:
 
 1. Check `[DEBUG]` logs for "Commit message" or "Suggest edit" entries — they show diff size, prompt size, and timing.
 2. Check `[TRACE]` logs for the full prompt and raw response.
@@ -452,5 +482,6 @@ These are deliberate trade-offs. Do not attempt to fix them unless explicitly as
 - The extension does not validate config values. Invalid settings pass through to the backend as-is.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
 - Context menu commands (Explain, Fix, Do) do not check the `bespokeAI.enabled` setting because they launch standalone Claude CLI processes independent of the pool server. They work even when inline completions are disabled.
+- **Context menu commands are CLI-only.** When `bespokeAI.backend` is set to `api`, context menu commands (Explain, Fix, Do) are hidden via `when` clause (`bespokeAI.cliAvailable`). These commands require the Claude Code CLI and cannot be routed through the API backend.
 - **Context menu shell escaping (Windows):** `escapeForDoubleQuotes()` in `context-menu-utils.ts` uses bash/zsh escaping rules. On Windows with PowerShell or cmd.exe, context menu commands (Explain, Fix, Do) may produce incorrect escaping unless the VS Code terminal uses a bash-compatible shell (Git Bash, WSL).
 - **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If someone force-kills VS Code (e.g., `kill -9`), subprocesses may survive until they timeout or are manually cleaned. On macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`. On Windows: use Task Manager to end `node.exe` processes running Claude.

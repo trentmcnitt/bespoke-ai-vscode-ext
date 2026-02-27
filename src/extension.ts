@@ -3,6 +3,10 @@ import * as path from 'path';
 import { DEFAULT_MODEL, ExtensionConfig, TriggerPreset, resolvePreset } from './types';
 import { CompletionProvider } from './completion-provider';
 import { PoolClient } from './pool-server/client';
+import { BackendRouter } from './providers/backend-router';
+import { ApiCompletionProvider } from './providers/api/api-provider';
+import { ApiCommandProvider } from './providers/api/api-command-provider';
+import { getPreset, getAllPresets } from './providers/api/presets';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
@@ -41,6 +45,7 @@ let statusBarItem: vscode.StatusBarItem;
 let statusBarState: StatusBarState = 'initializing';
 let completionProvider: CompletionProvider;
 let poolClient: PoolClient;
+let backendRouter: BackendRouter;
 let logger: Logger;
 let activeRequests = 0;
 let lastConfig: ExtensionConfig;
@@ -96,16 +101,34 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push({ dispose: () => poolClient.dispose() });
 
-  // Only start pools if enabled — disabled = hard kill (no subprocesses)
-  if (config.enabled) {
+  // Create API providers (lightweight — no subprocess, just hold config)
+  const apiCompletion = new ApiCompletionProvider(config, logger, usageLedger);
+  const apiCommand = new ApiCommandProvider(config, logger, usageLedger);
+
+  // BackendRouter wraps both backends
+  backendRouter = new BackendRouter(poolClient, apiCompletion, apiCommand, config);
+  context.subscriptions.push({ dispose: () => backendRouter.dispose() });
+
+  // Set context for context menu visibility (CLI-only commands)
+  vscode.commands.executeCommand(
+    'setContext',
+    'bespokeAI.cliAvailable',
+    config.backend === 'claude-code',
+  );
+
+  // Only start Claude Code pools if enabled and backend is claude-code
+  if (config.enabled && config.backend === 'claude-code') {
     activateWithPreflight(config, context).catch((err) => {
       logger.error(`Pool activation failed: ${err}`);
     });
+  } else if (config.enabled && config.backend === 'api') {
+    // API backend — ready immediately (no subprocess startup needed)
+    updateStatusBar(config, apiCompletion.isAvailable() ? 'ready' : 'setup-needed');
   } else {
     logger.info('Extension disabled at startup — pools not started');
   }
 
-  completionProvider = new CompletionProvider(config, poolClient, logger, usageTracker);
+  completionProvider = new CompletionProvider(config, backendRouter, logger, usageTracker);
   context.subscriptions.push({ dispose: () => completionProvider.dispose() });
 
   completionProvider.setRequestCallbacks(
@@ -191,18 +214,57 @@ export function activate(context: vscode.ExtensionContext) {
         });
       }
 
-      // --- Model section ---
-      items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
-      for (const model of config.claudeCode.models) {
-        const isCurrent = config.claudeCode.model === model;
+      // --- Backend section ---
+      items.push({ label: 'Backend', kind: vscode.QuickPickItemKind.Separator });
+      const backends = [
+        {
+          id: 'claude-code' as const,
+          label: '$(terminal) Claude Code CLI',
+          description: 'requires Claude subscription',
+        },
+        { id: 'api' as const, label: '$(globe) Direct API', description: 'requires API key' },
+      ];
+      for (const b of backends) {
+        const isCurrent = config.backend === b.id;
         const item: vscode.QuickPickItem = {
-          label: `$(server) ${model}`,
-          description: isCurrent ? '(current)' : '',
+          label: b.label,
+          description: `${b.description}${isCurrent ? ' (current)' : ''}`,
         };
         items.push(item);
         handlers.set(item, () => {
-          ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
+          ws.update('backend', b.id, vscode.ConfigurationTarget.Global);
         });
+      }
+
+      // --- Model section (Claude Code) or API Preset section ---
+      if (config.backend === 'api') {
+        items.push({ label: 'API Preset', kind: vscode.QuickPickItemKind.Separator });
+        const allPresets = getAllPresets();
+        for (const preset of allPresets) {
+          if (!config.api.presets.includes(preset.id)) continue;
+          const isCurrent = config.api.preset === preset.id;
+          const item: vscode.QuickPickItem = {
+            label: `$(server) ${preset.displayName}`,
+            description: `${preset.modelId}${isCurrent ? ' (current)' : ''}`,
+          };
+          items.push(item);
+          handlers.set(item, () => {
+            ws.update('api.preset', preset.id, vscode.ConfigurationTarget.Global);
+          });
+        }
+      } else {
+        items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
+        for (const model of config.claudeCode.models) {
+          const isCurrent = config.claudeCode.model === model;
+          const item: vscode.QuickPickItem = {
+            label: `$(server) ${model}`,
+            description: isCurrent ? '(current)' : '',
+          };
+          items.push(item);
+          handlers.set(item, () => {
+            ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
+          });
+        }
       }
 
       // --- Trigger Preset section ---
@@ -398,7 +460,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await generateCommitMessage(poolClient, logger, usageLedger);
+      await generateCommitMessage(backendRouter, logger, usageLedger);
     }),
   );
 
@@ -419,7 +481,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await suggestEdit(poolClient, logger, usageLedger);
+      await suggestEdit(backendRouter, logger, usageLedger);
     }),
   );
 
@@ -463,16 +525,53 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Propagate config before recycling so initSlot uses the new model
         logger.setLevel(newConfig.logLevel);
+        backendRouter.updateConfig(newConfig);
         completionProvider.updateConfig(newConfig);
+
+        // Update context menu visibility when backend changes
+        if (newConfig.backend !== prevConfig.backend) {
+          vscode.commands.executeCommand(
+            'setContext',
+            'bespokeAI.cliAvailable',
+            newConfig.backend === 'claude-code',
+          );
+        }
 
         // Hard kill / restart pools when enabled changes
         const enabledChanged = newConfig.enabled !== prevConfig.enabled;
+        const backendChanged = newConfig.backend !== prevConfig.backend;
+
         if (enabledChanged) {
           if (!newConfig.enabled) {
             logger.info('Disabled — shutting down pools');
             poolClient.dispose();
           } else {
-            logger.info('Enabled — restarting pools');
+            logger.info('Enabled — restarting');
+            if (newConfig.backend === 'claude-code') {
+              updateStatusBar(newConfig, 'initializing');
+              poolClient.updateConfig(newConfig);
+              poolClient
+                .activate()
+                .then(() => {
+                  updateStatusBar(newConfig, 'ready');
+                })
+                .catch((err) => {
+                  logger.error(`Pool client activation failed: ${err}`);
+                  updateStatusBar(newConfig, 'setup-needed');
+                });
+            } else {
+              // API mode — ready immediately
+              const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
+              updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
+            }
+          }
+        }
+
+        // Handle backend switch (without enable/disable change)
+        if (backendChanged && !enabledChanged && newConfig.enabled) {
+          completionProvider.clearCache();
+          if (newConfig.backend === 'claude-code') {
+            // Switching to CLI — may need to start pools
             updateStatusBar(newConfig, 'initializing');
             poolClient.updateConfig(newConfig);
             poolClient
@@ -484,18 +583,33 @@ export function activate(context: vscode.ExtensionContext) {
                 logger.error(`Pool client activation failed: ${err}`);
                 updateStatusBar(newConfig, 'setup-needed');
               });
+          } else {
+            // Switching to API — ready immediately
+            const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
+            updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
           }
         }
 
-        // Recycle pools when model changes (skip if we just restarted — restart picks up new model)
+        // Recycle pools when CLI model changes
         if (
           newConfig.enabled &&
           !enabledChanged &&
+          newConfig.backend === 'claude-code' &&
           newConfig.claudeCode.model !== prevConfig.claudeCode.model
         ) {
           logger.info(`Model → ${newConfig.claudeCode.model} (recycling pools + clearing cache)`);
           completionProvider.clearCache();
           poolClient.updateConfig(newConfig);
+        }
+
+        // Clear cache on API preset change
+        if (
+          newConfig.enabled &&
+          newConfig.backend === 'api' &&
+          newConfig.api.preset !== prevConfig.api.preset
+        ) {
+          logger.info(`API preset → ${newConfig.api.preset} (clearing cache)`);
+          completionProvider.clearCache();
         }
 
         updateStatusBar(newConfig);
@@ -549,6 +663,7 @@ function loadConfig(): ExtensionConfig {
   return {
     enabled: ws.get<boolean>('enabled', true)!,
     mode: ws.get<'auto' | 'prose' | 'code'>('mode', 'auto')!,
+    backend: ws.get<'claude-code' | 'api'>('backend', 'claude-code')!,
     triggerPreset,
     triggerMode,
     debounceMs,
@@ -564,6 +679,16 @@ function loadConfig(): ExtensionConfig {
     claudeCode: {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
       models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
+    },
+    api: {
+      preset: ws.get<string>('api.preset', 'anthropic-haiku')!,
+      presets: ws.get<string[]>('api.presets', [
+        'anthropic-haiku',
+        'anthropic-sonnet',
+        'openai-gpt-4o-mini',
+        'xai-grok',
+        'ollama-default',
+      ])!,
     },
     contextMenu: {
       permissionMode: ws.get<'default' | 'acceptEdits' | 'bypassPermissions'>(
@@ -588,10 +713,17 @@ function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
     statusBarItem.text = '$(warning) Setup needed';
     statusBarItem.tooltip = 'Bespoke AI: Click for setup guidance';
   } else {
-    const modelLabel = shortenModelName(config.claudeCode.model);
     const presetIcon = PRESET_ICONS[config.triggerPreset] ?? '$(zap)';
-    statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel}`;
-    statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
+    if (config.backend === 'api') {
+      const apiPreset = getPreset(config.api.preset);
+      const modelLabel = apiPreset?.displayName ?? config.api.preset;
+      statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel} (API)`;
+      statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${modelLabel} via API (click for menu)`;
+    } else {
+      const modelLabel = shortenModelName(config.claudeCode.model);
+      statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel}`;
+      statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
+    }
   }
   statusBarItem.show();
 }
@@ -603,8 +735,14 @@ function updateStatusBarSpinner(spinning: boolean) {
   }
 
   if (spinning) {
-    const modelLabel = shortenModelName(config.claudeCode.model);
-    statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
+    if (config.backend === 'api') {
+      const apiPreset = getPreset(config.api.preset);
+      const modelLabel = apiPreset?.displayName ?? config.api.preset;
+      statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel} (API)`;
+    } else {
+      const modelLabel = shortenModelName(config.claudeCode.model);
+      statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
+    }
   } else {
     updateStatusBar(config);
   }
@@ -810,6 +948,6 @@ export function deactivate() {
   // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
   // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
-  poolClient?.dispose();
+  backendRouter?.dispose();
   logger?.dispose();
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — API Backend
+
+- **API backend:** The extension now works without a Claude subscription. Set `bespokeAI.backend` to `"api"` and provide an API key (via environment variable or `~/.creds/api-keys.env`) to use Anthropic, OpenAI, xAI, or local Ollama models for completions, commit messages, and suggest-edits.
+- **Built-in presets:** Five presets out of the box — `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4o-mini`, `xai-grok`, `ollama-default`. Switch presets via the status bar menu or `bespokeAI.api.preset`.
+- **Shared prompt strategy:** Extracted a unified prompt module (`prompt-strategy.ts`) shared by both backends. Three extraction strategies (tag, prefill, instruction) handle differences between model providers while keeping prompts consistent.
+- **Backend router:** New `BackendRouter` transparently routes completions and commands to the active backend. Commit messages and suggest-edits work in both CLI and API modes.
+- **Context menu scoping:** Explain, Fix, and Do commands are hidden when the API backend is active (they require Claude Code CLI).
+- **Circuit breaker:** API providers include a circuit breaker — 5 consecutive failures pauses requests for 30 seconds, then auto-recovers.
+
 ## 0.7.1 — Launch Prep
 
 - **GitHub Issues enabled** for bug reports and feature requests.
