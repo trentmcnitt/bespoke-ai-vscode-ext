@@ -5,7 +5,7 @@
 <h1 align="center">Bespoke AI</h1>
 
 <p align="center">
-  <strong>Claude Code-powered AI autocomplete for VS Code — built on the Agent SDK</strong>
+  <strong>AI autocomplete and commit messages for VS Code — powered by Claude Code</strong>
 </p>
 
 <p align="center">
@@ -13,9 +13,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
-**🖊️ Writing + code** — Autocomplete that actually works for prompts, journals, notes, and docs. Not just another code completer.
+> **Early release** — This extension is functional and actively used by the author, but hasn't been widely tested yet. If you encounter issues, please email [feedback@mcnitt.io](mailto:feedback@mcnitt.io).
 
-**🚀 Frontier models, no API costs** — Opus, Sonnet, and Haiku on your existing Claude subscription. No per-token billing.
+**🖊️ Writing, not just code** — Inline completions for prompts, journals, notes, and docs — plus all the code completions you'd expect.
+
+**🚀 No API costs** — Uses your existing Claude subscription (Pro, Team, or Enterprise). No per-token billing. Full access to Haiku, Sonnet, and Opus.
 
 **🤖 AI-assisted prompt writing** — Use AI to help you write better prompts to AI.
 
@@ -70,7 +72,7 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 > **Tip:** Press `Alt+Enter` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
 
-> **Note:** If `Alt+Enter` doesn't work, VS Code's built-in Inline Chat bindings may be intercepting it. Open Keyboard Shortcuts (`Ctrl+K Ctrl+S`), search for `alt+enter`, and remove the conflicting "Inline Chat" entries that use bare `Alt+Enter`.
+> **Note:** If `Alt+Enter` doesn't work, another keybinding is likely intercepting it. Open Keyboard Shortcuts (`Ctrl+K Ctrl+S`), search for `alt+enter`, and remove or rebind any conflicting entries — Inline Chat is the most common culprit, but other extensions or custom bindings can also conflict.
 
 > **Platform:** macOS, Linux, and Windows.
 
@@ -196,6 +198,11 @@ Each subprocess serves up to 8 completions before recycling. A latest-request-wi
 - Run `claude` in your terminal and follow the login prompts.
 - Ensure you have an active Claude subscription (Pro, Team, or Enterprise).
 
+**Windows: Explain/Fix/Do commands garbled?**
+
+- Context menu commands use bash-style shell escaping. On Windows with PowerShell or cmd.exe, text containing `$`, backticks, or special characters may not pass through correctly.
+- Workaround: set your VS Code terminal to Git Bash or WSL.
+
 **Still not working?**
 
 - Check for orphaned processes:
@@ -223,7 +230,9 @@ npm run test:quality              # LLM-as-judge quality tests
 
 ## 💬 Feedback
 
-Bug reports, feature requests, and general feedback: **[feedback@mcnitt.io](mailto:feedback@mcnitt.io)**
+Bug reports and feature requests: **[GitHub Issues](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues)**
+
+General feedback: **[feedback@mcnitt.io](mailto:feedback@mcnitt.io)**
 
 ## 👤 Author
 

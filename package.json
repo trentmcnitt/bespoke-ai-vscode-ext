@@ -1,8 +1,8 @@
 {
   "name": "bespoke-ai",
-  "displayName": "Bespoke AI",
+  "displayName": "Bespoke AI — Autocomplete + Commit Messages, Powered by Claude Code",
   "description": "AI autocomplete for prose and code, plus one-click commit messages — powered by Claude Code",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -12,6 +12,7 @@
   },
   "homepage": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext#readme",
   "bugs": {
+    "url": "https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues",
     "email": "feedback@mcnitt.io"
   },
   "keywords": [

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 — Launch Prep
+
+- **GitHub Issues enabled** for bug reports and feature requests.
+- **Marketplace listing improved:** Updated extension display name and description.
+- **README:** Added Windows troubleshooting note for context menu commands, linked GitHub Issues in feedback section.
+- **Removed internal planning docs** from the public repository.
+
 ## 0.7.0 — Windows Support
 
 - **Windows support:** Platform-aware IPC using named pipes on Windows and Unix domain sockets on macOS/Linux. The pool server, lockfile, and client connection all work cross-platform.

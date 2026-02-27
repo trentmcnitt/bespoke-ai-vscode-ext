@@ -8,3 +8,8 @@ prompt-dump*.txt
 .env*
 *.log
 .DS_Store
+
+# Internal planning docs (kept locally, not published)
+FEATURE_MAP.md
+docs/claude-code-subscription-risks.md
+docs/oracle-dev-log.md
