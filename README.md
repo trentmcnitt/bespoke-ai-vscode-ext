@@ -17,7 +17,7 @@
 
 **🖊️ Writing, not just code** — Inline completions for prompts, journals, notes, and docs — plus all the code completions you'd expect.
 
-**🚀 Flexible backends** — Use your Claude subscription (no per-token billing) OR bring your own API key (Anthropic, OpenAI, xAI, Ollama).
+**🚀 Flexible backends** — Use your Claude subscription (no per-token billing) OR bring your own API key (Anthropic, OpenAI, Google Gemini, xAI, OpenRouter, Ollama).
 
 **🤖 AI-assisted prompt writing** — Use AI to help you write better prompts to AI.
 
@@ -82,15 +82,19 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 **Built-in models:**
 
-| Preset                      | Provider                                    | Model             | API Key             |
-| --------------------------- | ------------------------------------------- | ----------------- | ------------------- |
-| `anthropic-haiku` (default) | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5  | `ANTHROPIC_API_KEY` |
-| `anthropic-sonnet`          | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5 | `ANTHROPIC_API_KEY` |
-| `openai-gpt-4o-mini`        | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini       | `OPENAI_API_KEY`    |
-| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-3-fast       | `XAI_API_KEY`       |
-| `ollama-default`            | [Ollama](https://ollama.com/) (local)       | qwen2.5-coder     | none                |
+| Preset                      | Provider                                    | Model                      | API Key              |
+| --------------------------- | ------------------------------------------- | -------------------------- | -------------------- |
+| `anthropic-haiku` (default) | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5           | `ANTHROPIC_API_KEY`  |
+| `anthropic-sonnet`          | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5          | `ANTHROPIC_API_KEY`  |
+| `openai-gpt-4.1-nano`       | [OpenAI](https://platform.openai.com/)      | gpt-4.1-nano               | `OPENAI_API_KEY`     |
+| `openai-gpt-4o-mini`        | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini                | `OPENAI_API_KEY`     |
+| `google-gemini-flash`       | [Google](https://aistudio.google.com/)      | gemini-2.5-flash           | `GEMINI_API_KEY`     |
+| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-3-fast                | `XAI_API_KEY`        |
+| `openrouter-haiku`          | [OpenRouter](https://openrouter.ai/)        | anthropic/claude-haiku-4.5 | `OPENROUTER_API_KEY` |
+| `openrouter-gpt-4.1-nano`   | [OpenRouter](https://openrouter.ai/)        | openai/gpt-4.1-nano        | `OPENROUTER_API_KEY` |
+| `ollama-default`            | [Ollama](https://ollama.com/) (local)       | qwen2.5-coder              | none                 |
 
-**Custom models:** Use the **"Bespoke AI: Add Custom Model"** command (`Ctrl+Shift+P` → "Add Custom Model") for a guided setup wizard. Any OpenAI-compatible API or Anthropic endpoint works. You can also add models manually via the `bespokeAI.api.customPresets` setting:
+**Custom models:** Use the **"Bespoke AI: Add Custom Model"** command (`Ctrl+Shift+P` → "Add Custom Model") for a guided setup wizard. Any OpenAI-compatible API, Anthropic, Google Gemini, or OpenRouter endpoint works. You can also add models manually via the `bespokeAI.api.customPresets` setting:
 
 ```json
 "bespokeAI.api.customPresets": [
@@ -210,7 +214,7 @@ User types → Mode detection → Context extraction → LRU cache check
   → Debounce → Backend Router → Claude Code CLI or API → Cleanup → Ghost text
 ```
 
-A **backend router** dispatches requests to the active backend. The **Claude Code CLI** backend uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and manages subprocesses through a shared pool server — multiple VS Code windows share subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The **API** backend makes direct HTTP calls to Anthropic, OpenAI-compatible, or local Ollama endpoints.
+A **backend router** dispatches requests to the active backend. The **Claude Code CLI** backend uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and manages subprocesses through a shared pool server — multiple VS Code windows share subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The **API** backend makes direct HTTP calls to Anthropic, OpenAI-compatible (OpenAI, Google Gemini, xAI, OpenRouter), or local Ollama endpoints.
 
 All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Anthropic API, preamble stripping for OpenAI-compat).
 
@@ -272,7 +276,7 @@ npm run test:quality              # LLM-as-judge quality tests
 
 - [x] ~~Linux support~~
 - [x] ~~Windows support~~
-- [x] ~~API backend~~ (Anthropic, OpenAI, xAI, Ollama)
+- [x] ~~API backend~~ (Anthropic, OpenAI, Google Gemini, xAI, OpenRouter, Ollama)
 - [ ] Custom instructions file
 - [ ] Open-tab context
 

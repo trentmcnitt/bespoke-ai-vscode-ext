@@ -70,12 +70,14 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
 export interface CustomPreset {
   name: string;
-  provider: 'anthropic' | 'openai-compat';
+  provider: 'anthropic' | 'openai-compat' | 'google' | 'openrouter';
   modelId: string;
   baseUrl?: string;
   apiKeyEnvVar?: string;
   maxTokens?: number;
   temperature?: number;
+  extraBody?: Record<string, unknown>;
+  extraHeaders?: Record<string, string>;
 }
 
 export interface ExtensionConfig {

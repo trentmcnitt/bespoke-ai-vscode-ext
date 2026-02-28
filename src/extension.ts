@@ -123,7 +123,13 @@ export function activate(context: vscode.ExtensionContext) {
   initSecretStorage(context.secrets);
   // Eagerly load known API keys so resolveApiKey() stays synchronous.
   // Includes built-in env vars and any custom preset env vars.
-  const knownApiKeyVars = new Set(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY']);
+  const knownApiKeyVars = new Set([
+    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    'XAI_API_KEY',
+    'GEMINI_API_KEY',
+    'OPENROUTER_API_KEY',
+  ]);
   for (const cp of config.api.customPresets) {
     if (cp.apiKeyEnvVar) knownApiKeyVars.add(cp.apiKeyEnvVar);
   }
@@ -447,16 +453,6 @@ export function activate(context: vscode.ExtensionContext) {
         };
         items.push(usageItem);
         handlers.set(usageItem, () => showUsageDetail());
-
-        // Show API cost if any
-        if (ledgerSummary.today.costUsd > 0) {
-          const costItem: vscode.QuickPickItem = {
-            label: `$(credit-card) ${formatCost(ledgerSummary.today.costUsd)} today`,
-            description: config.backend === 'api' ? 'API usage' : '',
-          };
-          items.push(costItem);
-          handlers.set(costItem, () => showUsageDetail());
-        }
       }
 
       // --- Pool Status section (CLI backend only) ---
@@ -521,16 +517,6 @@ export function activate(context: vscode.ExtensionContext) {
               description: `in: ${totalIn.toLocaleString()} • out: ${totalOut.toLocaleString()}${cacheStr}`,
             };
             items.push(tokensItem);
-          }
-
-          // Cost
-          const totalCost = (cp?.totalCostUsd ?? 0) + (cmd?.totalCostUsd ?? 0);
-          if (totalCost > 0) {
-            const costItem: vscode.QuickPickItem = {
-              label: '$(credit-card) Cost',
-              description: `${formatCost(totalCost)} this session`,
-            };
-            items.push(costItem);
           }
         }
       }
@@ -615,6 +601,8 @@ export function activate(context: vscode.ExtensionContext) {
     anthropic: 'Anthropic',
     openai: 'OpenAI',
     xai: 'xAI',
+    google: 'Google (Gemini)',
+    openrouter: 'OpenRouter',
     ollama: 'Ollama',
   };
 
@@ -714,6 +702,16 @@ export function activate(context: vscode.ExtensionContext) {
             description: 'OpenAI, xAI, Together, Ollama, LM Studio, etc.',
             id: 'openai-compat' as const,
           },
+          {
+            label: 'Google (Gemini)',
+            description: 'Gemini models via Google AI',
+            id: 'google' as const,
+          },
+          {
+            label: 'OpenRouter',
+            description: '400+ models via openrouter.ai',
+            id: 'openrouter' as const,
+          },
         ],
         { title: 'Add Custom Model (1/4)', placeHolder: 'Select API provider' },
       );
@@ -724,10 +722,13 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Step: Model ID
       step++;
-      const modelPlaceholder =
-        providerType === 'anthropic'
-          ? 'claude-haiku-4-5-20251001'
-          : 'llama3.2, gpt-4o, gemma2, etc.';
+      const modelPlaceholders: Record<string, string> = {
+        anthropic: 'claude-haiku-4-5-20251001',
+        google: 'gemini-2.5-flash',
+        openrouter: 'anthropic/claude-haiku-4-5, openai/gpt-4.1-nano, etc.',
+        'openai-compat': 'llama3.2, gpt-4o, gemma2, etc.',
+      };
+      const modelPlaceholder = modelPlaceholders[providerType] ?? 'model-id';
       const modelId = await vscode.window.showInputBox({
         title: `Add Custom Model (${step}/${totalSteps})`,
         prompt: 'Model identifier sent to the API',
@@ -746,7 +747,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!displayName) return;
 
-      // Step: Base URL (OpenAI-compat only)
+      // Step: Base URL (OpenAI-compat only; Google/OpenRouter have fixed URLs)
       let baseUrl: string | undefined;
       if (providerType === 'openai-compat') {
         step++;
@@ -757,12 +758,21 @@ export function activate(context: vscode.ExtensionContext) {
             placeHolder: 'http://localhost:11434/v1',
             ignoreFocusOut: true,
           })) || undefined;
+      } else if (providerType === 'google') {
+        baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+      } else if (providerType === 'openrouter') {
+        baseUrl = 'https://openrouter.ai/api/v1';
       }
 
       // Step: API key env var
       step++;
       let apiKeyEnvVar: string | undefined;
-      const defaultKeyVar = providerType === 'anthropic' ? 'ANTHROPIC_API_KEY' : '';
+      const defaultKeyVars: Record<string, string> = {
+        anthropic: 'ANTHROPIC_API_KEY',
+        google: 'GEMINI_API_KEY',
+        openrouter: 'OPENROUTER_API_KEY',
+      };
+      const defaultKeyVar = defaultKeyVars[providerType] ?? '';
       const keyVarInput = await vscode.window.showInputBox({
         title: `Add Custom Model (${step}/${totalSteps})`,
         prompt: 'API key environment variable name (leave blank for local/keyless models)',
@@ -1178,16 +1188,6 @@ function formatCharCount(count: number): string {
   return String(count);
 }
 
-function formatCost(usd: number): string {
-  if (usd === 0) {
-    return '$0.00';
-  }
-  if (usd < 0.01) {
-    return `$${usd.toFixed(4)}`;
-  }
-  return `$${usd.toFixed(2)}`;
-}
-
 async function showUsageDetail(): Promise<void> {
   const snap = usageTracker.getSnapshot();
   const sessionDuration = formatDuration(Date.now() - snap.sessionStartTime);
@@ -1244,25 +1244,15 @@ async function showUsageDetail(): Promise<void> {
         description: `$(arrow-down) ${formatCharCount(today.outputTokens)} out`,
       });
     }
-    if (today.costUsd > 0) {
-      items.push({ label: `  $(credit-card) ${formatCost(today.costUsd)}` });
-    }
-
     items.push({
       label: `$(calendar) This week: ${thisWeek.requests} requests`,
       description: thisWeek.startups > 0 ? `${thisWeek.startups} startups` : '',
     });
-    if (thisWeek.costUsd > 0) {
-      items.push({ label: `  $(credit-card) ${formatCost(thisWeek.costUsd)}` });
-    }
 
     items.push({
       label: `$(calendar) This month: ${thisMonth.requests} requests`,
       description: thisMonth.startups > 0 ? `${thisMonth.startups} startups` : '',
     });
-    if (thisMonth.costUsd > 0) {
-      items.push({ label: `  $(credit-card) ${formatCost(thisMonth.costUsd)}` });
-    }
   }
 
   // Per-model breakdown from ledger
@@ -1276,7 +1266,6 @@ async function showUsageDetail(): Promise<void> {
       const desc = [
         stats.inputTokens > 0 ? `${formatCharCount(stats.inputTokens)} in` : '',
         stats.outputTokens > 0 ? `${formatCharCount(stats.outputTokens)} out` : '',
-        stats.costUsd > 0 ? formatCost(stats.costUsd) : '',
       ]
         .filter(Boolean)
         .join(' | ');

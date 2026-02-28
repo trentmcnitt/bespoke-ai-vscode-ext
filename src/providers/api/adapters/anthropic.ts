@@ -48,6 +48,7 @@ export class AnthropicAdapter implements ApiAdapter {
           system,
           messages: apiMessages,
           stop_sequences: options.stopSequences,
+          ...this.preset.extraBody,
         },
         { signal: options.signal },
       );
@@ -116,7 +117,10 @@ export class AnthropicAdapter implements ApiAdapter {
 
     // Dynamic import for lazy initialization (SDK is bundled by esbuild)
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({
+      apiKey,
+      ...(this.preset.extraHeaders && { defaultHeaders: this.preset.extraHeaders }),
+    });
     return this.client as AnthropicClient;
   }
 }
@@ -154,6 +158,7 @@ interface AnthropicClient {
         system: unknown;
         messages: Array<{ role: string; content: string }>;
         stop_sequences?: string[];
+        [key: string]: unknown;
       },
       options?: { signal?: AbortSignal },
     ): Promise<{

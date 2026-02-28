@@ -1,20 +1,24 @@
+import { randomUUID } from 'crypto';
 import { ApiAdapter, ApiAdapterResult, Preset } from '../types';
 import { resolveApiKey } from '../../../utils/api-key-store';
 
 /**
- * OpenAI-compatible adapter. Covers OpenAI, xAI/Grok, and Ollama.
+ * OpenAI-compatible adapter. Covers OpenAI, xAI/Grok, Google Gemini,
+ * OpenRouter, and Ollama.
  *
  * Uses the `openai` npm package with configurable `baseURL` for
- * xAI (api.x.ai) and Ollama (localhost:11434).
+ * provider-specific endpoints.
  */
 export class OpenAICompatAdapter implements ApiAdapter {
   readonly providerId: string;
   private client: unknown = null;
   private preset: Preset;
+  private sessionId: string;
 
   constructor(preset: Preset) {
     this.preset = preset;
     this.providerId = preset.provider;
+    this.sessionId = randomUUID();
   }
 
   isConfigured(): boolean {
@@ -51,6 +55,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
           max_tokens: options.maxTokens,
           temperature: options.temperature,
           stop: options.stopSequences,
+          ...this.preset.extraBody,
         },
         { signal: options.signal },
       );
@@ -58,11 +63,19 @@ export class OpenAICompatAdapter implements ApiAdapter {
       const text = response.choices?.[0]?.message?.content ?? null;
       const usage = response.usage;
 
+      // OpenAI-compat APIs include cached tokens in prompt_tokens (unlike
+      // Anthropic where input_tokens excludes them). Subtract cached tokens
+      // so inputTokens consistently means "non-cached input tokens" across
+      // all adapters.
+      const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+      const totalPromptTokens = usage?.prompt_tokens ?? 0;
+
       return {
         text,
         usage: {
-          inputTokens: usage?.prompt_tokens ?? 0,
+          inputTokens: totalPromptTokens - cachedTokens,
           outputTokens: usage?.completion_tokens ?? 0,
+          cacheReadTokens: cachedTokens || undefined,
         },
         model: response.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
@@ -132,10 +145,23 @@ export class OpenAICompatAdapter implements ApiAdapter {
       }
     }
 
+    // Provider-specific headers
+    const defaultHeaders: Record<string, string> = {};
+    if (this.preset.provider === 'xai') {
+      defaultHeaders['x-grok-conv-id'] = this.sessionId;
+    } else if (this.preset.provider === 'openrouter') {
+      defaultHeaders['HTTP-Referer'] = 'https://github.com/trentmcnitt/bespoke-ai-vscode-ext';
+      defaultHeaders['X-OpenRouter-Title'] = 'Bespoke AI';
+    }
+    if (this.preset.extraHeaders) {
+      Object.assign(defaultHeaders, this.preset.extraHeaders);
+    }
+
     const { default: OpenAI } = await import('openai');
     this.client = new OpenAI({
       apiKey,
       baseURL: this.preset.baseUrl,
+      ...(Object.keys(defaultHeaders).length > 0 && { defaultHeaders }),
     });
     return this.client as OpenAIClient;
   }
@@ -175,11 +201,16 @@ interface OpenAIClient {
           max_tokens: number;
           temperature: number;
           stop?: string[];
+          [key: string]: unknown;
         },
         options?: { signal?: AbortSignal },
       ): Promise<{
         choices?: Array<{ message?: { content?: string } }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
         model?: string;
       }>;
     };

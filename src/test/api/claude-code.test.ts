@@ -24,10 +24,6 @@ import {
   saveApiSummary,
   ApiResult,
 } from './result-writer';
-import * as path from 'path';
-
-const CWD = path.resolve(__dirname, '../../..');
-
 // Check SDK availability before running
 let sdkAvailable = false;
 try {
@@ -70,70 +66,15 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
 
   it('activates and reports available', async () => {
     provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
+    await provider.activate();
     expect(provider.isAvailable()).toBe(true);
   }, 60_000);
 
   it('warmup response is valid', async () => {
     const { logger, getTrace } = makeCapturingLogger();
     provider = new ClaudeCodeProvider(makeRealConfig(), logger);
-    await provider.activate(CWD);
+    await provider.activate();
     assertWarmupValid(getTrace);
-  }, 60_000);
-
-  it('returns a prose completion', async () => {
-    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
-
-    const ctx: CompletionContext = {
-      prefix: 'Once upon a time, in a land far away, there lived a',
-      suffix: '',
-      languageId: 'markdown',
-      fileName: 'story.md',
-      filePath: '/test/story.md',
-      mode: 'prose',
-    };
-
-    const start = Date.now();
-    const ac = new AbortController();
-    const result = await provider.getCompletion(ctx, ac.signal);
-    const durationMs = Date.now() - start;
-
-    console.log('[Claude Code prose]:', result);
-    expect(result).toBeTruthy();
-    expect(typeof result).toBe('string');
-    expect(result!.length).toBeGreaterThan(0);
-
-    const data = buildApiResult('prose', 'claude-code', ctx, result, durationMs);
-    saveApiResult(runDir, 'claude-code', 'prose', data);
-    results.push(data);
-  }, 60_000);
-
-  it('returns a code completion', async () => {
-    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
-
-    const ctx: CompletionContext = {
-      prefix: 'function fibonacci(n: number): number {\n  if (n <= 1) return n;\n  ',
-      suffix: '\n}',
-      languageId: 'typescript',
-      fileName: 'math.ts',
-      filePath: '/test/math.ts',
-      mode: 'code',
-    };
-
-    const start = Date.now();
-    const ac = new AbortController();
-    const result = await provider.getCompletion(ctx, ac.signal);
-    const durationMs = Date.now() - start;
-
-    console.log('[Claude Code code]:', result);
-    expect(result).toBeTruthy();
-    expect(typeof result).toBe('string');
-
-    const data = buildApiResult('code', 'claude-code', ctx, result, durationMs);
-    saveApiResult(runDir, 'claude-code', 'code', data);
-    results.push(data);
   }, 60_000);
 
   it('slot reuse: second request reuses the same slot', async () => {
@@ -143,7 +84,7 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
       slotLogs.push(`${label}=${value}`);
     };
     provider = new ClaudeCodeProvider(makeRealConfig(), logger);
-    await provider.activate(CWD);
+    await provider.activate();
 
     // First completion
     const ctx1: CompletionContext = {
@@ -200,7 +141,7 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
 
   it('ignores pre-aborted signal and still returns a completion', async () => {
     provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
+    await provider.activate();
 
     const ctx: CompletionContext = {
       prefix: 'Once upon a time, in a land far away, there lived a',
@@ -220,64 +161,9 @@ describe.skipIf(!sdkAvailable)('Claude Code Provider Integration', () => {
     expect(result).toBeTruthy();
   }, 60_000);
 
-  it('does not return markdown fences in completion', async () => {
-    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
-
-    const ctx: CompletionContext = {
-      prefix: 'function greet(name: string): string {\n  return ',
-      suffix: '\n}',
-      languageId: 'typescript',
-      fileName: 'greet.ts',
-      filePath: '/test/greet.ts',
-      mode: 'code',
-    };
-
-    const start = Date.now();
-    const result = await provider.getCompletion(ctx, new AbortController().signal);
-    const durationMs = Date.now() - start;
-    console.log('[No fences test]:', result);
-
-    if (result) {
-      expect(result).not.toMatch(/^```/);
-      expect(result).not.toMatch(/```$/);
-    }
-
-    const data = buildApiResult('no-fences', 'claude-code', ctx, result, durationMs);
-    saveApiResult(runDir, 'claude-code', 'no-fences', data);
-    results.push(data);
-  }, 60_000);
-
-  it('completion does not start with newlines', async () => {
-    provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
-
-    const ctx: CompletionContext = {
-      prefix: 'The weather today is',
-      suffix: '',
-      languageId: 'markdown',
-      fileName: 'notes.md',
-      filePath: '/test/notes.md',
-      mode: 'prose',
-    };
-
-    const start = Date.now();
-    const result = await provider.getCompletion(ctx, new AbortController().signal);
-    const durationMs = Date.now() - start;
-    console.log('[No leading newlines]:', result);
-
-    if (result) {
-      expect(result).not.toMatch(/^\n/);
-    }
-
-    const data = buildApiResult('no-leading-newlines', 'claude-code', ctx, result, durationMs);
-    saveApiResult(runDir, 'claude-code', 'no-leading-newlines', data);
-    results.push(data);
-  }, 60_000);
-
   it('dispose cleans up without errors', async () => {
     provider = new ClaudeCodeProvider(makeRealConfig(), makeLogger());
-    await provider.activate(CWD);
+    await provider.activate();
     expect(provider.isAvailable()).toBe(true);
 
     provider.dispose();

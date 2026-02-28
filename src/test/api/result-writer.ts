@@ -22,6 +22,15 @@ export interface ApiResultInput {
   mode: string;
 }
 
+/** Optional usage metadata from the provider's ledger. */
+export interface ApiResultUsage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  costUsd?: number;
+}
+
 /** Shape written to each per-test JSON file. */
 export interface ApiResult {
   test: string;
@@ -30,6 +39,7 @@ export interface ApiResult {
   completion: string | null;
   durationMs: number;
   timestamp: string;
+  usage?: ApiResultUsage;
 }
 
 /**
@@ -70,8 +80,9 @@ export function buildApiResult(
   ctx: { prefix: string; suffix: string; languageId: string; fileName: string; mode: string },
   completion: string | null,
   durationMs: number,
+  usage?: ApiResultUsage,
 ): ApiResult {
-  return {
+  const result: ApiResult = {
     test,
     backend,
     input: {
@@ -85,6 +96,10 @@ export function buildApiResult(
     durationMs,
     timestamp: new Date().toISOString(),
   };
+  if (usage) {
+    result.usage = usage;
+  }
+  return result;
 }
 
 /**

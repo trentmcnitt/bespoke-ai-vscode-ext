@@ -209,22 +209,34 @@
           "enum": [
             "anthropic-haiku",
             "anthropic-sonnet",
+            "openai-gpt-4.1-nano",
             "openai-gpt-4o-mini",
+            "google-gemini-flash",
             "xai-grok",
+            "openrouter-haiku",
+            "openrouter-gpt-4.1-nano",
             "ollama-default"
           ],
           "enumItemLabels": [
             "Haiku 4.5",
             "Sonnet 4.5",
+            "GPT-4.1 Nano",
             "GPT-4o Mini",
+            "Gemini 2.5 Flash",
             "Grok",
+            "Haiku (OpenRouter)",
+            "GPT-4.1 Nano (OpenRouter)",
             "Ollama (local)"
           ],
           "enumDescriptions": [
             "Anthropic · Fast, low cost",
             "Anthropic · Best quality",
-            "OpenAI · Cheapest option",
-            "xAI · Fast, competitive",
+            "OpenAI · Fastest, lowest cost",
+            "OpenAI · Balanced cost/quality",
+            "Google · Very fast, very cheap",
+            "xAI · Fast, competitive pricing",
+            "OpenRouter · Fast, low cost",
+            "OpenRouter · Fastest, lowest cost",
             "Ollama · Free, runs locally"
           ],
           "default": "anthropic-haiku",
@@ -234,7 +246,7 @@
         "bespokeAI.api.customPresets": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Custom API model presets. Each entry needs `name`, `provider` (`anthropic` or `openai-compat`), and `modelId`. Optional: `baseUrl`, `apiKeyEnvVar`, `maxTokens`, `temperature`. Example:\n```json\n[{\"name\": \"My Llama\", \"provider\": \"openai-compat\", \"modelId\": \"llama3.2\", \"baseUrl\": \"http://localhost:1234/v1\"}]\n```",
+          "markdownDescription": "Custom API model presets. Each entry needs `name`, `provider`, and `modelId`. Optional: `baseUrl`, `apiKeyEnvVar`, `maxTokens`, `temperature`, `extraBody`, `extraHeaders`. Example:\n```json\n[{\"name\": \"My Llama\", \"provider\": \"openai-compat\", \"modelId\": \"llama3.2\", \"baseUrl\": \"http://localhost:1234/v1\"}]\n```",
           "items": {
             "type": "object",
             "properties": {
@@ -246,7 +258,9 @@
                 "type": "string",
                 "enum": [
                   "anthropic",
-                  "openai-compat"
+                  "openai-compat",
+                  "google",
+                  "openrouter"
                 ],
                 "description": "API provider type"
               },
@@ -269,6 +283,17 @@
               "temperature": {
                 "type": "number",
                 "description": "Sampling temperature (default: 0.2)"
+              },
+              "extraBody": {
+                "type": "object",
+                "markdownDescription": "Extra parameters merged into the API request body (e.g., OpenRouter `transforms`, `provider` routing)"
+              },
+              "extraHeaders": {
+                "type": "object",
+                "markdownDescription": "Extra HTTP headers merged into API requests",
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             },
             "required": [

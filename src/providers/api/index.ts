@@ -5,7 +5,6 @@ export {
   getAllPresets,
   getPreset,
   getBuiltInPresetIds,
-  calculateCost,
   slugify,
   DEFAULT_PRESET_ID,
 } from './presets';

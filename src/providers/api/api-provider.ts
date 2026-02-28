@@ -4,7 +4,7 @@ import { UsageLedger } from '../../utils/usage-ledger';
 import { postProcessCompletion } from '../../utils/post-process';
 import { getPromptStrategy, PromptStrategy } from '../prompt-strategy';
 import { ApiAdapter, Preset } from './types';
-import { getPreset, calculateCost } from './presets';
+import { getPreset } from './presets';
 import { createAdapter } from './adapters';
 
 /** Circuit breaker constants. */
@@ -90,7 +90,6 @@ export class ApiCompletionProvider implements CompletionProvider {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       cacheReadTokens: result.usage.cacheReadTokens,
-      costUsd: calculateCost(preset, result.usage),
       inputChars: context.prefix.length + context.suffix.length,
       outputChars: result.text?.length ?? 0,
     });

@@ -25,7 +25,7 @@ Bespoke AI is a personal AI toolkit for VS Code (works identically in VSCodium).
 
 Auto-detects prose vs code completion mode based on `document.languageId`.
 
-Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`, requires a Claude subscription) and **direct API** (via Anthropic or OpenAI-compatible providers, requires an API key). The `bespokeAI.backend` setting controls which is active. Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend.
+Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`, requires a Claude subscription) and **direct API** (via Anthropic, OpenAI, Google Gemini, xAI, OpenRouter, or Ollama — requires an API key). The `bespokeAI.backend` setting controls which is active. Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend.
 
 ## Working Rules
 
@@ -62,7 +62,7 @@ npm run format:check     # Prettier — check formatting without writing
 npm run test             # Alias for test:unit
 npm run test:unit        # Vitest unit tests (src/test/unit/)
 npm run test:unit:watch  # Vitest watch mode
-npm run test:api         # Claude Code integration tests (src/test/api/, needs claude CLI)
+npm run test:api         # Integration tests (src/test/api/). See Testing section for env vars.
 npm run test:quality     # LLM-as-judge completion quality tests (needs claude CLI)
 npm run test:quality:compare  # A/B/N prompt variant comparison (needs PROMPT_VARIANTS env var)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
@@ -170,13 +170,13 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### API Provider
 
-- `src/providers/api/types.ts` — Type definitions for the API backend. `Preset` defines a model configuration (provider, model ID, base URL, API key env var, prompt strategy, pricing). `ApiAdapter` is the interface for HTTP adapters. `ApiAdapterResult` carries response text, token usage, model name, and duration.
+- `src/providers/api/types.ts` — Type definitions for the API backend. `Preset` defines a model configuration (provider, model ID, base URL, API key env var, prompt strategy, features, `extraBody`/`extraHeaders` for arbitrary API passthrough). `ApiAdapter` is the interface for HTTP adapters. `ApiAdapterResult` carries response text, token usage, model name, and duration.
 
-- `src/providers/api/presets.ts` — Preset registry (built-in + custom). Five built-in presets with descriptions and pricing: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4o-mini` and `xai-grok` (instruction strategy), `ollama-default` (instruction strategy, local). `registerCustomPresets()` converts user-defined `CustomPreset` objects (from `bespokeAI.api.customPresets` setting) into full `Preset` objects, auto-generating IDs via slugification and mapping `openai-compat` → `openai` provider. Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `registerCustomPresets()`, `calculateCost()`, and `DEFAULT_PRESET_ID`.
+- `src/providers/api/presets.ts` — Preset registry (built-in + custom). Nine built-in presets: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok` (instruction strategy), `openrouter-haiku` (prefill strategy, Anthropic model via OpenRouter gateway), `openrouter-gpt-4.1-nano` (instruction strategy, OpenAI model via OpenRouter gateway), `ollama-default` (instruction strategy, local). OpenRouter presets use specific model IDs — not auto-routing — so the prompt strategy matches the underlying model. `registerCustomPresets()` converts user-defined `CustomPreset` objects (from `bespokeAI.api.customPresets` setting) into full `Preset` objects, auto-generating IDs via slugification, mapping `openai-compat` → `openai` provider, auto-populating `baseUrl` and `apiKeyEnvVar` for `google` and `openrouter` providers, auto-detecting Anthropic models via OpenRouter (modelId starting with `anthropic/`) for prefill strategy, and passing through `extraBody`/`extraHeaders` for arbitrary API configuration. Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `registerCustomPresets()`, and `DEFAULT_PRESET_ID`.
 
-- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter (`@anthropic-ai/sdk`, bundled by esbuild). Supports assistant prefill, prompt caching, and cache-read token tracking.
+- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter (`@anthropic-ai/sdk`, bundled by esbuild). Supports assistant prefill, prompt caching, and cache-read token tracking. Spreads `preset.extraBody` into API request params and passes `preset.extraHeaders` as default headers on the client.
 
-- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter (`openai` package, bundled by esbuild). Covers OpenAI, xAI, and Ollama via configurable `baseURL`. Ollama special-case: no API key required, connection errors return `null` silently.
+- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter (`openai` package, bundled by esbuild). Covers OpenAI, Google Gemini, xAI, OpenRouter, and Ollama via configurable `baseURL`. Tracks cached tokens from `prompt_tokens_details.cached_tokens`. Provider-specific headers: xAI gets `x-grok-conv-id` for cache affinity, OpenRouter gets attribution headers. Merges `preset.extraHeaders` after provider defaults (user overrides built-in headers). Spreads `preset.extraBody` into API request params. Ollama special-case: no API key required, connection errors return `null` silently.
 
 - `src/providers/api/adapters/index.ts` — Adapter factory. `createAdapter(preset)` returns the appropriate `ApiAdapter` implementation.
 
@@ -228,7 +228,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, customPresets array). Also exports `CustomPreset` interface (name, provider, modelId, optional baseUrl/apiKeyEnvVar/maxTokens/temperature) and `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, customPresets array). Also exports `CustomPreset` interface (name, provider, modelId, optional baseUrl/apiKeyEnvVar/maxTokens/temperature/extraBody/extraHeaders) and `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
 
@@ -388,22 +388,46 @@ Unit tests use Vitest with `globals: true`. Test helpers in `src/test/helpers.ts
 
 Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi.advanceTimersByTimeAsync()` (not `vi.advanceTimersByTime()`) to ensure microtasks flush correctly.
 
-### Claude Code Integration Tests
+### Integration Tests
 
-Integration tests live in `src/test/api/` and make real calls to external services. The test config (`vitest.api.config.ts`) sets a 30-second timeout. Claude Code CLI tests use `describe.skipIf()` to skip when the SDK isn't available.
+Integration tests live in `src/test/api/` and make real calls to external services. The test config (`vitest.api.config.ts`) sets a 30-second timeout. Tests use `describe.skipIf()` to skip when the required backend isn't available.
+
+**Backend-agnostic shared scenarios** (`shared-scenarios.test.ts`) test the `CompletionProvider` interface — same scenarios run against any backend. The backend is selected via environment variables:
+
+```bash
+# Default — runs against Claude Code CLI
+npm run test:api
+
+# Run against Anthropic Haiku via direct API
+TEST_BACKEND=api npm run test:api
+
+# Run against a specific preset
+TEST_BACKEND=api TEST_API_PRESET=xai-grok npm run test:api
+TEST_BACKEND=api TEST_API_PRESET=anthropic-sonnet npm run test:api
+```
+
+| Variable          | Description                                                    |
+| ----------------- | -------------------------------------------------------------- |
+| `TEST_BACKEND`    | `claude-code` (default) or `api`                               |
+| `TEST_API_PRESET` | Preset ID when using API backend (default: `anthropic-haiku`)  |
+| `TEST_MODEL`      | Override Claude Code model (default: `haiku`); ignored for API |
+
+The provider factory `createTestProvider()` in `src/test/helpers.ts` reads these env vars and returns the appropriate `CompletionProvider`. Returns `null` when the backend isn't available (missing SDK or API key), causing tests to skip.
+
+**Shared scenarios:** prose completion, code completion, no markdown fences, no leading newlines.
+
+**OpenRouter testing:** Use specific model presets (not auto-routing). The two built-in OpenRouter presets (`openrouter-haiku`, `openrouter-gpt-4.1-nano`) cover both prefill and instruction extraction strategies:
+
+```bash
+TEST_BACKEND=api TEST_API_PRESET=openrouter-haiku npm run test:api
+TEST_BACKEND=api TEST_API_PRESET=openrouter-gpt-4.1-nano npm run test:api
+```
+
+**Claude Code-specific tests** (`claude-code.test.ts`): activation, warmup validation, slot reuse, abort-signal handling, dispose cleanup.
+
+**API adapter-specific tests** (`api-adapters.test.ts`): raw HTTP adapter calls — Anthropic (basic, prefill, caching), xAI, OpenAI. Skips when the required API key is unavailable.
 
 **Result output:** Tests persist results to `test-results/api-{timestamp}/`, organized by suite. Each JSON file records input context, completion text, duration, and timestamp. `test-results/latest-api` symlinks to the most recent run.
-
-### API Adapter Integration Tests
-
-API adapter tests (`src/test/api/api-adapters.test.ts`) make real HTTP calls to the Anthropic, xAI, and OpenAI APIs. They use `describe.skipIf()` to skip when the required API key is not available. API keys are resolved via `resolveApiKey()` (same three-tier resolution as production).
-
-**Test coverage:**
-
-- AnthropicAdapter: basic completion, assistant prefill, prompt caching
-- OpenAICompatAdapter (xAI): basic completion
-- OpenAICompatAdapter (OpenAI): basic completion (skips if no `OPENAI_API_KEY`)
-- Full pipeline: `ApiCompletionProvider` with prose and code contexts
 
 ### Quality Tests (LLM-as-Judge)
 

@@ -12,6 +12,8 @@ export function createAdapter(preset: Preset): ApiAdapter {
       return new AnthropicAdapter(preset);
     case 'openai':
     case 'xai':
+    case 'google':
+    case 'openrouter':
     case 'ollama':
       return new OpenAICompatAdapter(preset);
     default:

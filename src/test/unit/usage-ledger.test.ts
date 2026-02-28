@@ -130,7 +130,6 @@ describe('UsageLedger', () => {
       expect(summary.today.startups).toBe(1);
       expect(summary.today.inputTokens).toBe(1500);
       expect(summary.today.outputTokens).toBe(150);
-      expect(summary.today.costUsd).toBeCloseTo(0.006);
       expect(summary.today.durationMs).toBe(300);
 
       // This week and month should include today's data

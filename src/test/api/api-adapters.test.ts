@@ -9,10 +9,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { AnthropicAdapter } from '../../providers/api/adapters/anthropic';
 import { OpenAICompatAdapter } from '../../providers/api/adapters/openai-compat';
-import { ApiCompletionProvider } from '../../providers/api/api-provider';
 import { getPreset } from '../../providers/api/presets';
 import { resolveApiKey, clearApiKeyCache } from '../../utils/api-key-store';
-import { makeConfig, makeLogger, makeProseContext, makeCodeContext } from '../helpers';
 
 // Force-reload the env file cache so keys from ~/.creds/api-keys.env are available
 beforeAll(() => {
@@ -167,47 +165,78 @@ describe.skipIf(!hasOpenAiKey())('OpenAICompatAdapter — OpenAI (live)', () => 
   });
 });
 
-// --- Full Pipeline: ApiCompletionProvider ---
+// --- extraBody / extraHeaders passthrough tests ---
 
-describe.skipIf(!hasAnthropicKey())('ApiCompletionProvider — full pipeline (live)', () => {
-  it('returns a completion for prose context', async () => {
-    const config = makeConfig({
-      backend: 'api',
-      api: { preset: 'anthropic-haiku', customPresets: [] },
-    });
-    const provider = new ApiCompletionProvider(config, makeLogger());
+describe.skipIf(!hasAnthropicKey())('AnthropicAdapter — extraHeaders passthrough (live)', () => {
+  it('completes successfully with custom extraHeaders', async () => {
+    const basePreset = getPreset('anthropic-haiku')!;
+    const preset = { ...basePreset, extraHeaders: { 'X-Custom-Test': 'bespoke-ai' } };
+    const adapter = new AnthropicAdapter(preset);
 
-    expect(provider.isAvailable()).toBe(true);
+    const result = await adapter.complete(
+      'Continue the text naturally.',
+      [{ role: 'user', content: 'The quick brown fox' }],
+      {
+        signal: AbortSignal.timeout(15000),
+        maxTokens: 30,
+        temperature: 0.2,
+      },
+    );
 
-    const context = makeProseContext({
-      prefix:
-        'The weather today is sunny and warm. I decided to go for a walk in the park. The birds were',
-      suffix: '',
-    });
-    const result = await provider.getCompletion(context, AbortSignal.timeout(15000));
+    expect(result.text).toBeTruthy();
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
 
-    expect(result).toBeTruthy();
-    expect(result!.length).toBeGreaterThan(0);
-
-    provider.dispose();
-  });
-
-  it('returns a completion for code context', async () => {
-    const config = makeConfig({
-      backend: 'api',
-      api: { preset: 'anthropic-haiku', customPresets: [] },
-    });
-    const provider = new ApiCompletionProvider(config, makeLogger());
-
-    const context = makeCodeContext({
-      prefix: 'function fibonacci(n: number): number {\n  if (n <= 1) return n;\n  return ',
-      suffix: '\n}',
-    });
-    const result = await provider.getCompletion(context, AbortSignal.timeout(15000));
-
-    expect(result).toBeTruthy();
-    expect(result!.length).toBeGreaterThan(0);
-
-    provider.dispose();
+    adapter.dispose();
   });
 });
+
+const hasOpenRouterKey = () => !!resolveApiKey('OPENROUTER_API_KEY');
+
+describe.skipIf(!hasOpenRouterKey())('OpenAICompatAdapter — OpenRouter extraBody (live)', () => {
+  it('completes with extraBody params passed through', async () => {
+    const basePreset = getPreset('openrouter-haiku')!;
+    const preset = { ...basePreset, extraBody: { transforms: [] } };
+    const adapter = new OpenAICompatAdapter(preset);
+
+    const result = await adapter.complete(
+      'Continue the text naturally.',
+      [{ role: 'user', content: 'The quick brown fox' }],
+      {
+        signal: AbortSignal.timeout(15000),
+        maxTokens: 30,
+        temperature: 0.2,
+      },
+    );
+
+    expect(result.text).toBeTruthy();
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
+
+    adapter.dispose();
+  });
+});
+
+describe.skipIf(!hasOpenAiKey())('OpenAICompatAdapter — OpenAI extraHeaders (live)', () => {
+  it('completes with extraHeaders on the client', async () => {
+    const basePreset = getPreset('openai-gpt-4o-mini')!;
+    const preset = { ...basePreset, extraHeaders: { 'X-Custom-Test': 'bespoke-ai' } };
+    const adapter = new OpenAICompatAdapter(preset);
+
+    const result = await adapter.complete(
+      'Continue the text naturally.',
+      [{ role: 'user', content: 'The quick brown fox' }],
+      {
+        signal: AbortSignal.timeout(15000),
+        maxTokens: 30,
+        temperature: 0.2,
+      },
+    );
+
+    expect(result.text).toBeTruthy();
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
+
+    adapter.dispose();
+  });
+});
+
+// Full pipeline (prose + code) tests are now in shared-scenarios.test.ts.
+// Run with TEST_BACKEND=api to exercise the API provider pipeline.

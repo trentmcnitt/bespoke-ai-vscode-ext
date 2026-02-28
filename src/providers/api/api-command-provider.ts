@@ -2,7 +2,7 @@ import { ExtensionConfig } from '../../types';
 import { Logger } from '../../utils/logger';
 import { UsageLedger } from '../../utils/usage-ledger';
 import { ApiAdapter, Preset } from './types';
-import { getPreset, calculateCost } from './presets';
+import { getPreset } from './presets';
 import { createAdapter } from './adapters';
 
 /** Max output tokens for commands (commit messages, suggest-edits need much
@@ -89,7 +89,6 @@ export class ApiCommandProvider {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       cacheReadTokens: result.usage.cacheReadTokens,
-      costUsd: calculateCost(preset, result.usage),
       inputChars: systemPrompt.length + userMessage.length,
       outputChars: result.text?.length ?? 0,
     });

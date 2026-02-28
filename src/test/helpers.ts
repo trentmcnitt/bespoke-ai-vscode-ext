@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { expect } from 'vitest';
-import { CompletionContext, DEFAULT_MODEL, ExtensionConfig } from '../types';
+import { CompletionContext, CompletionProvider, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import { extractCompletion, WARMUP_EXPECTED } from '../providers/claude-code';
@@ -336,4 +336,143 @@ export function consumeIterable(iterable: AsyncIterable<unknown>, fakeStream: Fa
   })().catch(() => {
     /* channel closed */
   });
+}
+
+// ─── Backend-agnostic test provider factory ─────────────────────
+
+/** Usage data from the last provider request, read from the temp ledger. */
+export interface TestUsageEntry {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  costUsd?: number;
+  durationMs?: number;
+}
+
+/** Info returned by createTestProvider(). */
+export interface TestProviderInfo {
+  provider: CompletionProvider;
+  /** Human-readable label, e.g. "claude-code/haiku" or "api/anthropic-haiku". */
+  label: string;
+  backend: 'claude-code' | 'api';
+  /** Call in beforeAll — activates Claude Code pool (no-op for API). */
+  activate: () => Promise<void>;
+  /** Call in afterAll — cleans up resources. */
+  dispose: () => void;
+  /** Read the last usage entry recorded by the provider. Returns null if no entry. */
+  getLastUsage: () => TestUsageEntry | null;
+}
+
+/**
+ * Read the test backend configuration from environment variables.
+ *
+ * - `TEST_BACKEND` — `claude-code` (default) or `api`
+ * - `TEST_API_PRESET` — preset ID when using API backend (default: `anthropic-haiku`)
+ */
+export function getTestBackendConfig(): { backend: 'claude-code' | 'api'; preset: string } {
+  const raw = process.env.TEST_BACKEND ?? 'claude-code';
+  if (raw !== 'claude-code' && raw !== 'api') {
+    throw new Error(`Invalid TEST_BACKEND="${raw}". Must be "claude-code" or "api".`);
+  }
+  const preset = process.env.TEST_API_PRESET ?? 'anthropic-haiku';
+  return { backend: raw, preset };
+}
+
+/**
+ * Create a CompletionProvider for integration tests based on env vars.
+ *
+ * Returns `null` when the required backend is unavailable (missing SDK or API key).
+ *
+ * Usage:
+ *   const info = await createTestProvider();
+ *   if (!info) return;  // skip
+ *   await info.activate();  // no-op for API
+ *   const result = await info.provider.getCompletion(ctx, signal);
+ *   info.dispose();
+ */
+/** Read the last JSONL line from a ledger file and extract usage fields. */
+function readLastLedgerEntry(filePath: string): TestUsageEntry | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return null;
+
+    const entry = JSON.parse(lines[lines.length - 1]);
+    return {
+      model: entry.model,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      cacheReadTokens: entry.cacheReadTokens,
+      costUsd: entry.costUsd,
+      durationMs: entry.durationMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function createTestProvider(logger?: Logger): Promise<TestProviderInfo | null> {
+  const { backend, preset } = getTestBackendConfig();
+  const log = logger ?? makeLogger();
+
+  if (backend === 'claude-code') {
+    // Dynamic import — module may not be installed
+    let sdkAvailable = false;
+    try {
+      const sdk = await import('@anthropic-ai/claude-agent-sdk');
+      const queryFn = sdk.query ?? sdk.default?.query;
+      sdkAvailable = typeof queryFn === 'function';
+    } catch {
+      sdkAvailable = false;
+    }
+    if (!sdkAvailable) return null;
+
+    const { ClaudeCodeProvider } = await import('../providers/claude-code');
+    const config = makeConfig({
+      claudeCode: { model: getTestModel(), models: ['haiku', 'sonnet', 'opus'] },
+    });
+    const provider = new ClaudeCodeProvider(config, log);
+    const { ledger, filePath: ledgerPath } = makeLedger();
+    provider.setLedger(ledger);
+
+    return {
+      provider,
+      label: `claude-code/${getTestModel()}`,
+      backend: 'claude-code',
+      activate: () => provider.activate(),
+      dispose: () => provider.dispose(),
+      getLastUsage: () => readLastLedgerEntry(ledgerPath),
+    };
+  }
+
+  if (backend === 'api') {
+    const { clearApiKeyCache } = await import('../utils/api-key-store');
+    const { ApiCompletionProvider } = await import('../providers/api/api-provider');
+    clearApiKeyCache();
+
+    const { ledger, filePath: ledgerPath } = makeLedger();
+    const config = makeConfig({
+      backend: 'api',
+      api: { preset, customPresets: [] },
+    });
+    const provider = new ApiCompletionProvider(config, log, ledger);
+
+    if (!provider.isAvailable()) return null;
+
+    return {
+      provider,
+      label: `api/${preset}`,
+      backend: 'api',
+      activate: async () => {}, // API providers are ready immediately
+      dispose: () => provider.dispose(),
+      getLastUsage: () => readLastLedgerEntry(ledgerPath),
+    };
+  }
+
+  return null;
 }

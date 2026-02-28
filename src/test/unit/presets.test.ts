@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   getAllPresets,
   getPreset,
   getBuiltInPresetIds,
-  calculateCost,
+  registerCustomPresets,
   DEFAULT_PRESET_ID,
 } from '../../providers/api/presets';
 
@@ -75,34 +75,6 @@ describe('Presets', () => {
     });
   });
 
-  describe('calculateCost', () => {
-    it('calculates cost from pricing and usage', () => {
-      const preset = getPreset('anthropic-haiku')!;
-      const cost = calculateCost(preset, {
-        inputTokens: 1_000_000,
-        outputTokens: 1_000_000,
-      });
-      // haiku: $0.8/M in + $4.0/M out = $4.8
-      expect(cost).toBeCloseTo(4.8);
-    });
-
-    it('includes cache read cost when available', () => {
-      const preset = getPreset('anthropic-haiku')!;
-      const cost = calculateCost(preset, {
-        inputTokens: 1_000_000,
-        outputTokens: 0,
-        cacheReadTokens: 1_000_000,
-      });
-      // $0.8/M in + $0.08/M cache = $0.88
-      expect(cost).toBeCloseTo(0.88);
-    });
-
-    it('returns 0 when preset has no pricing', () => {
-      const preset = getPreset('ollama-default')!;
-      expect(calculateCost(preset, { inputTokens: 100, outputTokens: 100 })).toBe(0);
-    });
-  });
-
   describe('Anthropic presets use prefill strategy', () => {
     it('anthropic-haiku uses prefill-extraction', () => {
       expect(getPreset('anthropic-haiku')?.promptStrategy).toBe('prefill-extraction');
@@ -120,6 +92,147 @@ describe('Presets', () => {
 
     it('ollama-default uses instruction-extraction', () => {
       expect(getPreset('ollama-default')?.promptStrategy).toBe('instruction-extraction');
+    });
+  });
+
+  describe('OpenRouter built-in presets', () => {
+    it('openrouter-haiku uses prefill-extraction (Anthropic model)', () => {
+      const preset = getPreset('openrouter-haiku');
+      expect(preset).toBeDefined();
+      expect(preset?.promptStrategy).toBe('prefill-extraction');
+      expect(preset?.features?.prefill).toBe(true);
+    });
+
+    it('openrouter-gpt-4.1-nano uses instruction-extraction (non-Anthropic model)', () => {
+      const preset = getPreset('openrouter-gpt-4.1-nano');
+      expect(preset).toBeDefined();
+      expect(preset?.promptStrategy).toBe('instruction-extraction');
+      expect(preset?.features).toBeUndefined();
+    });
+
+    it('both OpenRouter presets use the OpenRouter base URL', () => {
+      expect(getPreset('openrouter-haiku')?.baseUrl).toBe('https://openrouter.ai/api/v1');
+      expect(getPreset('openrouter-gpt-4.1-nano')?.baseUrl).toBe('https://openrouter.ai/api/v1');
+    });
+  });
+
+  describe('registerCustomPresets', () => {
+    afterEach(() => {
+      registerCustomPresets([]);
+    });
+
+    it('OpenRouter + Anthropic model gets prefill-extraction', () => {
+      registerCustomPresets([
+        {
+          name: 'OR Sonnet',
+          provider: 'openrouter',
+          modelId: 'anthropic/claude-sonnet-4-5-20250929',
+        },
+      ]);
+      const preset = getPreset('custom-or-sonnet');
+      expect(preset).toBeDefined();
+      expect(preset?.promptStrategy).toBe('prefill-extraction');
+      expect(preset?.features?.prefill).toBe(true);
+    });
+
+    it('OpenRouter + non-Anthropic model gets instruction-extraction', () => {
+      registerCustomPresets([{ name: 'OR GPT', provider: 'openrouter', modelId: 'openai/gpt-4o' }]);
+      const preset = getPreset('custom-or-gpt');
+      expect(preset).toBeDefined();
+      expect(preset?.promptStrategy).toBe('instruction-extraction');
+      expect(preset?.features).toBeUndefined();
+    });
+
+    it('direct Anthropic custom preset gets caching + prefill', () => {
+      registerCustomPresets([
+        { name: 'My Haiku', provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001' },
+      ]);
+      const preset = getPreset('custom-my-haiku');
+      expect(preset).toBeDefined();
+      expect(preset?.promptStrategy).toBe('prefill-extraction');
+      expect(preset?.features?.promptCaching).toBe(true);
+      expect(preset?.features?.prefill).toBe(true);
+    });
+
+    it('auto-populates baseUrl for OpenRouter custom presets', () => {
+      registerCustomPresets([
+        { name: 'OR Test', provider: 'openrouter', modelId: 'meta-llama/llama-3-8b' },
+      ]);
+      expect(getPreset('custom-or-test')?.baseUrl).toBe('https://openrouter.ai/api/v1');
+    });
+
+    it('auto-populates apiKeyEnvVar for OpenRouter custom presets', () => {
+      registerCustomPresets([
+        { name: 'OR Key', provider: 'openrouter', modelId: 'meta-llama/llama-3-8b' },
+      ]);
+      expect(getPreset('custom-or-key')?.apiKeyEnvVar).toBe('OPENROUTER_API_KEY');
+    });
+
+    it('user-provided apiKeyEnvVar overrides the default', () => {
+      registerCustomPresets([
+        {
+          name: 'OR Custom Key',
+          provider: 'openrouter',
+          modelId: 'openai/gpt-4o',
+          apiKeyEnvVar: 'MY_KEY',
+        },
+      ]);
+      expect(getPreset('custom-or-custom-key')?.apiKeyEnvVar).toBe('MY_KEY');
+    });
+
+    it('custom presets appear in getAllPresets', () => {
+      registerCustomPresets([
+        { name: 'Test Model', provider: 'openai-compat', modelId: 'test-model' },
+      ]);
+      const all = getAllPresets();
+      expect(all.find((p) => p.id === 'custom-test-model')).toBeDefined();
+    });
+
+    it('does not override built-in presets', () => {
+      registerCustomPresets([
+        { name: 'anthropic-haiku', provider: 'openai-compat', modelId: 'fake' },
+      ]);
+      // The slugified ID would be "custom-anthropic-haiku", not "anthropic-haiku",
+      // so this doesn't conflict. But verify built-in is unchanged.
+      expect(getPreset('anthropic-haiku')?.provider).toBe('anthropic');
+    });
+
+    it('passes through extraBody to preset', () => {
+      registerCustomPresets([
+        {
+          name: 'With Extra Body',
+          provider: 'openrouter',
+          modelId: 'meta-llama/llama-3-8b',
+          extraBody: { transforms: [], provider: { order: ['Together'] } },
+        },
+      ]);
+      const preset = getPreset('custom-with-extra-body');
+      expect(preset?.extraBody).toEqual({
+        transforms: [],
+        provider: { order: ['Together'] },
+      });
+    });
+
+    it('passes through extraHeaders to preset', () => {
+      registerCustomPresets([
+        {
+          name: 'With Extra Headers',
+          provider: 'openai-compat',
+          modelId: 'test-model',
+          extraHeaders: { 'X-Custom-Header': 'value123' },
+        },
+      ]);
+      const preset = getPreset('custom-with-extra-headers');
+      expect(preset?.extraHeaders).toEqual({ 'X-Custom-Header': 'value123' });
+    });
+
+    it('omits extraBody/extraHeaders when not provided', () => {
+      registerCustomPresets([
+        { name: 'No Extras', provider: 'openai-compat', modelId: 'plain-model' },
+      ]);
+      const preset = getPreset('custom-no-extras');
+      expect(preset?.extraBody).toBeUndefined();
+      expect(preset?.extraHeaders).toBeUndefined();
     });
   });
 });

@@ -4,7 +4,7 @@ export interface Preset {
   id: string;
   displayName: string;
   description?: string;
-  provider: 'anthropic' | 'openai' | 'xai' | 'ollama';
+  provider: 'anthropic' | 'openai' | 'xai' | 'google' | 'openrouter' | 'ollama';
   modelId: string;
   baseUrl?: string;
   apiKeyEnvVar?: string;
@@ -21,11 +21,11 @@ export interface Preset {
     prefill?: boolean;
   };
 
-  pricing?: {
-    inputPerMTok: number;
-    outputPerMTok: number;
-    cacheReadPerMTok?: number;
-  };
+  /** Extra parameters merged into the API request body. */
+  extraBody?: Record<string, unknown>;
+
+  /** Extra HTTP headers merged into API requests. */
+  extraHeaders?: Record<string, string>;
 }
 
 export interface ApiAdapterResult {

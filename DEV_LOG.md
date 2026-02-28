@@ -4,6 +4,22 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 02-28-26
+
+### OpenRouter rework, pricing removal, extraBody/extraHeaders passthrough
+
+**OpenRouter presets:** Replaced the two auto-routing OpenRouter presets with specific-model presets: `openrouter-haiku` (`anthropic/claude-haiku-4.5`, prefill strategy) and `openrouter-gpt-4.1-nano` (`openai/gpt-4.1-nano`, instruction strategy). Auto-routing was unpredictable — the prompt strategy must match the underlying model.
+
+**Pricing removal:** Removed hardcoded pricing tables from all presets and deleted `calculateCost()`. Token tracking (input, output, cache-read, cache-creation) is preserved in the usage ledger. For actual costs, users should check their provider's dashboard. The `costUsd` field is retained on `LedgerEntry` because the Claude Code SDK writes real `total_cost_usd` values. OpenRouter also returns `usage.cost` per response (not currently captured).
+
+**`extraBody`/`extraHeaders` passthrough:** Users can now pass arbitrary provider-specific parameters via `bespokeAI.api.customPresets`. The fields are spread into the adapter's request body (`...this.preset.extraBody`) and merged into default headers (`Object.assign(defaultHeaders, this.preset.extraHeaders)`). Use cases: OpenRouter `transforms`, `provider` routing, custom headers for any provider.
+
+**OpenRouter reasoning disabled:** Built-in OpenRouter presets include `extraBody: { reasoning: { enabled: false } }` to prevent reasoning tokens from activating on autocomplete requests.
+
+**Known issue — intermittent chain-of-thought in OpenRouter completions:** On one test run, the OpenRouter Haiku preset produced a completion where the model output its reasoning as regular text content (not reasoning tokens) before generating the actual completion. The model quoted back system prompt instructions ("NEVER output empty COMPLETION tags...") while deliberating. This is NOT the OpenRouter reasoning tokens feature — `reasoning_tokens: 0` was confirmed in the raw API response. It's a model behavior where Claude "thinks out loud" in the content field, particularly on minimal-context prompts. Only observed once on an edge-case scenario (very short prefix, no suffix). The direct Anthropic Haiku adapter did not exhibit this on the same prompt, but the behavior is likely non-deterministic. If it recurs, the fix should be in the extraction logic (discard text between `</COMPLETION>` and a subsequent `<COMPLETION>` tag).
+
+---
+
 ## 02-11-26
 
 ### Quality test suite expansion — Phase 1
