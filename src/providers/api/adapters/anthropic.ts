@@ -114,7 +114,7 @@ export class AnthropicAdapter implements ApiAdapter {
       );
     }
 
-    // Dynamic import to avoid bundling the SDK when not used
+    // Dynamic import for lazy initialization (SDK is bundled by esbuild)
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     this.client = new Anthropic({ apiKey });
     return this.client as AnthropicClient;

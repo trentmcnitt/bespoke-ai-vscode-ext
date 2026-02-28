@@ -68,6 +68,16 @@ export interface CompletionProvider {
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
+export interface CustomPreset {
+  name: string;
+  provider: 'anthropic' | 'openai-compat';
+  modelId: string;
+  baseUrl?: string;
+  apiKeyEnvVar?: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';
@@ -90,7 +100,7 @@ export interface ExtensionConfig {
   };
   api: {
     preset: string;
-    presets: string[];
+    customPresets: CustomPreset[];
   };
   contextMenu: {
     permissionMode: PermissionMode;

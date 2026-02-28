@@ -6,6 +6,7 @@ export {
   getPreset,
   getBuiltInPresetIds,
   calculateCost,
+  slugify,
   DEFAULT_PRESET_ID,
 } from './presets';
 export type { Preset, ApiAdapter, ApiAdapterResult } from './types';

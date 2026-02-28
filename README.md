@@ -75,12 +75,30 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 ### Option B: API Key
 
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai)
-2. Set `bespokeAI.backend` to `"api"` in VS Code settings
-3. Set your API key as an environment variable (e.g., `ANTHROPIC_API_KEY`) or add it to `~/.creds/api-keys.env`
-4. Optionally change the preset via `bespokeAI.api.preset` (default: `anthropic-haiku`)
+2. Set `bespokeAI.backend` to `"api"` in VS Code settings (or use the status bar menu)
+3. Run the **"Bespoke AI: Enter API Key"** command (`Ctrl+Shift+P` → "Enter API Key") to securely store your key
+4. Optionally change the model via the status bar menu or `bespokeAI.api.preset` setting
 5. Start typing — completions appear as ghost text
 
-**Available presets:** `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4o-mini`, `xai-grok`, `ollama-default`
+**Built-in models:**
+
+| Preset                      | Provider                                    | Model             | API Key             |
+| --------------------------- | ------------------------------------------- | ----------------- | ------------------- |
+| `anthropic-haiku` (default) | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5  | `ANTHROPIC_API_KEY` |
+| `anthropic-sonnet`          | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5 | `ANTHROPIC_API_KEY` |
+| `openai-gpt-4o-mini`        | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini       | `OPENAI_API_KEY`    |
+| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-3-fast       | `XAI_API_KEY`       |
+| `ollama-default`            | [Ollama](https://ollama.com/) (local)       | qwen2.5-coder     | none                |
+
+**Custom models:** Use the **"Bespoke AI: Add Custom Model"** command (`Ctrl+Shift+P` → "Add Custom Model") for a guided setup wizard. Any OpenAI-compatible API or Anthropic endpoint works. You can also add models manually via the `bespokeAI.api.customPresets` setting:
+
+```json
+"bespokeAI.api.customPresets": [
+  { "name": "My Llama", "provider": "openai-compat", "modelId": "llama3.2", "baseUrl": "http://localhost:1234/v1" }
+]
+```
+
+**API key resolution:** Keys are resolved in this order: (1) VS Code SecretStorage (stored via the "Enter API Key" command), (2) environment variables, (3) `~/.creds/api-keys.env` file.
 
 > **Note:** Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend and are hidden in API mode.
 
@@ -120,11 +138,10 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>Backend</strong></summary>
 
-| Setting       | Default             | Description                                         |
-| ------------- | ------------------- | --------------------------------------------------- |
-| `backend`     | `"claude-code"`     | Active backend: `claude-code` (CLI) or `api` (HTTP) |
-| `api.preset`  | `"anthropic-haiku"` | API preset to use when backend is `api`             |
-| `api.presets` | _(all built-in)_    | Array of enabled preset IDs                         |
+| Setting      | Default             | Description                                                 |
+| ------------ | ------------------- | ----------------------------------------------------------- |
+| `backend`    | `"claude-code"`     | Active backend: `claude-code` (CLI) or `api` (HTTP)         |
+| `api.preset` | `"anthropic-haiku"` | Active API model (dropdown in settings, or status bar menu) |
 
 </details>
 
@@ -168,17 +185,21 @@ Options:
 
 ## 📋 Commands
 
-| Command                   | Keybinding  | Description                            |
-| ------------------------- | ----------- | -------------------------------------- |
-| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion          |
-| `Toggle Enabled`          | —           | Toggle the extension on/off            |
-| `Cycle Mode`              | —           | Cycle through auto → writing → code    |
-| `Clear Completion Cache`  | —           | Clear the LRU cache                    |
-| `Show Menu`               | —           | Status bar menu                        |
-| `Generate Commit Message` | —           | AI commit message from staged diffs    |
-| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text |
-| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text  |
-| `Restart Pools`           | —           | Restart Claude Code subprocesses       |
+| Command                   | Keybinding  | Description                             |
+| ------------------------- | ----------- | --------------------------------------- |
+| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion           |
+| `Toggle Enabled`          | —           | Toggle the extension on/off             |
+| `Cycle Mode`              | —           | Cycle through auto → writing → code     |
+| `Clear Completion Cache`  | —           | Clear the LRU cache                     |
+| `Show Menu`               | —           | Status bar menu                         |
+| `Generate Commit Message` | —           | AI commit message from staged diffs     |
+| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text  |
+| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text   |
+| `Enter API Key`           | —           | Store an API key in the OS keychain     |
+| `Remove API Key`          | —           | Remove a stored API key                 |
+| `Add Custom Model`        | —           | Guided wizard to add a custom API model |
+| `Remove Custom Model`     | —           | Remove a custom API model               |
+| `Restart Pools`           | —           | Restart Claude Code subprocesses        |
 
 > **Note:** Explain, Fix, and Do open a Claude Code CLI session in a terminal. Permission behavior is controlled by the `contextMenu.permissionMode` setting.
 

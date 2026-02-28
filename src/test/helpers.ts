@@ -26,13 +26,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
   api: {
     preset: 'anthropic-haiku',
-    presets: [
-      'anthropic-haiku',
-      'anthropic-sonnet',
-      'openai-gpt-4o-mini',
-      'xai-grok',
-      'ollama-default',
-    ],
+    customPresets: [],
   },
   contextMenu: { permissionMode: 'default' },
   logLevel: 'info',

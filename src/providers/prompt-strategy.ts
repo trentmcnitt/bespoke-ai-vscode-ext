@@ -138,8 +138,11 @@ export const tagExtraction: PromptStrategy = {
 export const prefillExtraction: PromptStrategy = {
   id: 'prefill-extraction',
   buildMessages(prefix, suffix, languageId) {
-    // Take the last ~40 chars of the prefix as the prefill anchor
-    const anchor = prefix.slice(-40);
+    // Take the last ~40 chars of the prefix as the prefill anchor.
+    // trimEnd() is required — the Anthropic API rejects assistant messages
+    // with trailing whitespace. The model still sees the full prefix
+    // (including whitespace) in the user message, so completions are correct.
+    const anchor = prefix.slice(-40).trimEnd();
     return {
       system: SYSTEM_PROMPT,
       user: buildFillMessage(prefix, suffix, languageId),

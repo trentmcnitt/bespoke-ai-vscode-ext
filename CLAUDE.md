@@ -77,7 +77,7 @@ Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
 
 Pressing F5 in VS Code launches the Extension Development Host using the `npm:watch` build task.
 
-esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). Externals (provided at runtime or loaded dynamically): `vscode`, `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`, `openai`. Optional dependencies: `@anthropic-ai/claude-agent-sdk` (Claude Code backend), `@anthropic-ai/sdk` (Anthropic API adapter), `openai` (OpenAI-compat adapter).
+esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting Node.js 18). Externals: `vscode` (provided by VS Code runtime), `@anthropic-ai/claude-agent-sdk` (has native binaries, shipped in VSIX via `.vscodeignore`). The API SDKs (`@anthropic-ai/sdk`, `openai`) are bundled by esbuild so they work without runtime module resolution. `@anthropic-ai/claude-agent-sdk` is an optional dependency (Claude Code backend only).
 
 ### Versioning and Installation
 
@@ -139,7 +139,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Core Pipeline
 
-- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/BackendRouter/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation (Claude Code backend only) — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). In API mode, appends `(API)` to status bar and shows the active preset name instead of CLI model. Shows a one-time welcome notification on first run via `globalState`. Watches for config changes and propagates via `updateConfig()`. The status bar menu allows switching modes, models, trigger presets, backends, and API presets. Sets `bespokeAI.cliAvailable` context variable to control context menu visibility.
+- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/BackendRouter/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation (Claude Code backend only) — shows an error toast if the CLI is missing. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). In API mode, appends `(API)` to status bar and shows the active preset name instead of CLI model. Shows a one-time welcome notification on first run via `globalState`, and a separate API welcome on first API activation. Watches for config changes and propagates via `updateConfig()`. Shows toast notifications on backend switch, enable/disable, and API preset changes. The status bar menu allows switching modes, models (with key status per preset), trigger presets, and backends. CLI-only items (Restart Pools, Pool Status) are hidden when backend is API; "Enter API Key", "Add Custom Model", and "Remove Custom Model" items appear instead. Registers `bespoke-ai.setApiKey`, `bespoke-ai.removeApiKey`, `bespoke-ai.addCustomModel` (guided wizard), and `bespoke-ai.removeCustomModel` commands. When API key is missing, `showApiSetupGuidance()` shows an actionable toast with "Enter API Key" action. Sets `bespokeAI.cliAvailable` context variable to control context menu visibility.
 
 - `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `BackendRouter`). Exposes `clearCache()` and `setRequestCallbacks()`.
 
@@ -172,11 +172,11 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/providers/api/types.ts` — Type definitions for the API backend. `Preset` defines a model configuration (provider, model ID, base URL, API key env var, prompt strategy, pricing). `ApiAdapter` is the interface for HTTP adapters. `ApiAdapterResult` carries response text, token usage, model name, and duration.
 
-- `src/providers/api/presets.ts` — Built-in preset registry. Five presets: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4o-mini` and `xai-grok` (instruction strategy), `ollama-default` (instruction strategy, local). Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `calculateCost()`, and `DEFAULT_PRESET_ID`.
+- `src/providers/api/presets.ts` — Preset registry (built-in + custom). Five built-in presets with descriptions and pricing: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4o-mini` and `xai-grok` (instruction strategy), `ollama-default` (instruction strategy, local). `registerCustomPresets()` converts user-defined `CustomPreset` objects (from `bespokeAI.api.customPresets` setting) into full `Preset` objects, auto-generating IDs via slugification and mapping `openai-compat` → `openai` provider. Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `registerCustomPresets()`, `calculateCost()`, and `DEFAULT_PRESET_ID`.
 
-- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter. Dynamic import of `@anthropic-ai/sdk`. Supports assistant prefill, prompt caching, and cache-read token tracking.
+- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter (`@anthropic-ai/sdk`, bundled by esbuild). Supports assistant prefill, prompt caching, and cache-read token tracking.
 
-- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter. Dynamic import of `openai` package. Covers OpenAI, xAI, and Ollama via configurable `baseURL`. Ollama special-case: no API key required, connection errors return `null` silently.
+- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter (`openai` package, bundled by esbuild). Covers OpenAI, xAI, and Ollama via configurable `baseURL`. Ollama special-case: no API key required, connection errors return `null` silently.
 
 - `src/providers/api/adapters/index.ts` — Adapter factory. `createAdapter(preset)` returns the appropriate `ApiAdapter` implementation.
 
@@ -212,7 +212,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 - `src/utils/message-channel.ts` — Async message channel utility used by the Claude Code backend for inter-process communication.
 
-- `src/utils/api-key-store.ts` — Resolves API keys from `process.env` first, then `~/.creds/api-keys.env` file. Lazy-loads and caches the creds file. Used by API adapters to find keys like `ANTHROPIC_API_KEY`.
+- `src/utils/api-key-store.ts` — Resolves API keys with three-tier priority: (1) VS Code SecretStorage (OS keychain, stored via `bespoke-ai.setApiKey` command), (2) `process.env`, (3) `~/.creds/api-keys.env` file. SecretStorage keys are eagerly loaded on activation into an in-memory cache so `resolveApiKey()` stays synchronous. Exports `initSecretStorage()`, `loadSecretKey()`, `storeSecretKey()`, `removeSecretKey()`, `hasSecretKey()`, and `resolveApiKeySource()` (returns `ApiKeySource`: `'keychain' | 'env' | 'file' | null`) for key lifecycle and provenance display.
 
 - `src/utils/model-name.ts` — `shortenModelName()` pure function for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`).
 
@@ -228,7 +228,7 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 #### Types
 
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, presets array). Also exports `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
+All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, customPresets array). Also exports `CustomPreset` interface (name, provider, modelId, optional baseUrl/apiKeyEnvVar/maxTokens/temperature) and `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
 
 Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
 
@@ -390,9 +390,20 @@ Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi
 
 ### Claude Code Integration Tests
 
-Claude Code integration tests (`src/test/api/`) make real calls to the Claude Code CLI. They use `describe.skipIf()` to skip when the backend isn't available. The test config (`vitest.api.config.ts`) sets a 30-second timeout.
+Integration tests live in `src/test/api/` and make real calls to external services. The test config (`vitest.api.config.ts`) sets a 30-second timeout. Claude Code CLI tests use `describe.skipIf()` to skip when the SDK isn't available.
 
 **Result output:** Tests persist results to `test-results/api-{timestamp}/`, organized by suite. Each JSON file records input context, completion text, duration, and timestamp. `test-results/latest-api` symlinks to the most recent run.
+
+### API Adapter Integration Tests
+
+API adapter tests (`src/test/api/api-adapters.test.ts`) make real HTTP calls to the Anthropic, xAI, and OpenAI APIs. They use `describe.skipIf()` to skip when the required API key is not available. API keys are resolved via `resolveApiKey()` (same three-tier resolution as production).
+
+**Test coverage:**
+
+- AnthropicAdapter: basic completion, assistant prefill, prompt caching
+- OpenAICompatAdapter (xAI): basic completion
+- OpenAICompatAdapter (OpenAI): basic completion (skips if no `OPENAI_API_KEY`)
+- Full pipeline: `ApiCompletionProvider` with prose and code contexts
 
 ### Quality Tests (LLM-as-Judge)
 

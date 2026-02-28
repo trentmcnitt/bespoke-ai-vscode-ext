@@ -3,6 +3,7 @@ import { PromptStrategyId } from '../prompt-strategy';
 export interface Preset {
   id: string;
   displayName: string;
+  description?: string;
   provider: 'anthropic' | 'openai' | 'xai' | 'ollama';
   modelId: string;
   baseUrl?: string;

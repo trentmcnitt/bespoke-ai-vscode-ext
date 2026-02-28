@@ -7,7 +7,7 @@ const buildOptions = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
   outfile: 'dist/extension.js',
-  external: ['vscode', '@anthropic-ai/claude-agent-sdk', '@anthropic-ai/sdk', 'openai'],
+  external: ['vscode', '@anthropic-ai/claude-agent-sdk'],
   format: 'cjs',
   platform: 'node',
   target: 'node18',
