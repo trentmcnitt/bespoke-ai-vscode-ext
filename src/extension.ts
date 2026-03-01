@@ -12,7 +12,13 @@ import { PoolClient } from './pool-server/client';
 import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
 import { ApiCommandProvider } from './providers/api/api-command-provider';
-import { getPreset, getAllPresets, registerCustomPresets, slugify } from './providers/api/presets';
+import {
+  getPreset,
+  getAllPresets,
+  getBuiltInPresetIds,
+  registerCustomPresets,
+  slugify,
+} from './providers/api/presets';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
@@ -29,6 +35,7 @@ import {
   type ApiKeySource,
 } from './utils/api-key-store';
 import { STATE_DIR } from './pool-server';
+import { detectMode } from './mode-detector';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -52,12 +59,34 @@ const PRESET_DESCRIPTIONS: Record<TriggerPreset, string> = {
 
 type StatusBarState = 'initializing' | 'ready' | 'setup-needed' | 'disabled';
 
+type SetupReason =
+  | { backend: 'api'; issue: 'preset-not-found'; presetId: string }
+  | { backend: 'api'; issue: 'key-missing'; envVar: string; presetName: string }
+  | { backend: 'api'; issue: 'circuit-open'; presetName: string }
+  | { backend: 'cli'; issue: 'sdk-not-found' }
+  | { backend: 'cli'; issue: 'activation-failed'; error: string }
+  | { backend: 'cli'; issue: 'pool-degraded' }
+  | null;
+
+type MenuHandler = () => void | Thenable<void>;
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  xai: 'xAI',
+  google: 'Google (Gemini)',
+  openrouter: 'OpenRouter',
+  ollama: 'Ollama',
+};
+
 const SETUP_URL = 'https://docs.anthropic.com/en/docs/claude-code/setup';
 const WELCOME_SHOWN_KEY = 'bespokeAI.welcomeShown';
 const API_WELCOME_SHOWN_KEY = 'bespokeAI.apiWelcomeShown';
+const CUSTOM_PRESETS_SEEDED_KEY = 'bespokeAI.customPresetsSeeded';
 
 let statusBarItem: vscode.StatusBarItem;
 let statusBarState: StatusBarState = 'initializing';
+let setupReason: SetupReason = null;
 let completionProvider: CompletionProvider;
 let poolClient: PoolClient;
 let backendRouter: BackendRouter;
@@ -78,6 +107,24 @@ export function activate(context: vscode.ExtensionContext) {
   lastConfig = config;
 
   usageTracker = new UsageTracker();
+
+  // Seed default custom presets on first activation (Ollama example)
+  if (!context.globalState.get<boolean>(CUSTOM_PRESETS_SEEDED_KEY)) {
+    context.globalState.update(CUSTOM_PRESETS_SEEDED_KEY, true);
+    if (config.api.customPresets.length === 0) {
+      const defaultCustom: CustomPreset[] = [
+        {
+          name: 'Ollama (local)',
+          provider: 'ollama',
+          modelId: 'qwen2.5-coder',
+        },
+      ];
+      const ws = vscode.workspace.getConfiguration('bespokeAI');
+      ws.update('api.customPresets', defaultCustom, vscode.ConfigurationTarget.Global);
+      config.api.customPresets = defaultCustom;
+    }
+  }
+
   registerCustomPresets(config.api.customPresets);
 
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
@@ -94,6 +141,7 @@ export function activate(context: vscode.ExtensionContext) {
     clientId,
     onPoolDegraded: async (pool) => {
       if (pool === 'completion') {
+        setupReason = { backend: 'cli', issue: 'pool-degraded' };
         updateStatusBar(lastConfig, 'setup-needed');
         const action = await vscode.window.showErrorMessage(
           'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.',
@@ -133,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
   for (const cp of config.api.customPresets) {
     if (cp.apiKeyEnvVar) knownApiKeyVars.add(cp.apiKeyEnvVar);
   }
-  Promise.all([...knownApiKeyVars].map(loadSecretKey)).catch((err) => {
+  const keyLoadPromise = Promise.all([...knownApiKeyVars].map(loadSecretKey)).catch((err) => {
     logger.error(`Failed to load API keys from SecretStorage: ${err}`);
   });
 
@@ -164,12 +212,16 @@ export function activate(context: vscode.ExtensionContext) {
       logger.error(`Pool activation failed: ${err}`);
     });
   } else if (config.enabled && config.backend === 'api') {
-    // API backend — ready immediately (no subprocess startup needed)
-    const apiAvailable = apiCompletion.isAvailable();
-    updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
-    if (!apiAvailable) {
-      showApiSetupGuidance(config);
-    }
+    // Wait for SecretStorage keys to load before checking availability —
+    // resolveApiKey() is synchronous, so the cache must be populated first.
+    keyLoadPromise.then(() => {
+      const apiAvailable = apiCompletion.isAvailable();
+      if (!apiAvailable) setupReason = deriveApiSetupReason(config);
+      updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
+      if (!apiAvailable) {
+        showApiSetupGuidance(config);
+      }
+    });
   } else {
     logger.info('Extension disabled at startup — pools not started');
   }
@@ -234,11 +286,34 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('bespoke-ai.showMenu', async () => {
       const ws = vscode.workspace.getConfiguration('bespokeAI');
       const config = lastConfig;
-
-      type MenuHandler = () => void | Promise<void>;
       const handlers = new Map<vscode.QuickPickItem, MenuHandler>();
 
       const items: vscode.QuickPickItem[] = [];
+
+      // --- Diagnostic banner (shown only in setup-needed state) ---
+      if (statusBarState === 'setup-needed') {
+        const diag = diagnoseSetupIssue(config);
+
+        items.push({ label: 'Setup Required', kind: vscode.QuickPickItemKind.Separator });
+
+        const diagItem: vscode.QuickPickItem = {
+          label: `$(warning) ${diag.message}`,
+          description: diag.actionLabel,
+          detail: diag.detail,
+        };
+        items.push(diagItem);
+        handlers.set(diagItem, diag.action);
+
+        // For CLI issues, offer a quick switch to API backend
+        if (config.backend === 'claude-code') {
+          const switchItem: vscode.QuickPickItem = {
+            label: '$(globe) Switch to Direct API',
+            description: 'choose an API preset',
+          };
+          items.push(switchItem);
+          handlers.set(switchItem, () => showBackendPicker(config, ws, backendRouter));
+        }
+      }
 
       // --- Mode section ---
       items.push({ label: 'Mode', kind: vscode.QuickPickItemKind.Separator });
@@ -249,84 +324,32 @@ export function activate(context: vscode.ExtensionContext) {
           description: isCurrent ? '(current)' : '',
         };
         items.push(item);
-        handlers.set(item, () => {
-          ws.update('mode', m, vscode.ConfigurationTarget.Global);
-        });
+        handlers.set(item, () => ws.update('mode', m, vscode.ConfigurationTarget.Global));
       }
 
-      // --- Backend section ---
+      // --- Backend section — single item that opens the unified picker ---
       items.push({ label: 'Backend', kind: vscode.QuickPickItemKind.Separator });
-      const backends = [
-        {
-          id: 'claude-code' as const,
-          label: '$(terminal) Claude Code CLI',
-          description: 'requires Claude subscription',
-        },
-        { id: 'api' as const, label: '$(globe) Direct API', description: 'requires API key' },
-      ];
-      for (const b of backends) {
-        const isCurrent = config.backend === b.id;
-        const item: vscode.QuickPickItem = {
-          label: b.label,
-          description: `${b.description}${isCurrent ? ' (current)' : ''}`,
-        };
-        items.push(item);
-        handlers.set(item, () => {
-          ws.update('backend', b.id, vscode.ConfigurationTarget.Global);
-        });
-      }
-
-      // --- Model section (Claude Code) or API Model section ---
-      if (config.backend === 'api') {
-        items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
-        const allPresets = getAllPresets();
-        for (const preset of allPresets) {
-          const isCurrent = config.api.preset === preset.id;
-          const isCustom = preset.id.startsWith('custom-');
-          const descParts: string[] = [];
-          if (preset.description) descParts.push(preset.description);
-          if (isCustom) descParts.push(preset.modelId);
-          // Show key status per preset
-          if (preset.apiKeyEnvVar) {
-            const keySource = resolveApiKeySource(preset.apiKeyEnvVar);
-            descParts.push(formatKeySource(keySource));
-          } else {
-            descParts.push('no key needed');
+      {
+        let backendLabel: string;
+        let backendDesc: string;
+        if (config.backend === 'api') {
+          const activePreset = getPreset(config.api.preset);
+          backendLabel = activePreset?.displayName ?? config.api.preset;
+          const descParts: string[] = ['Direct API'];
+          if (activePreset?.apiKeyEnvVar) {
+            descParts.push(formatKeySource(resolveApiKeySource(activePreset.apiKeyEnvVar)));
           }
-          if (isCurrent) descParts.push('(current)');
-
-          const item: vscode.QuickPickItem = {
-            label: `$(server) ${preset.displayName}`,
-            description: descParts.join(' · '),
-          };
-          items.push(item);
-          handlers.set(item, () => {
-            ws.update('api.preset', preset.id, vscode.ConfigurationTarget.Global);
-          });
+          backendDesc = descParts.join(' · ');
+        } else {
+          backendLabel = config.claudeCode.model;
+          backendDesc = 'Claude Code CLI';
         }
-
-        // "Add Custom Model" at the end of the Model section
-        const addModelItem: vscode.QuickPickItem = {
-          label: '$(add) Add Custom Model...',
-          description: '',
+        const backendItem: vscode.QuickPickItem = {
+          label: `$(server) ${backendLabel}`,
+          description: backendDesc,
         };
-        items.push(addModelItem);
-        handlers.set(addModelItem, () => {
-          vscode.commands.executeCommand('bespoke-ai.addCustomModel');
-        });
-      } else {
-        items.push({ label: 'Model', kind: vscode.QuickPickItemKind.Separator });
-        for (const model of config.claudeCode.models) {
-          const isCurrent = config.claudeCode.model === model;
-          const item: vscode.QuickPickItem = {
-            label: `$(server) ${model}`,
-            description: isCurrent ? '(current)' : '',
-          };
-          items.push(item);
-          handlers.set(item, () => {
-            ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
-          });
-        }
+        items.push(backendItem);
+        handlers.set(backendItem, () => showBackendPicker(config, ws, backendRouter));
       }
 
       // --- Trigger Preset section ---
@@ -338,9 +361,9 @@ export function activate(context: vscode.ExtensionContext) {
           description: `${PRESET_DESCRIPTIONS[preset]}${isCurrent ? ' (current)' : ''}`,
         };
         items.push(item);
-        handlers.set(item, () => {
-          ws.update('triggerPreset', preset, vscode.ConfigurationTarget.Global);
-        });
+        handlers.set(item, () =>
+          ws.update('triggerPreset', preset, vscode.ConfigurationTarget.Global),
+        );
       }
 
       // --- Actions section ---
@@ -376,18 +399,6 @@ export function activate(context: vscode.ExtensionContext) {
         handlers.set(keyItem, () => {
           vscode.commands.executeCommand('bespoke-ai.setApiKey');
         });
-
-        // Show "Remove Custom Model" when custom presets exist
-        if (config.api.customPresets.length > 0) {
-          const removeModelItem: vscode.QuickPickItem = {
-            label: '$(trash) Remove Custom Model',
-            description: '',
-          };
-          items.push(removeModelItem);
-          handlers.set(removeModelItem, () => {
-            vscode.commands.executeCommand('bespoke-ai.removeCustomModel');
-          });
-        }
       } else {
         const restartPoolsItem: vscode.QuickPickItem = {
           label: '$(refresh) Restart Pools',
@@ -523,7 +534,10 @@ export function activate(context: vscode.ExtensionContext) {
 
       const picked = await vscode.window.showQuickPick(items, {
         title: 'Bespoke AI',
-        placeHolder: 'Select an option',
+        placeHolder:
+          statusBarState === 'setup-needed'
+            ? 'Action needed — see issue above'
+            : 'Select an option',
       });
 
       if (picked) {
@@ -597,15 +611,6 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // API key management commands — dynamically built from registered presets
-  const PROVIDER_LABELS: Record<string, string> = {
-    anthropic: 'Anthropic',
-    openai: 'OpenAI',
-    xai: 'xAI',
-    google: 'Google (Gemini)',
-    openrouter: 'OpenRouter',
-    ollama: 'Ollama',
-  };
-
   function getApiKeyProviderItems(): vscode.QuickPickItem[] {
     const seen = new Set<string>();
     const items: vscode.QuickPickItem[] = [];
@@ -651,13 +656,15 @@ export function activate(context: vscode.ExtensionContext) {
         `Bespoke AI: API key saved for ${provider.label} (stored in OS keychain).`,
       );
 
-      // If we were in setup-needed state, re-check availability and update
-      if (lastConfig.backend === 'api' && statusBarState === 'setup-needed') {
-        // Re-initialize adapter to pick up the new key
+      // Re-check availability after key change
+      if (lastConfig.backend === 'api') {
         backendRouter.updateConfig(lastConfig);
         const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
         if (apiAvailable) {
           updateStatusBar(lastConfig, 'ready');
+        } else if (statusBarState === 'setup-needed') {
+          setupReason = deriveApiSetupReason(lastConfig);
+          updateStatusBar(lastConfig, 'setup-needed');
         }
       }
     }),
@@ -699,8 +706,13 @@ export function activate(context: vscode.ExtensionContext) {
           },
           {
             label: 'OpenAI-Compatible',
-            description: 'OpenAI, xAI, Together, Ollama, LM Studio, etc.',
+            description: 'OpenAI, xAI, Together, LM Studio, etc.',
             id: 'openai-compat' as const,
+          },
+          {
+            label: 'Ollama',
+            description: 'Local models via Ollama (no API key needed)',
+            id: 'ollama' as const,
           },
           {
             label: 'Google (Gemini)',
@@ -717,7 +729,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       if (!providerPick) return;
       const providerType = providerPick.id;
-      const totalSteps = providerType === 'openai-compat' ? 5 : 4;
+      const totalSteps = providerType === 'ollama' ? 3 : providerType === 'openai-compat' ? 5 : 4;
       let step = 1;
 
       // Step: Model ID
@@ -727,6 +739,7 @@ export function activate(context: vscode.ExtensionContext) {
         google: 'gemini-2.5-flash',
         openrouter: 'anthropic/claude-haiku-4-5, openai/gpt-4.1-nano, etc.',
         'openai-compat': 'llama3.2, gpt-4o, gemma2, etc.',
+        ollama: 'qwen2.5-coder, llama3.2, codellama, etc.',
       };
       const modelPlaceholder = modelPlaceholders[providerType] ?? 'model-id';
       const modelId = await vscode.window.showInputBox({
@@ -764,24 +777,26 @@ export function activate(context: vscode.ExtensionContext) {
         baseUrl = 'https://openrouter.ai/api/v1';
       }
 
-      // Step: API key env var
-      step++;
+      // Step: API key env var (skip for Ollama — no key needed)
       let apiKeyEnvVar: string | undefined;
-      const defaultKeyVars: Record<string, string> = {
-        anthropic: 'ANTHROPIC_API_KEY',
-        google: 'GEMINI_API_KEY',
-        openrouter: 'OPENROUTER_API_KEY',
-      };
-      const defaultKeyVar = defaultKeyVars[providerType] ?? '';
-      const keyVarInput = await vscode.window.showInputBox({
-        title: `Add Custom Model (${step}/${totalSteps})`,
-        prompt: 'API key environment variable name (leave blank for local/keyless models)',
-        placeHolder: defaultKeyVar || 'OPENAI_API_KEY, TOGETHER_API_KEY, etc.',
-        value: defaultKeyVar,
-        ignoreFocusOut: true,
-      });
-      if (keyVarInput === undefined) return; // cancelled
-      apiKeyEnvVar = keyVarInput || undefined;
+      if (providerType !== 'ollama') {
+        step++;
+        const defaultKeyVars: Record<string, string> = {
+          anthropic: 'ANTHROPIC_API_KEY',
+          google: 'GEMINI_API_KEY',
+          openrouter: 'OPENROUTER_API_KEY',
+        };
+        const defaultKeyVar = defaultKeyVars[providerType] ?? '';
+        const keyVarInput = await vscode.window.showInputBox({
+          title: `Add Custom Model (${step}/${totalSteps})`,
+          prompt: 'API key environment variable name (leave blank for local/keyless models)',
+          placeHolder: defaultKeyVar || 'OPENAI_API_KEY, TOGETHER_API_KEY, etc.',
+          value: defaultKeyVar,
+          ignoreFocusOut: true,
+        });
+        if (keyVarInput === undefined) return; // cancelled
+        apiKeyEnvVar = keyVarInput || undefined;
+      }
 
       // Build the custom preset
       const newPreset: CustomPreset = {
@@ -872,6 +887,14 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  // Update status bar when the active editor changes (mode detection)
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      if (!lastConfig.enabled || statusBarState !== 'ready') return;
+      updateStatusBar(lastConfig);
+    }),
+  );
+
   // Watch for config changes
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -921,11 +944,13 @@ export function activate(context: vscode.ExtensionContext) {
                 })
                 .catch((err) => {
                   logger.error(`Pool client activation failed: ${err}`);
+                  setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };
                   updateStatusBar(newConfig, 'setup-needed');
                 });
             } else {
               // API mode — ready immediately
               const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
+              if (!apiAvailable) setupReason = deriveApiSetupReason(newConfig);
               updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
               if (!apiAvailable) {
                 showApiSetupGuidance(newConfig);
@@ -950,6 +975,7 @@ export function activate(context: vscode.ExtensionContext) {
               })
               .catch((err) => {
                 logger.error(`Pool client activation failed: ${err}`);
+                setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };
                 updateStatusBar(newConfig, 'setup-needed');
               });
           } else {
@@ -959,6 +985,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (apiAvailable) {
               vscode.window.showInformationMessage('Bespoke AI: Switched to Direct API.');
             } else {
+              setupReason = deriveApiSetupReason(newConfig);
               showApiSetupGuidance(newConfig);
             }
             updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
@@ -977,7 +1004,7 @@ export function activate(context: vscode.ExtensionContext) {
           poolClient.updateConfig(newConfig);
         }
 
-        // Clear cache on API preset change
+        // Handle API preset change: clear cache and re-evaluate availability
         if (
           newConfig.enabled &&
           newConfig.backend === 'api' &&
@@ -988,6 +1015,25 @@ export function activate(context: vscode.ExtensionContext) {
           logger.info(`API model → ${presetLabel} (clearing cache)`);
           completionProvider.clearCache();
           vscode.window.showInformationMessage(`Bespoke AI: Model changed to ${presetLabel}.`);
+
+          const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
+          if (apiAvailable) {
+            updateStatusBar(newConfig, 'ready');
+          } else {
+            setupReason = deriveApiSetupReason(newConfig);
+            updateStatusBar(newConfig, 'setup-needed');
+          }
+        }
+
+        // Handle code override change
+        const overrideChanged =
+          newConfig.codeOverride.backend !== prevConfig.codeOverride.backend ||
+          newConfig.codeOverride.model !== prevConfig.codeOverride.model;
+        if (overrideChanged && newConfig.enabled) {
+          completionProvider.clearCache();
+          logger.info(
+            `Code override → ${newConfig.codeOverride.backend || 'none'} / ${newConfig.codeOverride.model || 'global'}`,
+          );
         }
 
         updateStatusBar(newConfig);
@@ -1062,6 +1108,10 @@ function loadConfig(): ExtensionConfig {
       preset: ws.get<string>('api.preset', 'anthropic-haiku')!,
       customPresets: ws.get<CustomPreset[]>('api.customPresets', [])!,
     },
+    codeOverride: {
+      backend: ws.get<'' | 'claude-code' | 'api'>('codeOverride.backend', '')!,
+      model: ws.get<string>('codeOverride.model', '')!,
+    },
     contextMenu: {
       permissionMode: ws.get<'default' | 'acceptEdits' | 'bypassPermissions'>(
         'contextMenu.permissionMode',
@@ -1072,8 +1122,112 @@ function loadConfig(): ExtensionConfig {
   };
 }
 
+/** Derive the reason API backend is unavailable (re-derived for freshness at menu-open time). */
+function deriveApiSetupReason(config: ExtensionConfig): SetupReason {
+  const preset = getPreset(config.api.preset);
+  if (!preset) {
+    return { backend: 'api', issue: 'preset-not-found', presetId: config.api.preset };
+  }
+  if (preset.apiKeyEnvVar && !resolveApiKeySource(preset.apiKeyEnvVar)) {
+    return {
+      backend: 'api',
+      issue: 'key-missing',
+      envVar: preset.apiKeyEnvVar,
+      presetName: preset.displayName,
+    };
+  }
+  return { backend: 'api', issue: 'circuit-open', presetName: preset.displayName };
+}
+
+/** Map the current setup reason to a user-facing diagnostic with an action. */
+function diagnoseSetupIssue(config: ExtensionConfig): {
+  message: string;
+  detail: string;
+  actionLabel: string;
+  action: () => void;
+} {
+  // For API issues, re-derive for freshness (key may have been added)
+  const reason = config.backend === 'api' ? deriveApiSetupReason(config) : setupReason;
+
+  if (reason?.backend === 'api') {
+    switch (reason.issue) {
+      case 'preset-not-found':
+        return {
+          message: `Model "${reason.presetId}" not found`,
+          detail:
+            'The active model does not match any built-in or custom preset. Select a different model.',
+          actionLabel: 'Switch Model',
+          action: () =>
+            showBackendPicker(
+              config,
+              vscode.workspace.getConfiguration('bespokeAI'),
+              backendRouter,
+            ),
+        };
+      case 'key-missing':
+        return {
+          message: `API key missing: ${reason.envVar}`,
+          detail: `${reason.presetName} requires an API key. Enter via keychain, set the ${reason.envVar} environment variable, or add to ~/.creds/api-keys.env.`,
+          actionLabel: 'Enter API Key',
+          action: () => vscode.commands.executeCommand('bespoke-ai.setApiKey'),
+        };
+      case 'circuit-open':
+        return {
+          message: 'API requests failing repeatedly',
+          detail: `${reason.presetName} returned multiple consecutive errors. Will auto-recover in 30 seconds, or restart now.`,
+          actionLabel: 'Restart',
+          action: () => backendRouter.recycleAll(),
+        };
+    }
+  }
+
+  if (reason?.backend === 'cli') {
+    switch (reason.issue) {
+      case 'sdk-not-found':
+        return {
+          message: 'Claude Code CLI not found',
+          detail: 'Install the Claude Code CLI, or switch to the Direct API backend.',
+          actionLabel: 'Install Guide',
+          action: () => vscode.env.openExternal(vscode.Uri.parse(SETUP_URL)),
+        };
+      case 'activation-failed':
+        return {
+          message: 'Claude Code failed to start',
+          detail:
+            reason.error ||
+            'Pool activation failed. Claude Code may need authentication — run `claude` in your terminal.',
+          actionLabel: 'Open Terminal',
+          action: () => {
+            const terminal = vscode.window.createTerminal('Claude Login');
+            terminal.show();
+            terminal.sendText('claude');
+          },
+        };
+      case 'pool-degraded':
+        return {
+          message: 'Autocomplete unavailable',
+          detail:
+            'Claude Code may need re-authentication or is experiencing errors. Try restarting.',
+          actionLabel: 'Restart Pools',
+          action: () => vscode.commands.executeCommand('bespoke-ai.restartPools'),
+        };
+    }
+  }
+
+  // Fallback — shouldn't normally reach here
+  return {
+    message: 'Setup needed',
+    detail: 'Check the output log for details.',
+    actionLabel: 'Open Log',
+    action: () => logger.show(),
+  };
+}
+
 function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
-  if (state) statusBarState = state;
+  if (state) {
+    statusBarState = state;
+    if (state !== 'setup-needed') setupReason = null;
+  }
 
   if (!config.enabled) {
     statusBarItem.text = '$(circle-slash) AI Off';
@@ -1083,24 +1237,37 @@ function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
     statusBarItem.tooltip = 'Bespoke AI: Initializing pools...';
   } else if (statusBarState === 'setup-needed') {
     statusBarItem.text = '$(warning) Setup needed';
-    if (config.backend === 'api') {
-      const apiPreset = getPreset(config.api.preset);
-      const provider = apiPreset?.apiKeyEnvVar ?? 'API';
-      statusBarItem.tooltip = `Bespoke AI: API key missing for ${provider} — click to enter key`;
-    } else {
-      statusBarItem.tooltip = 'Bespoke AI: Claude Code CLI not found — click for help';
-    }
+    const diag = diagnoseSetupIssue(config);
+    statusBarItem.tooltip = `Bespoke AI: ${diag.message} — click to fix`;
   } else {
     const presetIcon = PRESET_ICONS[config.triggerPreset] ?? '$(zap)';
-    if (config.backend === 'api') {
+
+    // Resolve display mode: show detected mode when set to "auto"
+    let displayMode: string = config.mode;
+    if (config.mode === 'auto') {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        displayMode = detectMode(editor.document.languageId, config);
+      }
+    }
+
+    // Check if code override is active for the current file
+    const isCodeOverrideActive = displayMode === 'code' && config.codeOverride.backend !== '';
+
+    if (isCodeOverrideActive && backendRouter) {
+      const modelInfo = backendRouter.getCurrentModelForMode('code');
+      const suffix = modelInfo.backend === 'api' ? ' (API)' : '';
+      statusBarItem.text = `${presetIcon} ${displayMode} | ${modelInfo.label}${suffix}`;
+      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode (code override), ${config.triggerPreset} trigger, ${modelInfo.label} (click for menu)`;
+    } else if (config.backend === 'api') {
       const apiPreset = getPreset(config.api.preset);
       const modelLabel = apiPreset?.displayName ?? config.api.preset;
-      statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel} (API)`;
-      statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${modelLabel} via API (click for menu)`;
+      statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel} (API)`;
+      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${modelLabel} via API (click for menu)`;
     } else {
       const modelLabel = shortenModelName(config.claudeCode.model);
-      statusBarItem.text = `${presetIcon} ${config.mode} | ${modelLabel}`;
-      statusBarItem.tooltip = `Bespoke AI: ${config.mode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
+      statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel}`;
+      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
     }
   }
   statusBarItem.show();
@@ -1142,16 +1309,262 @@ function updateStatusBarSpinner(spinning: boolean) {
   }
 
   if (spinning) {
-    if (config.backend === 'api') {
+    let displayMode: string = config.mode;
+    if (config.mode === 'auto') {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        displayMode = detectMode(editor.document.languageId, config);
+      }
+    }
+
+    const isCodeOverrideActive = displayMode === 'code' && config.codeOverride.backend !== '';
+
+    if (isCodeOverrideActive && backendRouter) {
+      const modelInfo = backendRouter.getCurrentModelForMode('code');
+      const suffix = modelInfo.backend === 'api' ? ' (API)' : '';
+      statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelInfo.label}${suffix}`;
+    } else if (config.backend === 'api') {
       const apiPreset = getPreset(config.api.preset);
       const modelLabel = apiPreset?.displayName ?? config.api.preset;
-      statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel} (API)`;
+      statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel} (API)`;
     } else {
       const modelLabel = shortenModelName(config.claudeCode.model);
-      statusBarItem.text = `$(loading~spin) ${config.mode} | ${modelLabel}`;
+      statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel}`;
     }
   } else {
     updateStatusBar(config);
+  }
+}
+
+async function showBackendPicker(
+  config: ExtensionConfig,
+  ws: vscode.WorkspaceConfiguration,
+  router: BackendRouter,
+): Promise<void> {
+  const items: vscode.QuickPickItem[] = [];
+  const handlers = new Map<vscode.QuickPickItem, MenuHandler>();
+
+  // --- Claude Code CLI models ---
+  items.push({ label: 'Claude Code CLI', kind: vscode.QuickPickItemKind.Separator });
+  for (const model of config.claudeCode.models) {
+    const isCurrent = config.backend === 'claude-code' && config.claudeCode.model === model;
+    const item: vscode.QuickPickItem = {
+      label: `$(terminal) ${model}`,
+      description: isCurrent ? '(current)' : '',
+    };
+    items.push(item);
+    handlers.set(item, async () => {
+      await ws.update('claudeCode.model', model, vscode.ConfigurationTarget.Global);
+      if (config.backend !== 'claude-code') {
+        await ws.update('backend', 'claude-code', vscode.ConfigurationTarget.Global);
+      }
+    });
+  }
+
+  // --- Direct API presets ---
+  const allPresets = getAllPresets();
+  const builtInIds = new Set(getBuiltInPresetIds());
+  const builtIn = allPresets.filter((p) => builtInIds.has(p.id));
+  const custom = allPresets.filter((p) => !builtInIds.has(p.id));
+
+  function addPresetItems(presets: typeof allPresets): void {
+    for (const preset of presets) {
+      const isCurrent = config.backend === 'api' && config.api.preset === preset.id;
+      const descParts: string[] = [PROVIDER_LABELS[preset.provider] ?? preset.provider];
+      if (preset.apiKeyEnvVar) {
+        descParts.push(formatKeySource(resolveApiKeySource(preset.apiKeyEnvVar)));
+      } else {
+        descParts.push('no key needed');
+      }
+      if (isCurrent) descParts.push('(current)');
+      const item: vscode.QuickPickItem = {
+        label: `$(globe) ${preset.displayName}`,
+        description: descParts.join(' · '),
+      };
+      items.push(item);
+      handlers.set(item, async () => {
+        await ws.update('api.preset', preset.id, vscode.ConfigurationTarget.Global);
+        if (config.backend !== 'api') {
+          await ws.update('backend', 'api', vscode.ConfigurationTarget.Global);
+        }
+      });
+    }
+  }
+
+  items.push({ label: 'Direct API', kind: vscode.QuickPickItemKind.Separator });
+  addPresetItems(builtIn);
+
+  // --- Custom models ---
+  if (custom.length > 0) {
+    items.push({ label: 'Custom Models', kind: vscode.QuickPickItemKind.Separator });
+    addPresetItems(custom);
+  }
+
+  // --- Manage ---
+  items.push({ label: 'Manage', kind: vscode.QuickPickItemKind.Separator });
+
+  const addItem: vscode.QuickPickItem = { label: '$(add) Add Custom Model...' };
+  items.push(addItem);
+  handlers.set(addItem, () => vscode.commands.executeCommand('bespoke-ai.addCustomModel'));
+
+  if (config.api.customPresets.length > 0) {
+    const removeItem: vscode.QuickPickItem = { label: '$(trash) Remove Custom Model...' };
+    items.push(removeItem);
+    handlers.set(removeItem, () => vscode.commands.executeCommand('bespoke-ai.removeCustomModel'));
+  }
+
+  const keyItem: vscode.QuickPickItem = {
+    label: '$(key) Enter API Key...',
+    description: 'manage keys for API providers',
+  };
+  items.push(keyItem);
+  handlers.set(keyItem, () => vscode.commands.executeCommand('bespoke-ai.setApiKey'));
+
+  if (config.backend === 'api') {
+    const testItem: vscode.QuickPickItem = {
+      label: '$(beaker) Test Connection',
+      description: 'verify API key and connectivity',
+    };
+    items.push(testItem);
+    handlers.set(testItem, async () => {
+      const presetName = getPreset(config.api.preset)?.displayName ?? config.api.preset;
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Testing connection to ${presetName}...`,
+          cancellable: false,
+        },
+        async () => {
+          const result = await router.testApiConnection();
+          if (result.ok) {
+            vscode.window.showInformationMessage(
+              `Bespoke AI: Connection OK — ${result.model} responded in ${result.durationMs}ms`,
+            );
+          } else {
+            vscode.window.showErrorMessage(`Bespoke AI: Connection failed — ${result.error}`);
+          }
+        },
+      );
+    });
+  }
+
+  const settingsItem: vscode.QuickPickItem = {
+    label: '$(settings-gear) Backend Settings',
+    description: 'open in Settings UI',
+  };
+  items.push(settingsItem);
+  handlers.set(settingsItem, () =>
+    vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI'),
+  );
+
+  // --- Code Override ---
+  items.push({ label: 'Code Override', kind: vscode.QuickPickItemKind.Separator });
+  {
+    const hasOverride = config.codeOverride.backend !== '';
+    let overrideLabel: string;
+    if (hasOverride) {
+      const info = router.getCurrentModelForMode('code');
+      const backendLabel = info.backend === 'api' ? 'API' : 'CLI';
+      overrideLabel = `${info.label} (${backendLabel})`;
+    } else {
+      overrideLabel = '(use global default)';
+    }
+    const overrideItem: vscode.QuickPickItem = {
+      label: `$(code) Code: ${overrideLabel}`,
+    };
+    items.push(overrideItem);
+    handlers.set(overrideItem, () => showCodeOverridePicker(config, ws));
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Select Backend & Model',
+    placeHolder: 'Choose a backend and model, or manage settings',
+  });
+  if (picked) {
+    const handler = handlers.get(picked);
+    if (handler) await handler();
+  }
+}
+
+async function showCodeOverridePicker(
+  config: ExtensionConfig,
+  ws: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const items: vscode.QuickPickItem[] = [];
+  const handlers = new Map<vscode.QuickPickItem, MenuHandler>();
+
+  const hasOverride = config.codeOverride.backend !== '';
+
+  // "Use global default" option
+  const globalItem: vscode.QuickPickItem = {
+    label: '$(circle-slash) Use global default',
+    description: hasOverride ? '' : '(current)',
+  };
+  items.push(globalItem);
+  handlers.set(globalItem, async () => {
+    await ws.update('codeOverride.backend', '', vscode.ConfigurationTarget.Global);
+    await ws.update('codeOverride.model', '', vscode.ConfigurationTarget.Global);
+  });
+
+  // --- Claude Code CLI models ---
+  items.push({ label: 'Claude Code CLI', kind: vscode.QuickPickItemKind.Separator });
+  for (const model of config.claudeCode.models) {
+    const isCurrent =
+      hasOverride &&
+      config.codeOverride.backend === 'claude-code' &&
+      config.codeOverride.model === model;
+    const item: vscode.QuickPickItem = {
+      label: `$(terminal) ${model}`,
+      description: isCurrent ? '(current)' : '',
+    };
+    items.push(item);
+    handlers.set(item, async () => {
+      await ws.update('codeOverride.backend', 'claude-code', vscode.ConfigurationTarget.Global);
+      await ws.update('codeOverride.model', model, vscode.ConfigurationTarget.Global);
+    });
+  }
+
+  // --- Direct API presets ---
+  const allPresets = getAllPresets();
+  const builtInIds = new Set(getBuiltInPresetIds());
+  const builtIn = allPresets.filter((p) => builtInIds.has(p.id));
+  const custom = allPresets.filter((p) => !builtInIds.has(p.id));
+
+  function addPresetItems(presets: typeof allPresets): void {
+    for (const preset of presets) {
+      const isCurrent =
+        hasOverride &&
+        config.codeOverride.backend === 'api' &&
+        config.codeOverride.model === preset.id;
+      const descParts: string[] = [PROVIDER_LABELS[preset.provider] ?? preset.provider];
+      if (isCurrent) descParts.push('(current)');
+      const item: vscode.QuickPickItem = {
+        label: `$(globe) ${preset.displayName}`,
+        description: descParts.join(' · '),
+      };
+      items.push(item);
+      handlers.set(item, async () => {
+        await ws.update('codeOverride.backend', 'api', vscode.ConfigurationTarget.Global);
+        await ws.update('codeOverride.model', preset.id, vscode.ConfigurationTarget.Global);
+      });
+    }
+  }
+
+  items.push({ label: 'Direct API', kind: vscode.QuickPickItemKind.Separator });
+  addPresetItems(builtIn);
+
+  if (custom.length > 0) {
+    items.push({ label: 'Custom Models', kind: vscode.QuickPickItemKind.Separator });
+    addPresetItems(custom);
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Code Override',
+    placeHolder: 'Choose a backend and model for code files, or use the global default',
+  });
+  if (picked) {
+    const handler = handlers.get(picked);
+    if (handler) await handler();
   }
 }
 
@@ -1303,6 +1716,7 @@ async function activateWithPreflight(
   const preflight = await runPreflightCheck();
   if (preflight === 'no-sdk') {
     logger.error('Pre-flight: Claude Code CLI not found');
+    setupReason = { backend: 'cli', issue: 'sdk-not-found' };
     updateStatusBar(config, 'setup-needed');
     vscode.window
       .showErrorMessage(
@@ -1323,6 +1737,7 @@ async function activateWithPreflight(
     updateStatusBar(config, 'ready');
   } catch (err) {
     logger.error(`Pool client activation failed: ${err}`);
+    setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };
     updateStatusBar(config, 'setup-needed');
     return;
   }

@@ -2,7 +2,12 @@ import { CompletionContext, CompletionProvider, ExtensionConfig } from '../../ty
 import { Logger } from '../../utils/logger';
 import { UsageLedger } from '../../utils/usage-ledger';
 import { postProcessCompletion } from '../../utils/post-process';
-import { getPromptStrategy, PromptStrategy } from '../prompt-strategy';
+import {
+  getPromptStrategy,
+  PromptStrategy,
+  SYSTEM_PROMPT,
+  buildFillMessage,
+} from '../prompt-strategy';
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
@@ -95,7 +100,7 @@ export class ApiCompletionProvider implements CompletionProvider {
     });
 
     if (!result.text) {
-      this.recordFailure();
+      if (!result.aborted) this.recordFailure();
       return null;
     }
 
@@ -144,6 +149,45 @@ export class ApiCompletionProvider implements CompletionProvider {
     return this.activePreset;
   }
 
+  /** Send a minimal test request to verify API connectivity and key validity. */
+  async testConnection(): Promise<{
+    ok: boolean;
+    model: string;
+    durationMs: number;
+    error?: string;
+  }> {
+    if (!this.adapter || !this.activePreset || !this.strategy) {
+      return { ok: false, model: '', durationMs: 0, error: 'No adapter loaded' };
+    }
+
+    const preset = this.activePreset;
+    const userMessage = buildFillMessage('Two plus two equals ', '.');
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      { role: 'user', content: userMessage },
+    ];
+
+    try {
+      const result = await this.adapter.complete(SYSTEM_PROMPT, messages, {
+        signal: AbortSignal.timeout(15_000),
+        maxTokens: 20,
+        temperature: 0,
+      });
+
+      if (result.text) {
+        return { ok: true, model: result.model, durationMs: result.durationMs };
+      }
+      return {
+        ok: false,
+        model: result.model,
+        durationMs: result.durationMs,
+        error: 'No response received',
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, model: preset.modelId, durationMs: 0, error: msg };
+    }
+  }
+
   private isCircuitOpen(): boolean {
     if (this.consecutiveFailures < CIRCUIT_BREAKER_THRESHOLD) return false;
     // Auto-recover after cooldown
@@ -164,16 +208,38 @@ export class ApiCompletionProvider implements CompletionProvider {
     }
   }
 
-  private loadAdapter(): void {
+  /** Run a completion using a specific preset (for code override routing). */
+  async getCompletionWithPreset(
+    presetId: string,
+    context: CompletionContext,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const prevPreset = this.activePreset;
+    const prevAdapter = this.adapter;
+    const prevStrategy = this.strategy;
+
+    // Null out so loadAdapter doesn't dispose the saved adapter
+    this.adapter = null;
+    this.loadAdapter(presetId);
+    try {
+      return await this.getCompletion(context, signal);
+    } finally {
+      this.adapter = prevAdapter;
+      this.activePreset = prevPreset;
+      this.strategy = prevStrategy;
+    }
+  }
+
+  private loadAdapter(presetId?: string): void {
     this.adapter?.dispose();
     this.adapter = null;
     this.activePreset = null;
     this.strategy = null;
 
-    const presetId = this.config.api.preset;
-    const preset = getPreset(presetId);
+    const id = presetId ?? this.config.api.preset;
+    const preset = getPreset(id);
     if (!preset) {
-      this.logger.error(`API: preset "${presetId}" not found`);
+      this.logger.error(`API: preset "${id}" not found`);
       return;
     }
 

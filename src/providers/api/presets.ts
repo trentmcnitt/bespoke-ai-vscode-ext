@@ -62,10 +62,34 @@ const BUILT_IN_PRESETS: Preset[] = [
   },
   {
     id: 'xai-grok',
-    displayName: 'Grok',
-    description: 'Fast, competitive pricing',
+    displayName: 'Grok 4.1 Fast',
+    description: 'Fast, non-reasoning',
     provider: 'xai',
-    modelId: 'grok-3-fast',
+    modelId: 'grok-4-1-fast-non-reasoning',
+    baseUrl: 'https://api.x.ai/v1',
+    apiKeyEnvVar: 'XAI_API_KEY',
+    maxTokens: 200,
+    temperature: 0.3,
+    promptStrategy: 'instruction-extraction',
+  },
+  {
+    id: 'xai-grok-code',
+    displayName: 'Grok Code Fast',
+    description: 'Coding-optimized',
+    provider: 'xai',
+    modelId: 'grok-code-fast-1',
+    baseUrl: 'https://api.x.ai/v1',
+    apiKeyEnvVar: 'XAI_API_KEY',
+    maxTokens: 200,
+    temperature: 0.2,
+    promptStrategy: 'instruction-extraction',
+  },
+  {
+    id: 'xai-grok-4',
+    displayName: 'Grok 4',
+    description: 'Full capability',
+    provider: 'xai',
+    modelId: 'grok-4-0709',
     baseUrl: 'https://api.x.ai/v1',
     apiKeyEnvVar: 'XAI_API_KEY',
     maxTokens: 200,
@@ -98,17 +122,6 @@ const BUILT_IN_PRESETS: Preset[] = [
     temperature: 0.2,
     promptStrategy: 'instruction-extraction',
     extraBody: { reasoning: { enabled: false } },
-  },
-  {
-    id: 'ollama-default',
-    displayName: 'Ollama (local)',
-    description: 'Free, runs locally',
-    provider: 'ollama',
-    modelId: 'qwen2.5-coder',
-    baseUrl: 'http://localhost:11434/v1',
-    maxTokens: 200,
-    temperature: 0.2,
-    promptStrategy: 'instruction-extraction',
   },
 ];
 
@@ -159,6 +172,8 @@ export function registerCustomPresets(customs: CustomPreset[]): void {
         preset.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
       } else if (provider === 'openrouter') {
         preset.baseUrl = 'https://openrouter.ai/api/v1';
+      } else if (provider === 'ollama') {
+        preset.baseUrl = 'http://localhost:11434/v1';
       }
       if (c.apiKeyEnvVar) {
         preset.apiKeyEnvVar = c.apiKeyEnvVar;

@@ -33,6 +33,8 @@ export interface ApiAdapterResult {
   usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number };
   model: string;
   durationMs: number;
+  /** True when the request was cancelled by an AbortSignal (not a real failure). */
+  aborted?: boolean;
 }
 
 export interface ApiAdapter {

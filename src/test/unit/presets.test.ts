@@ -90,8 +90,8 @@ describe('Presets', () => {
       expect(getPreset('openai-gpt-4o-mini')?.promptStrategy).toBe('instruction-extraction');
     });
 
-    it('ollama-default uses instruction-extraction', () => {
-      expect(getPreset('ollama-default')?.promptStrategy).toBe('instruction-extraction');
+    it('xai-grok uses instruction-extraction', () => {
+      expect(getPreset('xai-grok')?.promptStrategy).toBe('instruction-extraction');
     });
   });
 

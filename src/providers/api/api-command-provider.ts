@@ -94,7 +94,7 @@ export class ApiCommandProvider {
     });
 
     if (!result.text) {
-      this.recordFailure();
+      if (!result.aborted) this.recordFailure();
       return null;
     }
 

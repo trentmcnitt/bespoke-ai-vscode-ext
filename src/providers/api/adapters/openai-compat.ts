@@ -87,6 +87,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          aborted: true,
         };
       }
 

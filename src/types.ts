@@ -70,7 +70,7 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
 export interface CustomPreset {
   name: string;
-  provider: 'anthropic' | 'openai-compat' | 'google' | 'openrouter';
+  provider: 'anthropic' | 'openai-compat' | 'google' | 'openrouter' | 'ollama';
   modelId: string;
   baseUrl?: string;
   apiKeyEnvVar?: string;
@@ -103,6 +103,10 @@ export interface ExtensionConfig {
   api: {
     preset: string;
     customPresets: CustomPreset[];
+  };
+  codeOverride: {
+    backend: '' | 'claude-code' | 'api';
+    model: string;
   };
   contextMenu: {
     permissionMode: PermissionMode;

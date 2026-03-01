@@ -28,6 +28,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     preset: 'anthropic-haiku',
     customPresets: [],
   },
+  codeOverride: { backend: '', model: '' },
   contextMenu: { permissionMode: 'default' },
   logLevel: 'info',
 };
@@ -38,6 +39,7 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     ...overrides,
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
     api: { ...DEFAULT_CONFIG.api, ...overrides.api },
+    codeOverride: { ...DEFAULT_CONFIG.codeOverride, ...overrides.codeOverride },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
     contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },

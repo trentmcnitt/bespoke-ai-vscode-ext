@@ -206,42 +206,21 @@
         },
         "bespokeAI.api.preset": {
           "type": "string",
-          "enum": [
+          "default": "anthropic-haiku",
+          "scope": "application",
+          "markdownDescription": "Active API model preset. Built-in presets: `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok`, `xai-grok-code`, `xai-grok-4`, `openrouter-haiku`, `openrouter-gpt-4.1-nano`. Custom preset IDs (from `#bespokeAI.api.customPresets#`) are also accepted. Changeable via the status bar menu.",
+          "examples": [
             "anthropic-haiku",
             "anthropic-sonnet",
             "openai-gpt-4.1-nano",
             "openai-gpt-4o-mini",
             "google-gemini-flash",
             "xai-grok",
+            "xai-grok-code",
+            "xai-grok-4",
             "openrouter-haiku",
-            "openrouter-gpt-4.1-nano",
-            "ollama-default"
-          ],
-          "enumItemLabels": [
-            "Haiku 4.5",
-            "Sonnet 4.5",
-            "GPT-4.1 Nano",
-            "GPT-4o Mini",
-            "Gemini 2.5 Flash",
-            "Grok",
-            "Haiku (OpenRouter)",
-            "GPT-4.1 Nano (OpenRouter)",
-            "Ollama (local)"
-          ],
-          "enumDescriptions": [
-            "Anthropic · Fast, low cost",
-            "Anthropic · Best quality",
-            "OpenAI · Fastest, lowest cost",
-            "OpenAI · Balanced cost/quality",
-            "Google · Very fast, very cheap",
-            "xAI · Fast, competitive pricing",
-            "OpenRouter · Fast, low cost",
-            "OpenRouter · Fastest, lowest cost",
-            "Ollama · Free, runs locally"
-          ],
-          "default": "anthropic-haiku",
-          "scope": "application",
-          "markdownDescription": "Active API model. Choose a built-in preset from the dropdown, or type a custom model ID (from `#bespokeAI.api.customPresets#`). Also changeable via the status bar menu."
+            "openrouter-gpt-4.1-nano"
+          ]
         },
         "bespokeAI.api.customPresets": {
           "type": "array",
@@ -260,7 +239,8 @@
                   "anthropic",
                   "openai-compat",
                   "google",
-                  "openrouter"
+                  "openrouter",
+                  "ollama"
                 ],
                 "description": "API provider type"
               },
@@ -363,6 +343,26 @@
             "Skip all permission checks (use with caution)"
           ],
           "description": "Permission mode for context menu commands (Explain, Fix, Do)"
+        },
+        "bespokeAI.codeOverride.backend": {
+          "type": "string",
+          "enum": [
+            "",
+            "claude-code",
+            "api"
+          ],
+          "default": "",
+          "enumDescriptions": [
+            "Use global default (no code override)",
+            "Claude Code CLI",
+            "Direct API"
+          ],
+          "description": "Backend for code files. Leave empty to use the global default."
+        },
+        "bespokeAI.codeOverride.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model for code files. For Claude Code CLI, a model name (e.g. haiku). For Direct API, a preset ID (e.g. xai-grok-code). Leave empty to use the global default."
         }
       }
     }

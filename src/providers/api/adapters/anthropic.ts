@@ -76,6 +76,7 @@ export class AnthropicAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          aborted: true,
         };
       }
 
@@ -128,6 +129,8 @@ export class AnthropicAdapter implements ApiAdapter {
 function isAbortError(err: unknown): boolean {
   if (err instanceof Error && err.name === 'AbortError') return true;
   if (err instanceof DOMException && err.name === 'AbortError') return true;
+  // Anthropic SDK wraps abort errors
+  if (err instanceof Error && err.message?.includes('aborted')) return true;
   return false;
 }
 
