@@ -216,3 +216,56 @@ describe('trimSuffixOverlap', () => {
     expect(result).toBe('  indented');
   });
 });
+
+describe('mode-gated suffix overlap', () => {
+  it('code mode: trims single-char ] from suffix start', () => {
+    const result = postProcessCompletion('n % 2 == 0]', undefined, ']\n', 'code');
+    expect(result).toBe('n % 2 == 0');
+  });
+
+  it('code mode: trims single-char " from suffix start', () => {
+    const result = postProcessCompletion('file"', undefined, '"\ndone', 'code');
+    expect(result).toBe('file');
+  });
+
+  it('code mode: trims backtick from suffix start', () => {
+    const result = postProcessCompletion('}! Welcome`', undefined, '`;\n}', 'code');
+    expect(result).toBe('}! Welcome');
+  });
+
+  it('code mode: trims } from suffix start', () => {
+    const result = postProcessCompletion('value: 42}', undefined, '}\n', 'code');
+    expect(result).toBe('value: 42');
+  });
+
+  it('code mode: trims multi-char overlap starting at 1 char', () => {
+    const result = postProcessCompletion('result]\n', undefined, ']\nprint(result)', 'code');
+    expect(result).toBe('result');
+  });
+
+  it('prose mode: preserves short overlap below 10-char threshold', () => {
+    // "the end" is 7 chars — prose mode should NOT trim
+    const result = postProcessCompletion('This is the end', undefined, 'the end of the document', 'prose');
+    expect(result).toBe('This is the end');
+  });
+
+  it('prose mode: preserves single-char ] (minOverlap=10)', () => {
+    const result = postProcessCompletion('items]', undefined, ']\n', 'prose');
+    expect(result).toBe('items]');
+  });
+
+  it('no mode specified: uses prose default (minOverlap=10)', () => {
+    const result = postProcessCompletion('items]', undefined, ']\n');
+    expect(result).toBe('items]');
+  });
+
+  it('code mode: does not trim when no overlap exists', () => {
+    const result = postProcessCompletion('some code here', undefined, '}\n', 'code');
+    expect(result).toBe('some code here');
+  });
+
+  it('code mode: handles empty suffix gracefully', () => {
+    const result = postProcessCompletion('some code', undefined, '', 'code');
+    expect(result).toBe('some code');
+  });
+});

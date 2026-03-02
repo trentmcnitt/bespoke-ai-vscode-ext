@@ -4,7 +4,11 @@
  * overlap. Uses whitespace-normalized comparison (min 10 chars to avoid
  * false positives on common short phrases).
  */
-function trimSuffixOverlap(completion: string, suffix: string): string {
+function trimSuffixOverlap(
+  completion: string,
+  suffix: string,
+  mode?: 'prose' | 'code',
+): string {
   if (!suffix) {
     return completion;
   }
@@ -20,7 +24,9 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
   // We scan from the end of the completion backwards, looking for a point
   // where completion[cutPoint:] normalized matches normSuffix[0:matchLen].
   const normCompletion = norm(completion);
-  const minOverlap = 10;
+  // Code mode: min 1 char — closing delimiters (], }, `, ", etc.) are always duplicates.
+  // Prose mode: min 10 chars — avoids false positives on common short phrases.
+  const minOverlap = mode === 'code' ? 1 : 10;
   const maxCheck = Math.min(normCompletion.length, normSuffix.length);
 
   // Find the longest suffix of normCompletion that equals a prefix of normSuffix
@@ -42,6 +48,13 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
   const overlapText = normCompletion.slice(-bestNormLen);
   let oi = overlapText.length - 1; // index into overlap text (from end)
   let ci = completion.length - 1; // index into original completion (from end)
+
+  // Skip trailing whitespace in the original completion before matching.
+  // The normalized overlap text has no trailing whitespace, so any trailing
+  // whitespace in the original completion is not part of the overlap content.
+  while (ci >= 0 && /\s/.test(completion[ci])) {
+    ci--;
+  }
 
   while (oi >= 0 && ci >= 0) {
     if (/\s/.test(overlapText[oi])) {
@@ -117,6 +130,7 @@ export function postProcessCompletion(
   text: string,
   prefix?: string,
   suffix?: string,
+  mode?: 'prose' | 'code',
 ): string | null {
   let result = text;
 
@@ -125,7 +139,7 @@ export function postProcessCompletion(
   }
 
   if (suffix) {
-    result = trimSuffixOverlap(result, suffix);
+    result = trimSuffixOverlap(result, suffix, mode);
   }
 
   result = stripLeakedTags(result);

@@ -108,7 +108,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     }
 
     // Run standard post-processing (prefix enables overlap trimming if model echoes the line fragment)
-    const result = postProcessCompletion(extracted, context.prefix, context.suffix);
+    const result = postProcessCompletion(extracted, context.prefix, context.suffix, context.mode);
 
     if (result !== extracted) {
       this.logger.traceBlock('← processed', result ?? '(null)');

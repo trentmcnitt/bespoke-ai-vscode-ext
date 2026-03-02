@@ -124,6 +124,7 @@ export class ApiCompletionProvider implements CompletionProvider {
       extracted,
       hasPrefill ? undefined : context.prefix,
       context.suffix,
+      context.mode,
     );
 
     if (final !== extracted) {

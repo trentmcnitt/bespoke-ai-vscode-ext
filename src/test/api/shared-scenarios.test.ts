@@ -16,6 +16,7 @@ import {
   getTestBackendConfig,
   makeProseContext,
   makeCodeContext,
+  assertCleanCompletion,
   TestProviderInfo,
   TestUsageEntry,
 } from '../helpers';
@@ -115,6 +116,13 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
     expect(result!.length).toBeGreaterThan(0);
+    assertCleanCompletion(result!);
+    expect(result!.length, 'completion should be > 5 chars').toBeGreaterThan(5);
+    expect(result!.length, 'completion should be < 500 chars').toBeLessThan(500);
+    // Should not start with code syntax
+    expect(result!, 'should not start with code syntax').not.toMatch(
+      /^(const|let|var|function|import|def |class )/,
+    );
 
     totalCost += usage?.costUsd ?? 0;
     totalInputTokens += usage?.inputTokens ?? 0;
@@ -145,6 +153,7 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
     console.log(`[${info!.label} code]:`, result, formatUsage(usage));
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
+    assertCleanCompletion(result!);
 
     totalCost += usage?.costUsd ?? 0;
     totalInputTokens += usage?.inputTokens ?? 0;

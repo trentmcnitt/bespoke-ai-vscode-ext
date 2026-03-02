@@ -4,6 +4,42 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 03-01-26
+
+### Code completion quality sweep — prompt + post-processing improvements
+
+Ran a full quality validation sweep across 4 backends after prompt and post-processing changes made earlier in the session. The changes were: 3 code examples + suffix delimiter rule added to SYSTEM_PROMPT, mode-gated `minOverlap` in `trimSuffixOverlap` (code=1 char, prose=10 chars), and 3 suffix echo regression scenarios.
+
+**New test infrastructure:**
+
+- Created `src/test/quality/rapid-test.ts` — standalone script for fast iteration during prompt engineering (~30-60s per run, 7 cherry-picked scenarios, objective pass/fail criteria)
+- Added 7 new code scenarios to `scenarios.ts`: prefix-only (TS, Python), Java mid-file, YAML config, partial word, deep nesting, empty function body
+
+**Results — code completion pass rates:**
+
+| Backend | Before (pre-changes) | After | Delta |
+|---------|---------------------|-------|-------|
+| CLI haiku | 100% (24/24) | 97% (33/34) | -3% (1 null on new scenario) |
+| xAI Grok | 86.9% (20/23) | 100% (26/26) | **+13.1%** |
+| GPT-4.1 Nano | 56.5% (13/23) | 93.9% (31/33) | **+37.4%** |
+| Anthropic Haiku | (new baseline) | 87.9% (29/33) | — |
+
+**What fixed the failures:**
+
+The 3 code examples in SYSTEM_PROMPT (template literal, list comprehension, shell echo) taught instruction-extraction models to respect suffix delimiters. The mode-gated `minOverlap` (code=1 vs prose=10) in post-processing catches any remaining single-character suffix echoes (closing `]`, `}`, `` ` ``, etc.) without false positives on prose.
+
+No iterative prompt engineering was needed — the pre-existing changes already exceeded all stop criteria (Grok ≥90%, Nano ≥70%).
+
+**Remaining failures:**
+
+- CLI haiku: 1 null on `code-full-py-pipeline-dispatch` (new large-context scenario)
+- GPT-4.1 Nano: 2 failures — `code-mid-file-py-module-full` (prose in docstring, borderline), `regression-code-suffix-echo-shell-quote` (suffix echo in shell quoting)
+- Anthropic Haiku: 4 nulls from "thinking leak" pattern (known prefill extraction issue where model immediately closes `</COMPLETION>` tag)
+
+**Documentation:** Updated reference model set to 9 models (added CLI sonnet and Ollama), added Tested Models section to README.
+
+---
+
 ## 02-28-26
 
 ### OpenRouter rework, pricing removal, extraBody/extraHeaders passthrough

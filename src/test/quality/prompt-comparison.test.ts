@@ -3,17 +3,11 @@
  * the full scenario suite.
  *
  * Usage:
- *   # Compare two variants against all scenarios
- *   PROMPT_VARIANTS=current,prose-optimized npm run test:quality:compare
- *
- *   # Compare three variants, prose only
- *   PROMPT_VARIANTS=current,prose-optimized,minuet COMPARE_FILTER=prose npm run test:quality:compare
+ *   # Run the current baseline against all scenarios
+ *   PROMPT_VARIANTS=current npm run test:quality:compare
  *
  *   # Single variant (backward compatible with old PROMPT_VARIANT usage)
- *   PROMPT_VARIANT=prose-optimized npm run test:quality:compare
- *
- * Available variants: current, hole-filler, minimal-hole-filler,
- *   enhanced-hole-filler, minuet, prose-optimized, prose-v2
+ *   PROMPT_VARIANT=current npm run test:quality:compare
  *
  * Environment variables:
  *   PROMPT_VARIANTS   — Comma-separated list of variant IDs to compare
@@ -76,11 +70,8 @@ if (variantIds.length === 0) {
   console.log('  No variants specified. Set PROMPT_VARIANTS or PROMPT_VARIANT.');
   console.log('  Available variants: ' + getAllVariantIds().join(', '));
   console.log('\n  Examples:');
-  console.log('    PROMPT_VARIANTS=current,prose-optimized npm run test:quality:compare');
+  console.log('    PROMPT_VARIANTS=current npm run test:quality:compare');
   console.log('    PROMPT_VARIANT=current npm run test:quality:compare');
-  console.log(
-    '    PROMPT_VARIANTS=current,minuet COMPARE_FILTER=prose npm run test:quality:compare',
-  );
   console.log('='.repeat(70) + '\n');
 }
 

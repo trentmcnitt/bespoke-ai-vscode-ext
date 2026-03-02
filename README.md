@@ -89,7 +89,7 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 | `openai-gpt-4.1-nano`       | [OpenAI](https://platform.openai.com/)      | gpt-4.1-nano               | `OPENAI_API_KEY`     |
 | `openai-gpt-4o-mini`        | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini                | `OPENAI_API_KEY`     |
 | `google-gemini-flash`       | [Google](https://aistudio.google.com/)      | gemini-2.5-flash           | `GEMINI_API_KEY`     |
-| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-3-fast                | `XAI_API_KEY`        |
+| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-4-1-fast-non-reasoning | `XAI_API_KEY`        |
 | `openrouter-haiku`          | [OpenRouter](https://openrouter.ai/)        | anthropic/claude-haiku-4.5 | `OPENROUTER_API_KEY` |
 | `openrouter-gpt-4.1-nano`   | [OpenRouter](https://openrouter.ai/)        | openai/gpt-4.1-nano        | `OPENROUTER_API_KEY` |
 | `ollama-default`            | [Ollama](https://ollama.com/) (local)       | qwen2.5-coder              | none                 |
@@ -271,6 +271,24 @@ npm run check                     # Lint + type-check
 npm run test:unit                 # Unit tests
 npm run test:quality              # LLM-as-judge quality tests
 ```
+
+### Tested Models
+
+These are the models the quality test suite runs against. Contributors should test prompt changes against at least one model per extraction strategy (e.g., CLI haiku, GPT-4.1 Nano, xAI Grok).
+
+| # | Backend | Preset ID | Model |
+|---|---------|-----------|-------|
+| 1 | CLI | *(default)* | haiku |
+| 2 | CLI | *(default)* | sonnet |
+| 3 | API | `anthropic-haiku` | claude-haiku-4-5-20251001 |
+| 4 | API | `anthropic-sonnet` | claude-sonnet-4-5-20250929 |
+| 5 | API | `openai-gpt-4.1-nano` | gpt-4.1-nano |
+| 6 | API | `google-gemini-flash` | gemini-2.5-flash |
+| 7 | API | `xai-grok` | grok-4-1-fast-non-reasoning |
+| 8 | API | `xai-grok-code` | grok-code-fast-1 |
+| 9 | API | `ollama-default` | qwen2.5-coder:7b |
+
+Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `CLAUDE.md` for testing commands.
 
 ## 🗺️ Roadmap
 

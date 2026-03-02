@@ -956,6 +956,225 @@ export { createLoggingMiddleware, createValidationMiddleware };`,
         'Should complete the href value and link text for a navigation item. Valid HTML.',
     },
   },
+
+  // ── Prefix-only (no suffix) — end-of-file editing ─────────────────
+
+  {
+    id: 'code-ts-prefix-only',
+    description: 'TypeScript function at end of file, no suffix',
+    mode: 'code',
+    languageId: 'typescript',
+    fileName: 'validator.ts',
+    prefix:
+      "import { z } from 'zod';\n\n" +
+      'const emailSchema = z.string().email();\n' +
+      'const passwordSchema = z.string().min(8).max(128);\n\n' +
+      'export function validateRegistration(data: unknown) {\n' +
+      '  const schema = z.object({\n' +
+      '    email: emailSchema,\n' +
+      '    password: passwordSchema,\n' +
+      '    ',
+    suffix: '',
+    saturation: { prefix: 'unsaturated', suffix: 'none' },
+    requirements: {
+      must_not_include: ['```', 'import'],
+      quality_notes:
+        'End-of-file completion. Should add more schema fields (name, confirmPassword, etc.) ' +
+        'and possibly close the object/function. Must be valid TypeScript with Zod syntax.',
+    },
+  },
+  {
+    id: 'code-py-prefix-only',
+    description: 'Python method at end of file, no suffix',
+    mode: 'code',
+    languageId: 'python',
+    fileName: 'cache.py',
+    prefix:
+      'import time\nfrom typing import Any, Optional\n\n\n' +
+      'class TTLCache:\n' +
+      '    """Simple time-to-live cache with max size eviction."""\n\n' +
+      '    def __init__(self, max_size: int = 100, ttl_seconds: float = 300.0):\n' +
+      '        self._store: dict[str, tuple[Any, float]] = {}\n' +
+      '        self._max_size = max_size\n' +
+      '        self._ttl = ttl_seconds\n\n' +
+      '    def get(self, key: str) -> Optional[Any]:\n' +
+      '        ',
+    suffix: '',
+    saturation: { prefix: 'unsaturated', suffix: 'none' },
+    requirements: {
+      must_not_include: ['```', 'import', 'class TTLCache'],
+      quality_notes:
+        'End-of-file completion inside a get() method. Should check if key exists, ' +
+        'verify TTL hasn\'t expired, and return the value or None. Valid Python.',
+    },
+  },
+
+  // ── New languages ─────────────────────────────────────────────────
+
+  {
+    id: 'code-java-mid-file',
+    description: 'Java class method body completion',
+    mode: 'code',
+    languageId: 'java',
+    fileName: 'UserService.java',
+    prefix:
+      'package com.example.service;\n\n' +
+      'import java.util.List;\n' +
+      'import java.util.Optional;\n' +
+      'import java.util.stream.Collectors;\n\n' +
+      'public class UserService {\n' +
+      '    private final UserRepository repository;\n\n' +
+      '    public UserService(UserRepository repository) {\n' +
+      '        this.repository = repository;\n' +
+      '    }\n\n' +
+      '    public List<UserDTO> getActiveUsers() {\n' +
+      '        return repository.findAll().stream()\n' +
+      '            .filter(user -> ',
+    suffix:
+      ')\n' +
+      '            .map(this::toDTO)\n' +
+      '            .collect(Collectors.toList());\n' +
+      '    }\n\n' +
+      '    private UserDTO toDTO(User user) {\n' +
+      '        return new UserDTO(user.getId(), user.getName(), user.getEmail());\n' +
+      '    }\n' +
+      '}',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['```', 'class UserService', 'import'],
+      quality_notes:
+        'Should complete the filter predicate for active users (e.g., user.isActive() or ' +
+        'user.getStatus().equals("ACTIVE")). Must be valid Java lambda expression.',
+    },
+  },
+  {
+    id: 'code-yaml-config',
+    description: 'YAML CI pipeline with missing values',
+    mode: 'code',
+    languageId: 'yaml',
+    fileName: '.github/workflows/ci.yml',
+    prefix:
+      'name: CI\n\n' +
+      'on:\n' +
+      '  push:\n' +
+      '    branches: [main]\n' +
+      '  pull_request:\n' +
+      '    branches: [main]\n\n' +
+      'jobs:\n' +
+      '  test:\n' +
+      '    runs-on: ubuntu-latest\n' +
+      '    steps:\n' +
+      '      - uses: actions/checkout@v4\n' +
+      '      - uses: actions/setup-node@v4\n' +
+      '        with:\n' +
+      '          node-version: ',
+    suffix:
+      '\n      - run: npm ci\n' +
+      '      - run: npm test',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['```', 'name:', 'on:'],
+      quality_notes:
+        'Should provide a node version (e.g., "20", "22", "lts/*"). ' +
+        'Must be a valid YAML value that fits in context. Should not repeat prior lines.',
+    },
+  },
+
+  // ── Messy edge cases ──────────────────────────────────────────────
+
+  {
+    id: 'code-ts-partial-word',
+    description: 'Cursor mid-identifier in TypeScript',
+    mode: 'code',
+    languageId: 'typescript',
+    fileName: 'form.ts',
+    prefix:
+      "import { useState } from 'react';\n\n" +
+      'interface FormState {\n' +
+      '  email: string;\n' +
+      '  password: string;\n' +
+      '  errors: Record<string, string>;\n' +
+      '}\n\n' +
+      'export function useLoginForm() {\n' +
+      '  const [state, setState] = useState<FormState>({\n' +
+      '    email: \'\',\n' +
+      '    password: \'\',\n' +
+      '    errors: {},\n' +
+      '  });\n\n' +
+      '  const handleSu',
+    suffix:
+      '\n\n' +
+      '  return { state, handleSubmit: handleSu',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['```', 'import', 'interface FormState'],
+      quality_notes:
+        'Cursor is mid-word "handleSu". The completion must continue the identifier ' +
+        '(e.g., "bmit = async () => {") and then implement the function body. ' +
+        'Must NOT restart the word or add a new declaration. The suffix references ' +
+        '"handleSu" too, confirming the function name is "handleSubmit".',
+    },
+  },
+  {
+    id: 'code-py-deep-nesting',
+    description: 'Python with 4+ indent levels, nested dict comprehension',
+    mode: 'code',
+    languageId: 'python',
+    fileName: 'transform.py',
+    prefix:
+      'from typing import Any\n\n\n' +
+      'def normalize_records(records: list[dict[str, Any]], schema: dict) -> list[dict]:\n' +
+      '    """Normalize records according to schema, grouping by category."""\n' +
+      '    result = []\n' +
+      '    for record in records:\n' +
+      '        if record.get("status") == "active":\n' +
+      '            category = record.get("category", "uncategorized")\n' +
+      '            fields = schema.get(category, {})\n' +
+      '            if fields:\n' +
+      '                normalized = {\n' +
+      '                    field_name: ',
+    suffix:
+      '\n' +
+      '                    for field_name, field_type in fields.items()\n' +
+      '                    if field_name in record\n' +
+      '                }\n' +
+      '                result.append(normalized)\n' +
+      '    return result',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['```', 'def normalize', 'import'],
+      quality_notes:
+        'Deep nesting (4 levels). Cursor is inside a dict comprehension value expression. ' +
+        'Should provide a type coercion or extraction expression using field_type and record ' +
+        '(e.g., field_type(record[field_name]) or record.get(field_name)). ' +
+        'The suffix shows the comprehension continues with for/if clauses.',
+    },
+  },
+  {
+    id: 'code-ts-empty-body',
+    description: 'Empty function body, suffix is just closing brace',
+    mode: 'code',
+    languageId: 'typescript',
+    fileName: 'middleware.ts',
+    prefix:
+      "import { Request, Response, NextFunction } from 'express';\n\n" +
+      '/** Rate limiter middleware — max 100 requests per minute per IP. */\n' +
+      'export function rateLimiter() {\n' +
+      '  const windowMs = 60_000;\n' +
+      '  const maxRequests = 100;\n' +
+      '  const hits = new Map<string, { count: number; resetAt: number }>();\n\n' +
+      '  return (req: Request, res: Response, next: NextFunction) => {\n' +
+      '    ',
+    suffix: '\n  };\n}',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['```', 'import', 'export function rateLimiter'],
+      quality_notes:
+        'Empty middleware body to fill. Should implement rate limiting logic: get IP from req, ' +
+        'check/update hits map, return 429 if over limit, call next() if under. ' +
+        'Must use the declared variables (windowMs, maxRequests, hits). Valid TypeScript.',
+    },
+  },
 ];
 
 // ─── EDGE CASE SCENARIOS ────────────────────────────────────────────

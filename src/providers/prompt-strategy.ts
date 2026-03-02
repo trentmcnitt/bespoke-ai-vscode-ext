@@ -62,7 +62,20 @@ Can you check if the migration handles nullable columns? Also {{FILL_HERE}}
 <COMPLETION>verify that the rollback script actually restores the previous schema — last time it silently dropped the index on user_id.</COMPLETION>
 
 The build was taking 4 minutes on every push. {{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
-<COMPLETION>That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>`;
+<COMPLETION>That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>
+
+Code examples — suffix delimiters are already in the document, never repeat them:
+
+return \`Hello, \${name{{FILL_HERE}}\`;\n}
+<COMPLETION>}! Welcome aboard</COMPLETION>
+
+evens = [n for n in range(20) if {{FILL_HERE}}]\nprint(evens)
+<COMPLETION>n % 2 == 0</COMPLETION>
+
+echo "Processing \${{FILL_HERE}}"\ndone
+<COMPLETION>file</COMPLETION>
+
+Code suffix rule: when the text after {{FILL_HERE}} starts with a closing delimiter (] } ) \` " ' ;), that delimiter is ALREADY in the document. Your output must stop BEFORE it — never include it.`;
 
 /** Build the per-request message from prefix + suffix context. */
 export function buildFillMessage(
@@ -151,14 +164,39 @@ export const prefillExtraction: PromptStrategy = {
   },
   extractCompletion(raw: string): string | null {
     // With prefill, the model's response continues from the prefill.
-    // The full response is: prefill + model output.
-    // We need to extract from <COMPLETION> tags if present,
-    // but the prefill already includes the opening tag.
-    // The raw text here is what the model returned AFTER the prefill,
-    // so we just need the closing tag.
-    const close = raw.lastIndexOf('</COMPLETION>');
+    // The raw text is what the model returned AFTER the prefill
+    // (which already includes the opening <COMPLETION> tag + anchor).
+    //
+    // Anthropic models sometimes exhibit a "thinking leak" pattern:
+    // they immediately close the tag (</COMPLETION>), produce thinking
+    // text, then re-open a new <COMPLETION> block with the real content.
+    //
+    // Strategy: use indexOf to find the first </COMPLETION>. If the
+    // content before it is substantive, use it (handles clean responses
+    // and "valid-first-then-think" patterns). If empty, look for a
+    // second <COMPLETION>...</COMPLETION> pair (the model's retry after
+    // thinking).
+    const close = raw.indexOf('</COMPLETION>');
     if (close !== -1) {
-      return raw.slice(0, close);
+      const content = raw.slice(0, close);
+      if (content.trim()) {
+        return content;
+      }
+      // Immediate close — model may have started thinking then retried.
+      // Look for a second <COMPLETION>...</COMPLETION> pair.
+      const secondOpen = raw.indexOf('<COMPLETION>', close);
+      if (secondOpen !== -1) {
+        const afterOpen = secondOpen + '<COMPLETION>'.length;
+        const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
+        if (secondClose !== -1) {
+          const retryContent = raw.slice(afterOpen, secondClose);
+          if (retryContent.trim()) {
+            return retryContent;
+          }
+        }
+      }
+      // No usable content found
+      return null;
     }
     return raw; // fallback: no closing tag, use raw text
   },

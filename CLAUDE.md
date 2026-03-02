@@ -350,6 +350,13 @@ If completions stop working entirely:
 
 ## Testing
 
+### Reference Model Set
+
+Test prompt changes against at least one model per extraction strategy. The minimum set is CLI haiku, `openai-gpt-4.1-nano`, and `xai-grok`. See the full tested models table in `README.md` under "Tested Models".
+
+- **CLI:** haiku (primary dev target), sonnet
+- **API:** `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `google-gemini-flash`, `xai-grok`, `xai-grok-code`, `ollama-default`
+
 ### Testing Philosophy
 
 Quality tests are our primary mechanism for validating that autocomplete works well in real-world conditions. There is no other systematic way to know — inline completions are subjective, context-dependent, and fail silently (the user just dismisses bad ghost text). Therefore, the quality of the AI is a function of two things:
@@ -488,11 +495,8 @@ The comparison runner (`npm run test:quality:compare`) is a general-purpose A/B/
 **Usage:**
 
 ```bash
-# Compare two variants against all scenarios
-PROMPT_VARIANTS=current,prose-optimized npm run test:quality:compare
-
-# Compare three variants, prose scenarios only
-PROMPT_VARIANTS=current,prose-optimized,minuet COMPARE_FILTER=prose npm run test:quality:compare
+# Run the current baseline against all scenarios
+PROMPT_VARIANTS=current npm run test:quality:compare
 
 # Single variant (backward compat)
 PROMPT_VARIANT=current npm run test:quality:compare
@@ -507,7 +511,7 @@ PROMPT_VARIANT=current npm run test:quality:compare
 | `COMPARE_FILTER`  | Filter by mode: `prose`, `code`, or `all` (default: `all`) |
 | `TEST_MODEL`      | Override the Claude Code model                             |
 
-**Available variants:** `current` (production baseline), `hole-filler` (Continue.dev/Taelin), `minimal-hole-filler` (Taelin v2), `enhanced-hole-filler` (Kilo Code), `minuet` (Minuet suffix-first), `prose-optimized` (custom). The `current` variant imports directly from `src/providers/claude-code.ts` so it stays in sync with production automatically.
+**Available variants:** `current` (production baseline). The `current` variant imports directly from `src/providers/claude-code.ts` so it stays in sync with production automatically. To add a new variant, add a `PromptVariant` object to `prompt-variants.ts` and register it in the `PROMPT_VARIANTS` record.
 
 **Output:** Results go to `test-results/compare-{timestamp}/{variant-id}/{scenario-id}/` with the same per-scenario files as the main runner (`input.json`, `completion.txt`, `raw-response.txt`, `sent-message.txt`, `requirements.json`, `metadata.json`). A `summary.json` at the run root has per-variant aggregates (generated count, nulls, errors, duration). The `test-results/latest-compare` symlink points to the most recent run.
 

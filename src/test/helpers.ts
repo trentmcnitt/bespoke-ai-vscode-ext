@@ -537,6 +537,36 @@ export function assertCleanCompletion(result: string): void {
   }
 }
 
+/**
+ * Assert that the completion does not echo the suffix's leading delimiter.
+ *
+ * Checks whether the completion's last non-whitespace character matches the
+ * first non-whitespace character of the suffix. A match indicates the model
+ * duplicated a closing delimiter that is already in the document (e.g., `]`,
+ * `` ` ``, `"`, `}`).
+ *
+ * Only flags single-char delimiter matches — longer overlaps are handled by
+ * the suffix overlap trimming in post-processing.
+ */
+export function assertNoSuffixEcho(completion: string, suffix: string): void {
+  if (!suffix) return;
+  const trimmedCompletion = completion.trimEnd();
+  const trimmedSuffix = suffix.trimStart();
+  if (!trimmedCompletion || !trimmedSuffix) return;
+
+  const lastChar = trimmedCompletion[trimmedCompletion.length - 1];
+  const firstSuffixChar = trimmedSuffix[0];
+  const DELIMITERS = new Set([']', '}', ')', '`', '"', "'", ';']);
+
+  if (DELIMITERS.has(firstSuffixChar) && lastChar === firstSuffixChar) {
+    expect.fail(
+      `Suffix echo: completion ends with "${lastChar}" which duplicates the suffix's leading "${firstSuffixChar}".\n` +
+        `Completion tail: ...${trimmedCompletion.slice(-20)}\n` +
+        `Suffix start: ${trimmedSuffix.slice(0, 20)}...`,
+    );
+  }
+}
+
 // ─── Tree-sitter language loaders (lazy, cached) ────────────────
 
 type TreeSitterParser = {
