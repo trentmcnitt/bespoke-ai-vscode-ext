@@ -2,12 +2,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from './logger';
 
-export type LedgerSource = 'completion' | 'commit-message' | 'suggest-edit' | 'warmup' | 'startup';
+export type LedgerSource =
+  | 'completion'
+  | 'command'
+  | 'commit-message'
+  | 'suggest-edit'
+  | 'warmup'
+  | 'startup';
 
 export interface LedgerEntry {
   ts: number;
   source: LedgerSource;
   model: string;
+  backend?: 'claude-code' | 'api';
   project?: string;
   durationMs: number;
   durationApiMs?: number;
@@ -27,7 +34,6 @@ export interface PeriodStats {
   startups: number;
   inputTokens: number;
   outputTokens: number;
-  costUsd: number;
   durationMs: number;
 }
 
@@ -47,7 +53,7 @@ const ROTATION_THRESHOLD = 1_048_576;
 const ARCHIVE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 1 month
 
 function emptyStats(): PeriodStats {
-  return { requests: 0, startups: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 0 };
+  return { requests: 0, startups: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 };
 }
 
 function addToStats(stats: PeriodStats, entry: LedgerEntry): void {
@@ -58,7 +64,6 @@ function addToStats(stats: PeriodStats, entry: LedgerEntry): void {
   }
   stats.inputTokens += entry.inputTokens ?? 0;
   stats.outputTokens += entry.outputTokens ?? 0;
-  stats.costUsd += entry.costUsd ?? 0;
   stats.durationMs += entry.durationMs;
 }
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+## 0.8.0 — API Backend
+
+- **API backend:** The extension now works without a Claude subscription. Set `bespokeAI.backend` to `"api"` and provide an API key (via environment variable or `~/.creds/api-keys.env`) to use Anthropic, OpenAI, xAI, Google Gemini, OpenRouter, or local Ollama models for completions, commit messages, and suggest-edits.
+- **13 built-in presets:** `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4o-mini`, `openai-gpt-4.1-nano`, `xai-grok`, `xai-grok-code`, `xai-grok-4`, `google-gemini-flash`, `openrouter-haiku`, `openrouter-gpt-4.1-nano`, `ollama-default`, `ollama-qwen3-4b`, `ollama-qwen3-8b`. Switch via the status bar menu or `bespokeAI.api.preset`.
+- **Code override:** New `bespokeAI.codeOverride.backend` and `bespokeAI.codeOverride.model` settings let you route code completions to a different backend/model than prose (e.g., Claude Code CLI for writing, xAI Grok for code).
+- **Secure API key management:** "Enter API Key" command stores keys in the OS keychain via VS Code SecretStorage, with graceful fallback to environment variables and `~/.creds/api-keys.env`.
+- **Custom model wizard:** "Add Custom Model" command provides a guided setup flow for adding custom API presets.
+- **Extra API passthrough:** Custom presets support `extraBody` and `extraHeaders` for provider-specific API configuration (e.g., OpenRouter `transforms`, `provider` routing).
+- **Shared prompt strategy:** Extracted a unified prompt module (`prompt-strategy.ts`) shared by both backends. Three extraction strategies (tag, prefill, instruction) handle differences between model providers while keeping prompts consistent.
+- **Backend router:** New `BackendRouter` transparently routes completions and commands to the active backend. Commit messages and suggest-edits work in both CLI and API modes.
+- **Context menu scoping:** Explain, Fix, and Do commands are hidden when the API backend is active (they require Claude Code CLI).
+- **Circuit breaker:** API providers include a circuit breaker — 5 consecutive failures pauses requests for 30 seconds, then auto-recovers.
+- **Default preset changed:** Default API preset is now `xai-grok` (was `anthropic-haiku`).
+- **Default CLI model changed:** Default Claude Code model is now `sonnet` (was `haiku`).
+
 ## 0.7.1 — Launch Prep
 
 - **GitHub Issues enabled** for bug reports and feature requests.

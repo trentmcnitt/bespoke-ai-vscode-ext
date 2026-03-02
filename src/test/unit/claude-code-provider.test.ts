@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  ClaudeCodeProvider,
-  extractCompletion,
-  buildFillMessage,
-  WARMUP_PREFIX,
-  WARMUP_SUFFIX,
-} from '../../providers/claude-code';
+import { ClaudeCodeProvider, WARMUP_PREFIX, WARMUP_SUFFIX } from '../../providers/claude-code';
+import { extractCompletion, buildFillMessage } from '../../providers/prompt-strategy';
 import {
   makeConfig,
   makeProseContext,

@@ -2,14 +2,17 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { expect } from 'vitest';
-import { CompletionContext, DEFAULT_MODEL, ExtensionConfig } from '../types';
+import * as ts from 'typescript';
+import { CompletionContext, CompletionProvider, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
-import { extractCompletion, WARMUP_EXPECTED } from '../providers/claude-code';
+import { extractCompletion } from '../providers/prompt-strategy';
+import { WARMUP_EXPECTED } from '../providers/claude-code';
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
   mode: 'auto',
+  backend: 'claude-code',
   triggerPreset: 'relaxed',
   triggerMode: 'auto',
   debounceMs: 2000,
@@ -23,6 +26,11 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     suffixChars: 2000,
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
+  api: {
+    preset: 'xai-grok',
+    customPresets: [],
+  },
+  codeOverride: { backend: '', model: '' },
   contextMenu: { permissionMode: 'default' },
   logLevel: 'info',
 };
@@ -32,6 +40,8 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     ...DEFAULT_CONFIG,
     ...overrides,
     claudeCode: { ...DEFAULT_CONFIG.claudeCode, ...overrides.claudeCode },
+    api: { ...DEFAULT_CONFIG.api, ...overrides.api },
+    codeOverride: { ...DEFAULT_CONFIG.codeOverride, ...overrides.codeOverride },
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
     contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },
@@ -330,4 +340,339 @@ export function consumeIterable(iterable: AsyncIterable<unknown>, fakeStream: Fa
   })().catch(() => {
     /* channel closed */
   });
+}
+
+// ─── Backend-agnostic test provider factory ─────────────────────
+
+/** Usage data from the last provider request, read from the temp ledger. */
+export interface TestUsageEntry {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  costUsd?: number;
+  durationMs?: number;
+}
+
+/** Info returned by createTestProvider(). */
+export interface TestProviderInfo {
+  provider: CompletionProvider;
+  /** Human-readable label, e.g. "claude-code/haiku" or "api/anthropic-haiku". */
+  label: string;
+  backend: 'claude-code' | 'api';
+  /** Call in beforeAll — activates Claude Code pool (no-op for API). */
+  activate: () => Promise<void>;
+  /** Call in afterAll — cleans up resources. */
+  dispose: () => void;
+  /** Read the last usage entry recorded by the provider. Returns null if no entry. */
+  getLastUsage: () => TestUsageEntry | null;
+}
+
+/**
+ * Read the test backend configuration from environment variables.
+ *
+ * - `TEST_BACKEND` — `claude-code` (default) or `api`
+ * - `TEST_API_PRESET` — preset ID when using API backend (default: `anthropic-haiku`)
+ */
+export function getTestBackendConfig(): { backend: 'claude-code' | 'api'; preset: string } {
+  const raw = process.env.TEST_BACKEND ?? 'claude-code';
+  if (raw !== 'claude-code' && raw !== 'api') {
+    throw new Error(`Invalid TEST_BACKEND="${raw}". Must be "claude-code" or "api".`);
+  }
+  const preset = process.env.TEST_API_PRESET ?? 'anthropic-haiku';
+  return { backend: raw, preset };
+}
+
+/**
+ * Create a CompletionProvider for integration tests based on env vars.
+ *
+ * Returns `null` when the required backend is unavailable (missing SDK or API key).
+ *
+ * Usage:
+ *   const info = await createTestProvider();
+ *   if (!info) return;  // skip
+ *   await info.activate();  // no-op for API
+ *   const result = await info.provider.getCompletion(ctx, signal);
+ *   info.dispose();
+ */
+/** Read the last JSONL line from a ledger file and extract usage fields. */
+function readLastLedgerEntry(filePath: string): TestUsageEntry | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return null;
+
+    const entry = JSON.parse(lines[lines.length - 1]);
+    return {
+      model: entry.model,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      cacheReadTokens: entry.cacheReadTokens,
+      costUsd: entry.costUsd,
+      durationMs: entry.durationMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function createTestProvider(logger?: Logger): Promise<TestProviderInfo | null> {
+  const { backend, preset } = getTestBackendConfig();
+  const log = logger ?? makeLogger();
+
+  if (backend === 'claude-code') {
+    // Dynamic import — module may not be installed
+    let sdkAvailable = false;
+    try {
+      const sdk = await import('@anthropic-ai/claude-agent-sdk');
+      const queryFn = sdk.query ?? sdk.default?.query;
+      sdkAvailable = typeof queryFn === 'function';
+    } catch {
+      sdkAvailable = false;
+    }
+    if (!sdkAvailable) return null;
+
+    const { ClaudeCodeProvider } = await import('../providers/claude-code');
+    const config = makeConfig({
+      claudeCode: { model: getTestModel(), models: ['haiku', 'sonnet', 'opus'] },
+    });
+    const provider = new ClaudeCodeProvider(config, log);
+    const { ledger, filePath: ledgerPath } = makeLedger();
+    provider.setLedger(ledger);
+
+    return {
+      provider,
+      label: `claude-code/${getTestModel()}`,
+      backend: 'claude-code',
+      activate: () => provider.activate(),
+      dispose: () => provider.dispose(),
+      getLastUsage: () => readLastLedgerEntry(ledgerPath),
+    };
+  }
+
+  if (backend === 'api') {
+    const { clearApiKeyCache } = await import('../utils/api-key-store');
+    const { ApiCompletionProvider } = await import('../providers/api/api-provider');
+    clearApiKeyCache();
+
+    const { ledger, filePath: ledgerPath } = makeLedger();
+    const config = makeConfig({
+      backend: 'api',
+      api: { preset, customPresets: [] },
+    });
+    const provider = new ApiCompletionProvider(config, log, ledger);
+
+    if (!provider.isAvailable()) return null;
+
+    return {
+      provider,
+      label: `api/${preset}`,
+      backend: 'api',
+      activate: async () => {}, // API providers are ready immediately
+      dispose: () => provider.dispose(),
+      getLastUsage: () => readLastLedgerEntry(ledgerPath),
+    };
+  }
+
+  return null;
+}
+
+// ─── Content validation helpers ─────────────────────────────────
+
+/**
+ * Scaffolding patterns — these are prompt construction artifacts that
+ * should NEVER appear in user-facing completions. Checked across the
+ * entire completion string.
+ */
+const SCAFFOLDING_PATTERNS = [
+  { pattern: /<\/?COMPLETION>/, label: '<COMPLETION> tag' },
+  { pattern: /\{\{FILL_HERE\}\}/, label: '{{FILL_HERE}} marker' },
+  { pattern: /<\/?document>/, label: '<document> tag' },
+];
+
+/**
+ * Preamble phrases that indicate the model switched to assistant voice.
+ * Only checked at the very start of the completion (after trimming
+ * whitespace) to avoid false positives from model thinking artifacts
+ * that appear later in the output.
+ */
+const PREAMBLE_PHRASES = [
+  /^Sure[,!.]/i,
+  /^Here'?s\b/i,
+  /^Here is\b/i,
+  /^Absolutely[,!.]/i,
+  /^Of course[,!.]/i,
+  /^Got it[,!.]/i,
+  /^Understood[,!.]/i,
+  /^I'd be happy\b/i,
+  /^Let me\b/i,
+  /^I can\b/i,
+  /^I'll\b/i,
+];
+
+/**
+ * Assert completion has no tag leaks, scaffolding, or leading preambles.
+ *
+ * - Scaffolding tags (COMPLETION, FILL_HERE, document) are checked across
+ *   the entire string — these are always bugs.
+ * - Code fences are checked only at the very start — fences within model
+ *   thinking text deeper in the completion are not flagged.
+ * - Assistant preambles are checked only against the trimmed start — this
+ *   avoids false positives from "Wait, let me reconsider" thinking blocks
+ *   that some models produce after the actual completion content.
+ */
+export function assertCleanCompletion(result: string): void {
+  for (const { pattern, label } of SCAFFOLDING_PATTERNS) {
+    expect(result, `Leaked scaffolding: ${label}`).not.toMatch(pattern);
+  }
+  // Fence check: only at the very start of the completion
+  expect(result, 'Completion starts with code fence').not.toMatch(/^```/);
+  // Preamble check: only at the trimmed start
+  const trimmed = result.trimStart();
+  for (const pattern of PREAMBLE_PHRASES) {
+    expect(trimmed, `Assistant preamble at start: ${pattern}`).not.toMatch(pattern);
+  }
+}
+
+/**
+ * Assert that the completion does not echo the suffix's leading delimiter.
+ *
+ * Checks whether the completion's last non-whitespace character matches the
+ * first non-whitespace character of the suffix. A match indicates the model
+ * duplicated a closing delimiter that is already in the document (e.g., `]`,
+ * `` ` ``, `"`, `}`).
+ *
+ * Only flags single-char delimiter matches — longer overlaps are handled by
+ * the suffix overlap trimming in post-processing.
+ */
+export function assertNoSuffixEcho(completion: string, suffix: string): void {
+  if (!suffix) return;
+  const trimmedCompletion = completion.trimEnd();
+  const trimmedSuffix = suffix.trimStart();
+  if (!trimmedCompletion || !trimmedSuffix) return;
+
+  const lastChar = trimmedCompletion[trimmedCompletion.length - 1];
+  const firstSuffixChar = trimmedSuffix[0];
+  const DELIMITERS = new Set([']', '}', ')', '`', '"', "'", ';']);
+
+  if (DELIMITERS.has(firstSuffixChar) && lastChar === firstSuffixChar) {
+    expect.fail(
+      `Suffix echo: completion ends with "${lastChar}" which duplicates the suffix's leading "${firstSuffixChar}".\n` +
+        `Completion tail: ...${trimmedCompletion.slice(-20)}\n` +
+        `Suffix start: ${trimmedSuffix.slice(0, 20)}...`,
+    );
+  }
+}
+
+// ─── Tree-sitter language loaders (lazy, cached) ────────────────
+
+type TreeSitterParser = {
+  setLanguage(lang: unknown): void;
+  parse(input: string): { rootNode: { toString(): string } };
+};
+
+/** Cache of loaded tree-sitter language grammars. */
+const treeSitterCache = new Map<string, unknown>();
+
+/**
+ * Dynamically load a tree-sitter language grammar.
+ * Returns null if the package isn't installed.
+ */
+async function loadTreeSitterLang(languageId: string): Promise<unknown | null> {
+  if (treeSitterCache.has(languageId)) return treeSitterCache.get(languageId)!;
+
+  const pkgMap: Record<string, string> = {
+    python: 'tree-sitter-python',
+    go: 'tree-sitter-go',
+    rust: 'tree-sitter-rust',
+    html: 'tree-sitter-html',
+    css: 'tree-sitter-css',
+    shellscript: 'tree-sitter-bash',
+    bash: 'tree-sitter-bash',
+  };
+
+  const pkg = pkgMap[languageId];
+  if (!pkg) return null;
+
+  try {
+    const mod = await import(pkg);
+    const lang = mod.default ?? mod;
+    treeSitterCache.set(languageId, lang);
+    return lang;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse prefix + completion + suffix and check for syntax errors.
+ *
+ * Uses tree-sitter for Python/Go/Rust/HTML/CSS/Bash/Shell,
+ * TypeScript compiler API for TS/JS, JSON.parse for JSON.
+ *
+ * Call only on scenarios where the combined text is expected to be
+ * syntactically valid — not all prefix+suffix combos form complete files.
+ */
+export async function assertValidSyntax(
+  prefix: string,
+  completion: string,
+  suffix: string,
+  languageId: string,
+): Promise<void> {
+  const full = prefix + completion + suffix;
+
+  // TypeScript / JavaScript — use the TS compiler parser
+  if (languageId === 'typescript' || languageId === 'javascript') {
+    const scriptKind = languageId === 'typescript' ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+    const sourceFile = ts.createSourceFile(
+      'test.ts',
+      full,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind,
+    );
+    const diagnostics = (sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] })
+      .parseDiagnostics;
+    if (diagnostics && diagnostics.length > 0) {
+      const msgs = diagnostics
+        .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+        .join('; ');
+      expect.fail(`TypeScript parse errors: ${msgs}\n\nFull text:\n${full}`);
+    }
+    return;
+  }
+
+  // JSON — use built-in JSON.parse
+  if (languageId === 'json' || languageId === 'jsonc') {
+    try {
+      JSON.parse(full);
+    } catch (e) {
+      expect.fail(`JSON parse error: ${(e as Error).message}\n\nFull text:\n${full}`);
+    }
+    return;
+  }
+
+  // Tree-sitter languages
+  const lang = await loadTreeSitterLang(languageId);
+  if (!lang) {
+    // Language not supported — skip silently
+    return;
+  }
+
+  const Parser = (await import('tree-sitter')).default ?? (await import('tree-sitter'));
+  const parser = new Parser() as TreeSitterParser;
+  parser.setLanguage(lang);
+
+  const tree = parser.parse(full);
+  const sExpr = tree.rootNode.toString();
+
+  if (sExpr.includes('ERROR') || sExpr.includes('MISSING')) {
+    expect.fail(
+      `Syntax errors in ${languageId} parse tree.\n\nS-expression (first 500 chars):\n${sExpr.slice(0, 500)}\n\nFull text:\n${full}`,
+    );
+  }
 }

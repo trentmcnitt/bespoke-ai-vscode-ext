@@ -150,7 +150,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     // Log request start with structured format
     this.logger.requestStart(reqId, {
       mode,
-      backend: 'claude-code',
+      backend: this.config.backend ?? 'claude-code',
       file: docContext.fileName,
       prefixLen: docContext.prefix.length,
       suffixLen: docContext.suffix.length,
@@ -187,7 +187,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
       // Record successful completion in usage tracker
       const inputChars = docContext.prefix.length + docContext.suffix.length;
-      this.tracker?.record(this.config.claudeCode.model, inputChars, result.length);
+      const modelLabel =
+        this.config.backend === 'api' ? this.config.api.preset : this.config.claudeCode.model;
+      this.tracker?.record(modelLabel, inputChars, result.length);
 
       // Cache and return
       this.cache.set(cacheKey, result);

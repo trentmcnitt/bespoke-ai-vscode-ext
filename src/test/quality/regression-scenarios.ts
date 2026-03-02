@@ -440,4 +440,103 @@ export const regressionScenarios: RegressionScenario[] = [
         'to complete the salient incomplete text at the END of the suffix instead of the cursor position.',
     },
   },
+  {
+    id: 'regression-code-suffix-echo-template-literal',
+    description: 'Model echoes backtick/semicolon from suffix when completing template literal',
+    observedModel: 'cross-backend (8/10 backends)',
+    observedDate: '2026-03-01',
+    regression_notes:
+      'In a template literal interpolation, the suffix starts with "`;" (closing backtick and ' +
+      'semicolon). 8 out of 10 backends echoed these characters in the completion, producing ' +
+      'doubled delimiters like "}`;" when the document already has "`;" after the cursor. ' +
+      'The completion should close the interpolation with "}" and optionally add content, but ' +
+      'must NOT include the backtick or semicolon that are already in the suffix.',
+    mode: 'code',
+    languageId: 'typescript',
+    fileName: 'user-service.ts',
+    prefix:
+      'import { Request, Response } from \'express\';\n\n' +
+      'interface User {\n' +
+      '  id: string;\n' +
+      '  displayName: string;\n' +
+      '  email: string;\n' +
+      '}\n\n' +
+      'function formatWelcome(user: User): string {\n' +
+      '  const greeting = user.displayName || \'there\';\n' +
+      '  return `Hello, ${greeting',
+    suffix: '`;\n}',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['`;\n}', '`;'],
+      quality_notes:
+        'The suffix starts with "`;" — the closing backtick and semicolon are ALREADY in the ' +
+        'document. The completion should close the ${} interpolation and optionally add more ' +
+        'template content, but must NOT end with "`" or "`;" since those are already present.',
+    },
+  },
+  {
+    id: 'regression-code-suffix-echo-list-bracket',
+    description: 'Model echoes closing bracket from suffix when completing list comprehension',
+    observedModel: 'cross-backend (2/10 backends)',
+    observedDate: '2026-03-01',
+    regression_notes:
+      'In a Python list comprehension, the suffix starts with "]". 2 out of 10 backends ' +
+      'included the closing bracket in the completion, producing a doubled "]" when the document ' +
+      'already has one after the cursor. The completion should provide the filter expression only.',
+    mode: 'code',
+    languageId: 'python',
+    fileName: 'user_report.py',
+    prefix:
+      'import csv\n' +
+      'from pathlib import Path\n' +
+      'from typing import List, Dict\n\n' +
+      'def load_records(filepath: Path) -> List[Dict[str, str]]:\n' +
+      '    """Load CSV records and return rows as dicts."""\n' +
+      '    with open(filepath) as f:\n' +
+      '        return list(csv.DictReader(f))\n\n' +
+      'def get_active_users(records: List[Dict[str, str]]) -> List[str]:\n' +
+      '    """Return names of users with active status."""\n' +
+      '    return [r["name"] for r in records if ',
+    suffix: ']\n',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: [']'],
+      quality_notes:
+        'The suffix starts with "]" — the closing bracket is ALREADY in the document. The ' +
+        'completion should provide only the filter condition (e.g., r["status"] == "active"). ' +
+        'It must NOT end with "]" since that would duplicate the existing bracket.',
+    },
+  },
+  {
+    id: 'regression-code-suffix-echo-shell-quote',
+    description: 'Model echoes closing double-quote from suffix when completing shell variable',
+    observedModel: 'cross-backend (3/10 backends)',
+    observedDate: '2026-03-01',
+    regression_notes:
+      'In a shell for loop, the suffix starts with "\\"\ndone". 3 out of 10 backends included ' +
+      'the closing double-quote in the completion, producing a doubled quote when the document ' +
+      'already has one after the cursor. The completion should provide the variable reference only.',
+    mode: 'code',
+    languageId: 'shellscript',
+    fileName: 'log-rotate.sh',
+    prefix:
+      '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n\n' +
+      'LOG_DIR="/var/log/myapp"\n' +
+      'ARCHIVE_DIR="/var/log/myapp/archive"\n\n' +
+      'rotate_logs() {\n' +
+      '  local max_age_days="${1:-7}"\n' +
+      '  mkdir -p "$ARCHIVE_DIR"\n\n' +
+      '  for file in "$LOG_DIR"/*.log; do\n' +
+      '    echo "Processing $',
+    suffix: '"\n  done\n}',
+    saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
+    requirements: {
+      must_not_include: ['"'],
+      quality_notes:
+        'The suffix starts with "\\"" — the closing double-quote is ALREADY in the document. The ' +
+        'completion should provide the shell variable expansion (e.g., "file" or "{file}") ' +
+        'without including the trailing double-quote.',
+    },
+  },
 ];

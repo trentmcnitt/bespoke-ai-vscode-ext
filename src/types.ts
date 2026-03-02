@@ -2,7 +2,7 @@ export type CompletionMode = 'prose' | 'code';
 
 /** Default model used throughout the extension and tests.
  *  Keep in sync with the "default" value in package.json (bespokeAI.claudeCode.model). */
-export const DEFAULT_MODEL = 'haiku';
+export const DEFAULT_MODEL = 'sonnet';
 
 /** Trigger presets control when completions appear. */
 export type TriggerPreset = 'relaxed' | 'eager' | 'on-demand';
@@ -36,7 +36,7 @@ export function resolvePreset(input: PresetResolutionInput): {
   debounceMs: number;
 } {
   let triggerPreset: TriggerPreset;
-  if (input.presetExplicitlySet) {
+  if (input.presetExplicitlySet && input.presetValue in TRIGGER_PRESET_DEFAULTS) {
     triggerPreset = input.presetValue as TriggerPreset;
   } else if (input.triggerModeExplicitlySet && input.triggerModeValue === 'manual') {
     triggerPreset = 'on-demand';
@@ -68,9 +68,22 @@ export interface CompletionProvider {
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
+export interface CustomPreset {
+  name: string;
+  provider: 'anthropic' | 'openai-compat' | 'google' | 'openrouter' | 'ollama';
+  modelId: string;
+  baseUrl?: string;
+  apiKeyEnvVar?: string;
+  maxTokens?: number;
+  temperature?: number;
+  extraBody?: Record<string, unknown>;
+  extraHeaders?: Record<string, string>;
+}
+
 export interface ExtensionConfig {
   enabled: boolean;
   mode: 'auto' | 'prose' | 'code';
+  backend: 'claude-code' | 'api';
   triggerPreset: TriggerPreset;
   triggerMode: 'auto' | 'manual';
   debounceMs: number;
@@ -86,6 +99,14 @@ export interface ExtensionConfig {
   claudeCode: {
     model: string;
     models: string[];
+  };
+  api: {
+    preset: string;
+    customPresets: CustomPreset[];
+  };
+  codeOverride: {
+    backend: '' | 'claude-code' | 'api';
+    model: string;
   };
   contextMenu: {
     permissionMode: PermissionMode;

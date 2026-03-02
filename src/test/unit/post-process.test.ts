@@ -94,6 +94,48 @@ describe('trimPrefixOverlap', () => {
   });
 });
 
+describe('stripLeakedTags', () => {
+  it('strips <COMPLETION> opening tag', () => {
+    const result = postProcessCompletion('hello <COMPLETION>world');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips </COMPLETION> closing tag', () => {
+    const result = postProcessCompletion('hello</COMPLETION> world');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips both opening and closing tags', () => {
+    const result = postProcessCompletion('<COMPLETION>hello world</COMPLETION>');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips {{FILL_HERE}} marker', () => {
+    const result = postProcessCompletion('hello {{FILL_HERE}} world');
+    expect(result).toBe('hello  world');
+  });
+
+  it('strips multiple leaked tags in one string', () => {
+    const result = postProcessCompletion('<COMPLETION>text</COMPLETION> more {{FILL_HERE}} end');
+    expect(result).toBe('text more  end');
+  });
+
+  it('leaves clean text unchanged', () => {
+    const result = postProcessCompletion('perfectly normal text');
+    expect(result).toBe('perfectly normal text');
+  });
+
+  it('returns null when stripping leaves only whitespace', () => {
+    const result = postProcessCompletion('<COMPLETION></COMPLETION>');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when stripping FILL_HERE leaves only whitespace', () => {
+    const result = postProcessCompletion('  {{FILL_HERE}}  ');
+    expect(result).toBeNull();
+  });
+});
+
 describe('trimSuffixOverlap', () => {
   it('does not trim overlap below 10-character minimum threshold', () => {
     // "the end" is only 7 chars - should NOT be trimmed
@@ -172,5 +214,58 @@ describe('trimSuffixOverlap', () => {
     );
     // "continuation text" = 17 chars, should trim, preserve "  indented "
     expect(result).toBe('  indented');
+  });
+});
+
+describe('mode-gated suffix overlap', () => {
+  it('code mode: trims single-char ] from suffix start', () => {
+    const result = postProcessCompletion('n % 2 == 0]', undefined, ']\n', 'code');
+    expect(result).toBe('n % 2 == 0');
+  });
+
+  it('code mode: trims single-char " from suffix start', () => {
+    const result = postProcessCompletion('file"', undefined, '"\ndone', 'code');
+    expect(result).toBe('file');
+  });
+
+  it('code mode: trims backtick from suffix start', () => {
+    const result = postProcessCompletion('}! Welcome`', undefined, '`;\n}', 'code');
+    expect(result).toBe('}! Welcome');
+  });
+
+  it('code mode: trims } from suffix start', () => {
+    const result = postProcessCompletion('value: 42}', undefined, '}\n', 'code');
+    expect(result).toBe('value: 42');
+  });
+
+  it('code mode: trims multi-char overlap starting at 1 char', () => {
+    const result = postProcessCompletion('result]\n', undefined, ']\nprint(result)', 'code');
+    expect(result).toBe('result');
+  });
+
+  it('prose mode: preserves short overlap below 10-char threshold', () => {
+    // "the end" is 7 chars — prose mode should NOT trim
+    const result = postProcessCompletion('This is the end', undefined, 'the end of the document', 'prose');
+    expect(result).toBe('This is the end');
+  });
+
+  it('prose mode: preserves single-char ] (minOverlap=10)', () => {
+    const result = postProcessCompletion('items]', undefined, ']\n', 'prose');
+    expect(result).toBe('items]');
+  });
+
+  it('no mode specified: uses prose default (minOverlap=10)', () => {
+    const result = postProcessCompletion('items]', undefined, ']\n');
+    expect(result).toBe('items]');
+  });
+
+  it('code mode: does not trim when no overlap exists', () => {
+    const result = postProcessCompletion('some code here', undefined, '}\n', 'code');
+    expect(result).toBe('some code here');
+  });
+
+  it('code mode: handles empty suffix gracefully', () => {
+    const result = postProcessCompletion('some code', undefined, '', 'code');
+    expect(result).toBe('some code');
   });
 });

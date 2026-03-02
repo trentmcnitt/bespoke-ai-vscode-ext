@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from './utils/logger';
 import { UsageLedger } from './utils/usage-ledger';
-import { PoolClient } from './pool-server/client';
+import { BackendRouter } from './providers/backend-router';
 import { buildFullEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
 import { getWorkspaceRoot } from './utils/workspace';
 
@@ -26,7 +26,7 @@ export const correctedContentProvider: vscode.TextDocumentContentProvider = {
 };
 
 export async function suggestEdit(
-  poolClient: PoolClient,
+  router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
@@ -36,21 +36,21 @@ export async function suggestEdit(
   }
   inFlight = true;
   try {
-    await doSuggestEdit(poolClient, logger, ledger);
+    await doSuggestEdit(router, logger, ledger);
   } finally {
     inFlight = false;
   }
 }
 
 async function doSuggestEdit(
-  poolClient: PoolClient,
+  router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
 ): Promise<void> {
   logger.info('Suggest edit started');
 
   // Check pool availability
-  if (!poolClient.isCommandPoolAvailable()) {
+  if (!router.isCommandAvailable()) {
     vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
     return;
   }
@@ -112,7 +112,7 @@ async function doSuggestEdit(
       const controller = new AbortController();
       token.onCancellationRequested(() => controller.abort());
 
-      return poolClient.sendCommand(fullMessage, {
+      return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
       });
@@ -130,7 +130,7 @@ async function doSuggestEdit(
   const project = workspaceRoot ? path.basename(workspaceRoot) : '';
   ledger?.record({
     source: 'suggest-edit',
-    model: meta?.model || poolClient.getCurrentModel(),
+    model: meta?.model || router.getCurrentModel(),
     project,
     durationMs: meta?.durationMs ?? durationMs,
     durationApiMs: meta?.durationApiMs,

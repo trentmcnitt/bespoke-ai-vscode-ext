@@ -1,8 +1,8 @@
 {
   "name": "bespoke-ai",
   "displayName": "Bespoke AI — Autocomplete + Commit Messages, Powered by Claude Code",
-  "description": "AI autocomplete for prose and code, plus one-click commit messages — powered by Claude Code",
-  "version": "0.7.3",
+  "description": "AI autocomplete for prose and code — use your Claude subscription or bring your own API key (xAI, OpenAI, Anthropic, Gemini, Ollama)",
+  "version": "0.8.0",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -22,7 +22,18 @@
     "completions",
     "ghost-text",
     "inline-completions",
-    "prose"
+    "prose",
+    "commit-message",
+    "writing",
+    "copilot",
+    "openai",
+    "grok",
+    "ollama",
+    "gemini",
+    "api",
+    "markdown",
+    "anthropic",
+    "xai"
   ],
   "engines": {
     "vscode": "^1.85.0"
@@ -81,6 +92,22 @@
       {
         "command": "bespoke-ai.restartPools",
         "title": "Bespoke AI: Restart Pools"
+      },
+      {
+        "command": "bespoke-ai.setApiKey",
+        "title": "Bespoke AI: Enter API Key"
+      },
+      {
+        "command": "bespoke-ai.removeApiKey",
+        "title": "Bespoke AI: Remove API Key"
+      },
+      {
+        "command": "bespoke-ai.addCustomModel",
+        "title": "Bespoke AI: Add Custom Model"
+      },
+      {
+        "command": "bespoke-ai.removeCustomModel",
+        "title": "Bespoke AI: Remove Custom Model"
       }
     ],
     "menus": {
@@ -94,17 +121,17 @@
       "editor/context": [
         {
           "command": "bespoke-ai.explainSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@1"
         },
         {
           "command": "bespoke-ai.fixSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@2"
         },
         {
           "command": "bespoke-ai.doSelection",
-          "when": "editorHasSelection",
+          "when": "editorHasSelection && bespokeAI.cliAvailable",
           "group": "0_bespoke@3"
         }
       ]
@@ -175,11 +202,106 @@
           "default": "info",
           "description": "Logging verbosity in the Output channel"
         },
+        "bespokeAI.backend": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "api"
+          ],
+          "default": "claude-code",
+          "enumDescriptions": [
+            "Claude Code CLI (requires Claude subscription)",
+            "Direct API (requires API key)"
+          ],
+          "description": "Completion backend. Claude Code CLI uses your Claude subscription; Direct API uses your API key."
+        },
+        "bespokeAI.api.preset": {
+          "type": "string",
+          "default": "xai-grok",
+          "scope": "application",
+          "markdownDescription": "Active API model preset. Built-in presets: `xai-grok` (default), `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok-code`, `xai-grok-4`, `openrouter-haiku`, `openrouter-gpt-4.1-nano`, `ollama-default`, `ollama-qwen3-4b`, `ollama-qwen3-8b`. Custom preset IDs (from `#bespokeAI.api.customPresets#`) are also accepted. Changeable via the status bar menu.",
+          "examples": [
+            "anthropic-haiku",
+            "anthropic-sonnet",
+            "openai-gpt-4.1-nano",
+            "openai-gpt-4o-mini",
+            "google-gemini-flash",
+            "xai-grok",
+            "xai-grok-code",
+            "xai-grok-4",
+            "openrouter-haiku",
+            "openrouter-gpt-4.1-nano",
+            "ollama-default",
+            "ollama-qwen3-4b",
+            "ollama-qwen3-8b"
+          ]
+        },
+        "bespokeAI.api.customPresets": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Custom API model presets. Each entry needs `name`, `provider`, and `modelId`. Optional: `baseUrl`, `apiKeyEnvVar`, `maxTokens`, `temperature`, `extraBody`, `extraHeaders`. Example:\n```json\n[{\"name\": \"My Llama\", \"provider\": \"openai-compat\", \"modelId\": \"llama3.2\", \"baseUrl\": \"http://localhost:1234/v1\"}]\n```",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name shown in the menu"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "anthropic",
+                  "openai-compat",
+                  "google",
+                  "openrouter",
+                  "ollama"
+                ],
+                "description": "API provider type"
+              },
+              "modelId": {
+                "type": "string",
+                "description": "Model identifier sent to the API"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "API base URL (required for non-standard endpoints)"
+              },
+              "apiKeyEnvVar": {
+                "type": "string",
+                "description": "Environment variable name for the API key"
+              },
+              "maxTokens": {
+                "type": "number",
+                "description": "Max completion tokens (default: 200)"
+              },
+              "temperature": {
+                "type": "number",
+                "description": "Sampling temperature (default: 0.2)"
+              },
+              "extraBody": {
+                "type": "object",
+                "markdownDescription": "Extra parameters merged into the API request body (e.g., OpenRouter `transforms`, `provider` routing)"
+              },
+              "extraHeaders": {
+                "type": "object",
+                "markdownDescription": "Extra HTTP headers merged into API requests",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "provider",
+              "modelId"
+            ]
+          }
+        },
         "bespokeAI.claudeCode.model": {
           "type": "string",
-          "default": "haiku",
+          "default": "sonnet",
           "scope": "application",
-          "description": "Claude Code model to use (e.g. haiku, sonnet, opus). Also changeable via the status bar menu."
+          "description": "Claude Code model to use (e.g. sonnet, haiku, opus). Also changeable via the status bar menu."
         },
         "bespokeAI.claudeCode.models": {
           "type": "array",
@@ -235,6 +357,26 @@
             "Skip all permission checks (use with caution)"
           ],
           "description": "Permission mode for context menu commands (Explain, Fix, Do)"
+        },
+        "bespokeAI.codeOverride.backend": {
+          "type": "string",
+          "enum": [
+            "",
+            "claude-code",
+            "api"
+          ],
+          "default": "",
+          "enumDescriptions": [
+            "Use global default (no code override)",
+            "Claude Code CLI",
+            "Direct API"
+          ],
+          "description": "Backend for code files. Leave empty to use the global default."
+        },
+        "bespokeAI.codeOverride.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model for code files. For Claude Code CLI, a model name (e.g. haiku). For Direct API, a preset ID (e.g. xai-grok-code). Leave empty to use the global default."
         }
       }
     }
@@ -267,6 +409,7 @@
     ]
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
@@ -275,10 +418,19 @@
     "eslint": "^9.39.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "openai": "^6.25.0",
     "prettier": "^3.8.1",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-bash": "^0.25.1",
+    "tree-sitter-css": "^0.25.0",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-html": "^0.23.2",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-rust": "^0.24.0",
     "tsx": "^4.0.0",
     "typescript": "^5.3.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.77"

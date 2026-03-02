@@ -4,7 +4,11 @@
  * overlap. Uses whitespace-normalized comparison (min 10 chars to avoid
  * false positives on common short phrases).
  */
-function trimSuffixOverlap(completion: string, suffix: string): string {
+function trimSuffixOverlap(
+  completion: string,
+  suffix: string,
+  mode?: 'prose' | 'code',
+): string {
   if (!suffix) {
     return completion;
   }
@@ -20,7 +24,9 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
   // We scan from the end of the completion backwards, looking for a point
   // where completion[cutPoint:] normalized matches normSuffix[0:matchLen].
   const normCompletion = norm(completion);
-  const minOverlap = 10;
+  // Code mode: min 1 char — closing delimiters (], }, `, ", etc.) are always duplicates.
+  // Prose mode: min 10 chars — avoids false positives on common short phrases.
+  const minOverlap = mode === 'code' ? 1 : 10;
   const maxCheck = Math.min(normCompletion.length, normSuffix.length);
 
   // Find the longest suffix of normCompletion that equals a prefix of normSuffix
@@ -42,6 +48,13 @@ function trimSuffixOverlap(completion: string, suffix: string): string {
   const overlapText = normCompletion.slice(-bestNormLen);
   let oi = overlapText.length - 1; // index into overlap text (from end)
   let ci = completion.length - 1; // index into original completion (from end)
+
+  // Skip trailing whitespace in the original completion before matching.
+  // The normalized overlap text has no trailing whitespace, so any trailing
+  // whitespace in the original completion is not part of the overlap content.
+  while (ci >= 0 && /\s/.test(completion[ci])) {
+    ci--;
+  }
 
   while (oi >= 0 && ci >= 0) {
     if (/\s/.test(overlapText[oi])) {
@@ -94,16 +107,30 @@ function trimPrefixOverlap(completion: string, prefix: string): string {
 }
 
 /**
+ * Strip prompt scaffolding tags that leaked through extraction.
+ *
+ * These strings are never legitimate user-facing content — they are
+ * instruction/marker tags used in prompt construction. If extraction
+ * didn't remove them (e.g., model echoed them outside the expected
+ * position), strip them here as a safety net.
+ */
+function stripLeakedTags(text: string): string {
+  return text.replace(/<\/?COMPLETION>/g, '').replace(/\{\{FILL_HERE\}\}/g, '');
+}
+
+/**
  * Post-processing pipeline for completion text from any provider.
  *
  * 1. Trim prefix overlap — if the completion's head duplicates the current line fragment.
  * 2. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
- * 3. Return null for empty results so callers get a clean "no completion" signal.
+ * 3. Strip leaked tags — remove prompt scaffolding that survived extraction.
+ * 4. Return null for empty results so callers get a clean "no completion" signal.
  */
 export function postProcessCompletion(
   text: string,
   prefix?: string,
   suffix?: string,
+  mode?: 'prose' | 'code',
 ): string | null {
   let result = text;
 
@@ -112,8 +139,10 @@ export function postProcessCompletion(
   }
 
   if (suffix) {
-    result = trimSuffixOverlap(result, suffix);
+    result = trimSuffixOverlap(result, suffix, mode);
   }
+
+  result = stripLeakedTags(result);
 
   return result.trim() ? result : null;
 }
