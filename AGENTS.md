@@ -29,7 +29,7 @@ Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`
 
 ## Working Rules
 
-**Feature scope:** Do not implement new capabilities beyond inline completions, commit messages, suggest-edits, and context menu commands (Explain, Fix, Do) unless explicitly asked. Do not fix items listed under [Known Limitations](#known-limitations) or introduce post-processing without explicit approval.
+**Feature scope:** Do not implement new capabilities beyond inline completions, commit messages, Suggest Edits, and context menu commands (Explain, Fix, Do) unless explicitly asked. Do not fix items listed under [Known Limitations](#known-limitations) or introduce post-processing without explicit approval.
 
 **Interpreting pasted content:** When the user pastes log output, error messages, or other diagnostic content without an explicit instruction, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix. If the diagnosed issue matches a [Known Limitation](#known-limitations), explain the trade-off rather than proposing a fix.
 
@@ -37,18 +37,9 @@ Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`
 
 **Pre-commit gate:** Run `npm run check` before creating any commit. Only proceed if it passes.
 
-**Version control:** This project uses GitHub. Use `gh` for repository operations. Work directly on `main` unless asked to create a branch.
+**Version control:** This project uses GitHub. Use `gh` for repository operations. Work on the current branch. Do not create feature branches unless asked.
 
-**Strongly prefer prompt engineering over post-processing.** Adjust the system prompt, examples, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect.
-
-Fixing bugs in existing post-processing follows normal debugging workflow. The protocol below applies to **adding new** post-processing steps. If prompt engineering cannot solve the problem and the user approves adding post-processing:
-
-1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does.
-2. **The transformation must be provably safe** — it should only activate when the pattern is always erroneous (never legitimate content), not when it might be correct.
-3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs.
-4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected _and_ tests that verify it leaves correct completions untouched across a range of realistic inputs.
-5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
-6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or backend level, remove the corresponding post-processing step.
+**Strongly prefer prompt engineering over post-processing.** Post-processing is a last resort. See [Adding Post-Processing](#adding-post-processing) for the required protocol when prompt engineering cannot solve the problem.
 
 ## Build and Scripts
 
@@ -63,7 +54,7 @@ npm run test             # Alias for test:unit
 npm run test:unit        # Vitest unit tests (src/test/unit/)
 npm run test:unit:watch  # Vitest watch mode
 npm run test:api         # Integration tests (src/test/api/). See Testing section for env vars.
-npm run test:quality     # LLM-as-judge completion quality tests (needs claude CLI)
+npm run test:quality     # LLM-as-judge completion quality tests (see Testing for env vars)
 npm run test:quality:compare  # A/B/N prompt variant comparison (needs PROMPT_VARIANTS env var)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
 npm run install-ext      # Compile, package VSIX, and install into VSCodium
@@ -81,17 +72,13 @@ esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting
 
 ### Versioning and Installation
 
-Increment the version in `package.json` before running `npm run install-ext`. To package and install manually:
+`npm run install-ext` compiles, packages a VSIX, and installs into VSCodium. To install into VS Code instead:
 
 ```bash
-npm run compile
-vsce package
-codium --install-extension bespoke-ai.vsix   # or: code --install-extension
+npm run compile && vsce package -o bespoke-ai.vsix && code --install-extension bespoke-ai.vsix
 ```
 
-The `npm run install-ext` script runs compile, package, and install into VSCodium but does not bump the version — increment it in `package.json` before running it. To install into VS Code instead, run the manual steps above with `code --install-extension`.
-
-Increment the patch version (third number) by default for each install. For larger changes (new features, prompt rewrites, architectural shifts), ask whether to bump the minor version instead.
+Do not increment the version in `package.json` unless explicitly asked.
 
 ## Architecture
 
@@ -113,11 +100,9 @@ BackendRouter (routes to active backend based on config.backend)
 
 **Commit message / Suggest edits (API):** Command invoked → `BackendRouter.sendCommand()` → `ApiCommandProvider.sendPrompt()` → adapter HTTP call → result returned.
 
-**Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Alt+Enter only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compat: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
+**Trigger presets:** The `bespokeAI.triggerPreset` setting controls when completions appear: `relaxed` (~2s debounce, default), `eager` (~800ms), or `on-demand` (Alt+Enter only). The preset resolves to `triggerMode` and `debounceMs` at config-load time via `TRIGGER_PRESET_DEFAULTS` in `types.ts`. Users can override the preset's debounce by setting `bespokeAI.debounceMs` explicitly. Backward compatibility: if a user has `triggerMode: "manual"` set but no preset, the config resolver defaults to the `on-demand` preset.
 
-**Debounce:** Resolved from the trigger preset (default 2000ms for relaxed). Explicit triggers (Alt+Enter) always use zero-delay.
-
-**Code override:** The `bespokeAI.codeOverride.backend` and `bespokeAI.codeOverride.model` settings allow routing code completions to a different backend/model than prose. When `codeOverride.backend` is set (non-empty), `BackendRouter.resolveEffectiveBackend()` returns the override backend + model for code-mode requests. For example, a user can use Claude Code CLI for prose and an API preset for code (or vice versa). When the override is empty (default), code uses the same backend as prose.
+**Code override:** `bespokeAI.codeOverride.backend` and `bespokeAI.codeOverride.model` route code completions to a different backend/model than prose. When empty (the default), both use the same backend.
 
 ### Pool Server
 
@@ -129,118 +114,64 @@ The pool server is a shared-process architecture that allows multiple VS Code wi
 
 **Local fast path:** When the `PoolClient` is also the server (leader), requests bypass the socket entirely and call `PoolServer` methods directly — zero serialization overhead.
 
-**Key files:**
-
-- `src/pool-server/ipc-path.ts` — Platform-aware IPC path utilities. Returns Unix socket path on macOS/Linux and named pipe path on Windows. Provides helpers for stale endpoint cleanup and state directory management.
-- `src/pool-server/client.ts` — `PoolClient` class. Implements `CompletionProvider` interface. Leader election, IPC connection, reconnection with retry, takeover on server loss.
-- `src/pool-server/server.ts` — `PoolServer` class. Manages `ClaudeCodeProvider` and `CommandPool` instances, handles IPC requests, lockfile utilities.
-- `src/pool-server/protocol.ts` — IPC message type definitions, serialization/parsing helpers.
-- `src/pool-server/index.ts` — Re-exports for external consumers.
-
 ### Module Reference
+
+File paths relative to `src/`. Read source files for full API surface; the Notes column captures only non-obvious behavior.
 
 #### Core Pipeline
 
-- `src/extension.ts` — Activation entry point. Loads config (including trigger preset resolution via `TRIGGER_PRESET_DEFAULTS`), creates Logger/PoolClient/BackendRouter/CompletionProvider, registers the inline completion provider, status bar, and commands. Runs a pre-flight SDK check on activation (Claude Code backend only) — on first activation without the CLI, shows a choice dialog ("Install Claude Code CLI" / "Use an API key instead"); on subsequent activations, shows an error toast. Status bar has four states: `initializing` (during pool startup), `ready` (normal), `setup-needed` (CLI missing or auth failure), `disabled` (user turned off). In API mode, appends `(API)` to status bar and shows the active preset name instead of CLI model. Shows a one-time welcome notification on first run via `globalState`, and a separate API welcome on first API activation. Watches for config changes and propagates via `updateConfig()`. Shows toast notifications on backend switch, enable/disable, and API preset changes. The status bar menu allows switching modes, models (with key status per preset), trigger presets, and backends. CLI-only items (Restart Pools, Pool Status) are hidden when backend is API; "Enter API Key", "Add Custom Model", and "Remove Custom Model" items appear instead. Registers `bespoke-ai.setApiKey`, `bespoke-ai.removeApiKey`, `bespoke-ai.addCustomModel` (guided wizard), and `bespoke-ai.removeCustomModel` commands. When API key is missing, `showApiSetupGuidance()` shows an actionable toast with "Enter API Key" action. Sets `bespokeAI.cliAvailable` context variable to control context menu visibility.
+| File | Role | Notes |
+|------|------|-------|
+| `extension.ts` | Activation entry point; config, status bar, commands | Status bar: 4 states (initializing/ready/setup-needed/disabled). Sets `bespokeAI.cliAvailable` context for menu visibility |
+| `completion-provider.ts` | Inline completion orchestrator (cache, debounce, mode, backend call) | Explicit triggers (Alt+Enter) bypass debounce with zero-delay |
+| `pool-server/client.ts` | IPC client + leader election | Local fast path when client is also the server (leader) |
+| `pool-server/server.ts` | IPC server, manages ClaudeCodeProvider + CommandPool | Lockfile at `~/.bespokeai/pool.lock` |
+| `pool-server/protocol.ts` | IPC message types and serialization | Newline-delimited JSON |
+| `pool-server/ipc-path.ts` | Platform-aware IPC path (`pool.sock` / named pipe) | |
+| `providers/slot-pool.ts` | Abstract base for CLI session pools | Has its own circuit breaker (separate from `utils/circuit-breaker.ts`). Latest-request-wins queue; generation guards (monotonic counters tracking the latest request) discard stale responses |
+| `providers/prompt-strategy.ts` | Shared prompts: `SYSTEM_PROMPT`, `buildFillMessage()`, `extractCompletion()` | 3 strategies: `tagExtraction` (CLI), `prefillExtraction` (Anthropic API), `instructionExtraction` (OpenAI-compat) |
+| `providers/backend-router.ts` | Routes between CLI and API backends | Also handles code override routing via `resolveEffectiveBackend(mode)` |
+| `providers/claude-code.ts` | Claude Code CLI backend (extends SlotPool, 1 slot) | `AbortSignal` accepted but **ignored** after slot acquisition |
+| `providers/command-pool.ts` | CLI command pool for commit message / suggest-edit (1 slot) | Task-specific instructions go in user message, not system prompt |
 
-- `src/completion-provider.ts` — Orchestrator implementing `vscode.InlineCompletionItemProvider`. Coordinates mode detection → context extraction → cache lookup → debounce → backend call → cache write. Explicit triggers (`InlineCompletionTriggerKind.Invoke`, fired by Alt+Enter or the command palette) use zero-delay debounce for instant response. Its constructor accepts a `Logger` and a backend implementing the `CompletionProvider` interface (currently `BackendRouter`). Exposes `clearCache()` and `setRequestCallbacks()`.
+#### API Backend
 
-- `src/pool-server/` — Global pool server architecture. See [Pool Server](#pool-server) above. `PoolClient` implements `CompletionProvider` and routes requests to the shared `PoolServer` (local or over IPC).
+| File | Role | Notes |
+|------|------|-------|
+| `providers/api/presets.ts` | Preset registry (built-in + custom) | Default: `xai-grok`. Custom presets auto-detect Anthropic models via OpenRouter for prefill strategy |
+| `providers/api/types.ts` | `Preset`, `ApiAdapter`, `ApiAdapterResult` interfaces | |
+| `providers/api/api-provider.ts` | `ApiCompletionProvider` — inline completions via API | Uses shared `CircuitBreaker` from `utils/` |
+| `providers/api/api-command-provider.ts` | `ApiCommandProvider` — commit message / suggest-edit via API | Uses shared `CircuitBreaker` from `utils/` |
+| `providers/api/adapters/anthropic.ts` | Anthropic SDK adapter (bundled) | Supports prefill, prompt caching, `extraBody`/`extraHeaders` passthrough |
+| `providers/api/adapters/openai-compat.ts` | OpenAI-compat adapter (OpenAI, Gemini, xAI, OpenRouter, Ollama) | Ollama: no API key, silent `null` on connection error. xAI: cache affinity header |
+| `providers/api/adapters/index.ts` | Adapter factory: `createAdapter(preset)` | |
 
-- `src/providers/slot-pool.ts` — Abstract base class for SDK session pools. A "slot" is a logical container that holds one Claude Code subprocess — the slot persists across subprocess recycling; the subprocess inside it is replaced. Manages slot lifecycle: init (spawn subprocess) → warmup (validate with a test prompt) → consume (handle user requests) → reuse (serve another request on the same subprocess) → recycle (terminate old subprocess and spawn a new one when `maxRequests` is reached). Also provides:
-  - Circuit breaker — automatically stops sending requests after repeated consecutive failures
-  - Generation guards — each request cycle gets a monotonically increasing number; responses from a previous generation are discarded
-  - Latest-request-wins queue — only the most recent caller waits for a busy slot; older waiters get `null`
-  - Warmup retry, `recycleAll`/`restart`/`dispose`
+#### Commands and Utilities
 
-  Subclassed by `ClaudeCodeProvider` and `CommandPool`.
+| File | Role | Notes |
+|------|------|-------|
+| `commit-message.ts` | Commit message generation via BackendRouter | Pure helpers in `utils/commit-message-utils.ts` |
+| `suggest-edit.ts` | Suggest-edit command via BackendRouter | Pure helpers in `utils/suggest-edit-utils.ts` |
+| `commands/context-menu.ts` | Explain/Fix/Do — launches standalone Claude CLI | Pure helpers in `commands/context-menu-utils.ts`. Does **not** use pool server |
+| `mode-detector.ts` | `languageId` → `prose` or `code` | Unknown languages default to prose |
+| `utils/context-builder.ts` | Extracts prefix/suffix from document + position | Delegates to `truncation.ts` for boundary-snapped truncation (prefix to line boundaries, suffix to word boundaries) |
+| `utils/post-process.ts` | Trims prefix/suffix overlap before caching | |
+| `utils/api-key-store.ts` | API key resolution: SecretStorage → env → `~/.creds/api-keys.env` | Keys eagerly loaded into memory so `resolveApiKey()` stays synchronous |
+| `utils/circuit-breaker.ts` | Consecutive-failure circuit breaker for API providers | Distinct from SlotPool's built-in breaker |
+| `utils/cache.ts` | LRU completion cache | |
+| `utils/usage-ledger.ts` | Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl` | Concurrent-safe across multiple VS Code windows |
+| `utils/debouncer.ts` | Promise-based debounce with `CancellationToken` + `AbortSignal` | |
+| `utils/logger.ts` | Logger wrapping VS Code OutputChannel | See [Log Format and Levels](#log-format-and-levels) |
+| `types.ts` | `CompletionProvider`, `ExtensionConfig`, `CustomPreset`, `TriggerPreset` | `ExtensionConfig` mirrors `bespokeAI.*` in `package.json` — keep in sync |
+| `types/git.d.ts` | Type defs for VS Code's built-in Git extension API | |
 
-- `src/providers/prompt-strategy.ts` — Shared prompt module for all completion backends. Exports `SYSTEM_PROMPT`, `buildFillMessage()`, and `extractCompletion()` as the canonical prompt components. Defines the `PromptStrategy` interface and three implementations:
-  - **`tagExtraction`** — Default for Claude Code CLI. Expects `<COMPLETION>` tags in response.
-  - **`prefillExtraction`** — For Anthropic direct API. Adds assistant prefill with last ~40 chars of prefix inside `<COMPLETION>` tag, extracts by finding closing tag.
-  - **`instructionExtraction`** — For OpenAI-compatible models. Falls back to stripping code fences and preamble patterns if `<COMPLETION>` tags are absent.
-
-  `getPromptStrategy(id)` provides a registry lookup. Strategy IDs (`PromptStrategyId`) are used by presets to select extraction behavior.
-
-- `src/providers/backend-router.ts` — Routes between Claude Code CLI and API backends based on `config.backend`. Implements `CompletionProvider` for the completion orchestrator. Also exposes `sendCommand()` for commit message and suggest-edit routing, `isCommandAvailable()`, `getCurrentModel()`, `getBackend()`, and `getApiProvider()`. Propagates config updates to all sub-providers. `resolveEffectiveBackend(mode)` supports the code override feature — when `codeOverride.backend` is set, code-mode requests route to the override backend/model.
-
-- `src/providers/claude-code.ts` — Claude Code backend via `@anthropic-ai/claude-agent-sdk`. Extends `SlotPool` for 1-slot inline completion pool.
-  - **Slot pool:** Manages a 1-slot reusable session pool. Each slot handles up to 8 completions before recycling (one subprocess serves N requests).
-  - **Queue behavior:** A latest-request-wins queue handles slot acquisition — when the slot is busy, only the most recent request waits (older waiters get `null`). The `AbortSignal` parameter is accepted for interface compatibility but ignored; once a slot is acquired, the request executes fully regardless of cancellation signals.
-
-- `src/providers/command-pool.ts` — 1-slot pre-warmed pool for on-demand commands (commit message, suggest edits). Extends `SlotPool` with a generic system prompt; task-specific instructions are folded into each user message. Each slot handles up to 4 requests before recycling. The `sendPrompt()` method supports optional timeout and cancellation.
-
-#### API Provider
-
-- `src/providers/api/types.ts` — Type definitions for the API backend. `Preset` defines a model configuration (provider, model ID, base URL, API key env var, prompt strategy, features, `extraBody`/`extraHeaders` for arbitrary API passthrough). `ApiAdapter` is the interface for HTTP adapters. `ApiAdapterResult` carries response text, token usage, model name, and duration.
-
-- `src/providers/api/presets.ts` — Preset registry (built-in + custom). Thirteen built-in presets: `anthropic-haiku` and `anthropic-sonnet` (prefill strategy), `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok`, `xai-grok-code`, `xai-grok-4` (instruction strategy), `openrouter-haiku` (prefill strategy, Anthropic model via OpenRouter gateway), `openrouter-gpt-4.1-nano` (instruction strategy, OpenAI model via OpenRouter gateway), `ollama-default`, `ollama-qwen3-4b`, `ollama-qwen3-8b` (instruction strategy, local). Default preset: `xai-grok`. OpenRouter presets use specific model IDs — not auto-routing — so the prompt strategy matches the underlying model. `registerCustomPresets()` converts user-defined `CustomPreset` objects (from `bespokeAI.api.customPresets` setting) into full `Preset` objects, auto-generating IDs via slugification, mapping `openai-compat` → `openai` provider, auto-populating `baseUrl` and `apiKeyEnvVar` for `google` and `openrouter` providers, auto-detecting Anthropic models via OpenRouter (modelId starting with `anthropic/`) for prefill strategy, and passing through `extraBody`/`extraHeaders` for arbitrary API configuration. Exports `getAllPresets()`, `getPreset()`, `getBuiltInPresetIds()`, `registerCustomPresets()`, and `DEFAULT_PRESET_ID`.
-
-- `src/providers/api/adapters/anthropic.ts` — Anthropic SDK adapter (`@anthropic-ai/sdk`, bundled by esbuild). Supports assistant prefill, prompt caching, and cache-read token tracking. Spreads `preset.extraBody` into API request params and passes `preset.extraHeaders` as default headers on the client.
-
-- `src/providers/api/adapters/openai-compat.ts` — OpenAI-compatible adapter (`openai` package, bundled by esbuild). Covers OpenAI, Google Gemini, xAI, OpenRouter, and Ollama via configurable `baseURL`. Tracks cached tokens from `prompt_tokens_details.cached_tokens`. Provider-specific headers: xAI gets `x-grok-conv-id` for cache affinity, OpenRouter gets attribution headers. Merges `preset.extraHeaders` after provider defaults (user overrides built-in headers). Spreads `preset.extraBody` into API request params. Ollama special-case: no API key required, connection errors return `null` silently.
-
-- `src/providers/api/adapters/index.ts` — Adapter factory. `createAdapter(preset)` returns the appropriate `ApiAdapter` implementation.
-
-- `src/providers/api/api-provider.ts` — `ApiCompletionProvider` implementing `CompletionProvider`. Selects `PromptStrategy` from preset, builds prompt via shared `buildFillMessage()`, calls adapter, extracts completion. Uses shared `CircuitBreaker` from `utils/circuit-breaker.ts`. Logs via `Logger`, records to `UsageLedger`.
-
-- `src/providers/api/api-command-provider.ts` — `ApiCommandProvider` for commit messages and suggest-edits via API. `sendPrompt()` accepts system prompt, user message, and optional abort signal. Uses shared `CircuitBreaker`.
-
-- `src/providers/api/index.ts` — Re-exports all public API types and classes.
-
-#### Standalone Commands
-
-- `src/commit-message.ts` — Generates commit messages via the `BackendRouter`. Reads diffs from VS Code's built-in Git extension, sends them through `BackendRouter.sendCommand()` (routes to `PoolClient` or `ApiCommandProvider` based on active backend), and writes the result into the Source Control panel's commit message input box. Independent of the inline completion pipeline. Pure helpers live in `src/utils/commit-message-utils.ts`.
-
-- `src/suggest-edit.ts` — On-demand "Suggest Edits" command via the `BackendRouter`. Captures visible editor text, sends it through `BackendRouter.sendCommand()` for typo/grammar/bug fixes, and applies corrections via `WorkspaceEdit`. Independent of the inline completion pipeline. Pure helpers live in `src/utils/suggest-edit-utils.ts`.
-
-- `src/commands/context-menu.ts` — Context menu commands (Explain, Fix, Do). Opens a Claude CLI terminal in a split view and sends the command with the selected file and line range. Does not use the pool server — launches a standalone Claude CLI process. The `bespokeAI.contextMenu.permissionMode` setting controls permission behavior: `default` (asks before every action), `acceptEdits` (auto-approves file reads/edits), or `bypassPermissions` (skips all checks). Pure helpers live in `src/commands/context-menu-utils.ts`.
-
-#### Mode Detection and Context Extraction
-
-- `src/mode-detector.ts` — Maps `languageId` to `'prose' | 'code'`. Priority: (1) user override via `bespokeAI.mode`, (2) custom language IDs in `prose.fileTypes`, (3) built-in language sets. Unknown languages default to prose.
-
-- `src/utils/context-builder.ts` — Extracts prefix/suffix from `TextDocument` + `Position`. Context sizes configurable via `prose.contextChars`/`code.contextChars` settings. Delegates to `truncation.ts` for boundary-snapped truncation.
-
-- `src/utils/truncation.ts` — Pure truncation functions (no vscode dependency). `truncatePrefix()` takes the last N chars and snaps forward to a newline boundary. `truncateSuffix()` takes the first N chars and snaps back to a word boundary. Used by both `context-builder.ts` (production) and the quality test runner.
-
-#### Utilities
-
-- `src/utils/post-process.ts` — Shared post-processing pipeline applied before caching. Trims prefix overlap (doubled line fragments), trims suffix overlap (duplicated tails), returns `null` for empty results.
-
-- `src/utils/debouncer.ts` — Promise-based debounce with two cancellation layers: `CancellationToken` cancels the wait, `AbortSignal` aborts in-flight requests. `debounce()` accepts an optional `overrideDelayMs` (used by explicit triggers with `0` for instant response).
-
-- `src/utils/cache.ts` — LRU cache with 50 entries and 5-minute TTL (time-to-live). Key built from mode + last 500 prefix chars + first 200 suffix chars.
-
-- `src/utils/circuit-breaker.ts` — Consecutive-failure circuit breaker used by `ApiCompletionProvider` and `ApiCommandProvider`. Opens after 5 failures, auto-recovers after 30s cooldown.
-
-- `src/utils/message-channel.ts` — Async message channel utility used by the Claude Code backend for inter-process communication.
-
-- `src/utils/api-key-store.ts` — Resolves API keys with three-tier priority: (1) VS Code SecretStorage (OS keychain, stored via `bespoke-ai.setApiKey` command), (2) `process.env`, (3) `~/.creds/api-keys.env` file. SecretStorage keys are eagerly loaded on activation into an in-memory cache so `resolveApiKey()` stays synchronous. Exports `initSecretStorage()`, `loadSecretKey()`, `storeSecretKey()`, `removeSecretKey()`, `hasSecretKey()`, and `resolveApiKeySource()` (returns `ApiKeySource`: `'keychain' | 'env' | 'file' | null`) for key lifecycle and provenance display.
-
-- `src/utils/model-name.ts` — `shortenModelName()` pure function for status bar display (e.g., `claude-haiku-4-5-20251001` → `haiku-4.5`).
-
-- `src/utils/workspace.ts` — `getWorkspaceRoot()` utility for resolving the workspace folder path.
-
-- `src/utils/usage-tracker.ts` — Tracks per-session request counts, character counts, cache hits/misses, errors, and burst detection.
-
-- `src/utils/usage-ledger.ts` — Persistent JSONL (JSON Lines, one JSON object per line) ledger at `~/.bespokeai/usage-ledger.jsonl`. Records every interaction (completions, warmups, startups, commit messages, suggest-edits) with SDK metadata (tokens, cost, duration). Append-only with size-based rotation (1MB threshold) and auto-purge of archives older than 1 month. `getSummary()` reads the active file and returns aggregated stats by period (today/week/month), model, source, and project. Concurrent-safe — multiple VS Code windows can append to the same file.
-
-- `src/utils/logger.ts` — `Logger` class wrapping VS Code `OutputChannel`. See [Log Format and Levels](#log-format-and-levels).
-
-- `src/scripts/dump-prompts.ts` — Utility script (`npm run dump-prompts`) that renders exact prompt strings for prose and code modes.
-
-#### Types
-
-All shared types live in `src/types.ts`. The key interface is `CompletionProvider`, which `BackendRouter` implements (delegating to `PoolClient` or `ApiCompletionProvider`). `ExtensionConfig` mirrors the `bespokeAI.*` settings in `package.json`. When you change one, update the other to keep them in sync. Key sub-objects: `claudeCode` (models array + active model), `backend` (`'claude-code' | 'api'`), `api` (preset, customPresets array). Also exports `CustomPreset` interface (name, provider, modelId, optional baseUrl/apiKeyEnvVar/maxTokens/temperature/extraBody/extraHeaders) and `TriggerPreset` type and `TRIGGER_PRESET_DEFAULTS` map used by `loadConfig()` in `extension.ts` to resolve presets into `triggerMode`/`debounceMs` values.
-
-Additional type definitions: `src/types/git.d.ts` provides type definitions for VS Code's built-in Git extension API, used by the commit message feature.
+Omitted from table (simple/trivial): `pool-server/index.ts` and `providers/api/index.ts` (re-exports), `utils/message-channel.ts`, `utils/model-name.ts`, `utils/workspace.ts`, `utils/usage-tracker.ts`, `utils/truncation.ts`, `scripts/dump-prompts.ts`.
 
 ## Development Recipes
 
 ### Adding a New Setting
 
-Adding or modifying a VS Code setting requires coordinated changes. Steps 1–4 are always required. Steps 5–7 apply only when the setting needs runtime propagation.
+Adding or modifying a VS Code setting requires coordinated changes. Steps 1–5 are always required. Steps 6–7 apply only when the setting needs live propagation (applying without restart).
 
 | #   | File                        | What to change                                                                        |
 | --- | --------------------------- | ------------------------------------------------------------------------------------- |
@@ -264,10 +195,37 @@ Each `RegressionScenario` extends `TestScenario` with:
 
 **Steps:**
 
-1. Copy the prefix and suffix from the trace log **verbatim** — no truncation, no paraphrasing, no edits. The `[TRACE]` lines show the full userMessage and suffix. The goal is to reproduce the exact conditions that caused the failure.
+1. Copy the prefix and suffix from the trace log **verbatim** — no truncation, no paraphrasing, no edits. Use the raw `[TRACE]   prefix:` and `[TRACE]   suffix:` blocks, not the composed `→ sent` userMessage block (which wraps prefix/suffix in XML tags added by `buildFillMessage()`). The goal is to reproduce the exact conditions that caused the failure.
 2. Add a `RegressionScenario` to the array in `regression-scenarios.ts`
 3. Document the failure in `regression_notes` and set `quality_notes` to tell the judge what constitutes a fix
 4. Tag with the `observedModel` and `observedDate`
+
+### Changing the System Prompt
+
+1. Edit `SYSTEM_PROMPT` in `src/providers/prompt-strategy.ts`.
+2. Run `npm run dump-prompts` to inspect the rendered prompt.
+3. Run `npx tsx src/test/quality/rapid-test.ts` for a quick smoke test (~30s).
+4. Run quality tests against the reference model set — at minimum CLI sonnet, `openai-gpt-4.1-nano`, and `xai-grok`:
+   ```bash
+   npm run test:quality
+   TEST_BACKEND=api TEST_API_PRESET=openai-gpt-4.1-nano npm run test:quality
+   TEST_BACKEND=api TEST_API_PRESET=xai-grok npm run test:quality
+   ```
+5. Complete Layer 2 evaluation for each run.
+6. Compare pass rates to the previous baseline. Report regressions before merging.
+
+### Adding Post-Processing
+
+Adjust the system prompt, examples, or backend configuration first. Post-processing (algorithmic trimming/transformation in `post-process.ts`) is a last resort, not an alternative to try alongside prompt fixes. Algorithmic text manipulation that looks correct for the observed failure case often silently breaks completions in other contexts, producing ghost text the user does not expect.
+
+Fixing bugs in existing post-processing follows normal debugging workflow. The protocol below applies to **adding new** post-processing steps. If prompt engineering cannot solve the problem and the user approves adding post-processing:
+
+1. **Discuss with the user first** — explain the specific problem, why prompt engineering can't solve it, and what the proposed transformation does.
+2. **The transformation must be provably safe** — it should only activate when the pattern is always erroneous (never legitimate content), not when it might be correct.
+3. **Guard aggressively** — use tight preconditions (length limits, exact-match only, mode checks) so the transformation applies to the narrowest possible set of inputs.
+4. **Test both activation and no-op cases** — every post-processing step needs tests that verify it fires when expected _and_ tests that verify it leaves correct completions untouched across a range of realistic inputs.
+5. **Document the rationale in code** — each step in `post-process.ts` should have a comment explaining what problem it solves, why it's safe, and what its preconditions are.
+6. **Remove workarounds when root causes are fixed** — if the underlying issue is resolved at the prompt or backend level, remove the corresponding post-processing step.
 
 ### Updating This File
 
@@ -275,7 +233,7 @@ When making codebase changes, update the corresponding CLAUDE.md sections:
 
 | Change type          | CLAUDE.md section to update                      |
 | -------------------- | ------------------------------------------------ |
-| New source file      | Module Reference                                 |
+| New source file      | Module Reference tables                          |
 | New setting          | "Adding a New Setting" table if workflow changes |
 | New command          | Overview feature list and Module Reference       |
 | New test category    | Testing section                                  |
@@ -283,7 +241,7 @@ When making codebase changes, update the corresponding CLAUDE.md sections:
 | New known limitation | Known Limitations                                |
 | New npm script       | Build and Scripts                                |
 
-## Debugging and Fixing Issues
+## Debugging
 
 ### Log Format and Levels
 
@@ -331,6 +289,8 @@ When an autocomplete bug is observed (e.g., doubled text, wrong formatting, unwa
 
 When fixing a completion bug, consider also adding the failing case as a regression scenario (see [Adding a Regression Scenario](#adding-a-regression-scenario)) so it is covered by future quality test runs.
 
+When debugging code-mode completions, check whether `bespokeAI.codeOverride.backend` or `bespokeAI.codeOverride.model` is set — code completions may route to a different backend than prose. See [Known Limitations](#known-limitations) for the cross-backend restriction.
+
 ### Debugging Command Issues
 
 Commit message and suggest-edit commands route through `BackendRouter.sendCommand()` — in Claude Code mode this delegates to `PoolClient.sendCommand()` / `CommandPool`, in API mode to `ApiCommandProvider.sendPrompt()`. Diagnosis approach:
@@ -354,12 +314,19 @@ If completions stop working entirely:
 
 ## Testing
 
-### Reference Model Set
+### Test Environment Variables
 
-Test prompt changes against at least one model per extraction strategy. The minimum set is CLI sonnet, `openai-gpt-4.1-nano`, and `xai-grok`. See the full tested models table in `README.md` under "Tested Models".
+All test runners share these env vars:
 
-- **CLI:** sonnet (default), haiku
-- **API:** `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `google-gemini-flash`, `xai-grok`, `xai-grok-code`, `ollama-default`
+| Variable          | Description                                                    |
+| ----------------- | -------------------------------------------------------------- |
+| `TEST_BACKEND`    | `claude-code` (default) or `api`                               |
+| `TEST_API_PRESET` | Preset ID for API backend (default: `anthropic-haiku`)         |
+| `TEST_MODEL`      | Override Claude Code CLI model (default: `sonnet`)             |
+| `PROMPT_VARIANTS` | Comma-separated variant IDs for comparison runner              |
+| `COMPARE_FILTER`  | Filter comparison by mode: `prose`, `code`, or `all`           |
+
+Backward-compatible aliases: `QUALITY_TEST_MODEL` → `TEST_MODEL`, `PROMPT_VARIANT` → `PROMPT_VARIANTS`.
 
 ### Testing Philosophy
 
@@ -388,10 +355,10 @@ If any suite fails, report the failure and stop (the `&&` chaining enforces this
 | Step    | Action                     | What it does                                     | Done when                              |
 | ------- | -------------------------- | ------------------------------------------------ | -------------------------------------- |
 | Layer 1 | `npm run test:quality`     | Generates completions, saves to `test-results/`  | All scenarios produce output (or skip) |
-| Layer 2 | Follow stdout instructions | Evaluate each `completion.txt` against validator | `layer2-summary.md` written            |
+| Layer 2 | Follow steps in Quality Tests section | Evaluate each `completion.txt` against validator | `layer2-summary.md` written            |
 | Skip    | Report skip reason         | If all scenarios skipped (e.g., no SDK)          | Layer 2 does not apply                 |
 
-**Do not report quality tests as complete until Layer 2 is done.** After Layer 2 evaluation, report the results to the user. Do not attempt fixes unless asked.
+**Do not report quality tests as complete until Layer 2 is done.** See [Quality Tests (LLM-as-Judge)](#quality-tests-llm-as-judge) for the full Layer 2 workflow. After evaluation, report results to the user. Do not attempt fixes unless asked.
 
 ### Unit Tests
 
@@ -401,130 +368,67 @@ Debouncer and cache tests use `vi.useFakeTimers()`. For debouncer tests, use `vi
 
 ### Integration Tests
 
-Integration tests live in `src/test/api/` and make real calls to external services. The test config (`vitest.api.config.ts`) sets a 30-second timeout. Tests use `describe.skipIf()` to skip when the required backend isn't available.
-
-**Backend-agnostic shared scenarios** (`shared-scenarios.test.ts`) test the `CompletionProvider` interface — same scenarios run against any backend. The backend is selected via environment variables:
+Integration tests (`src/test/api/`) make real calls to external services. 30-second timeout. Tests skip via `describe.skipIf()` when the required backend isn't available.
 
 ```bash
-# Default — runs against Claude Code CLI
-npm run test:api
-
-# Run against Anthropic Haiku via direct API
-TEST_BACKEND=api npm run test:api
-
-# Run against a specific preset
-TEST_BACKEND=api TEST_API_PRESET=xai-grok npm run test:api
-TEST_BACKEND=api TEST_API_PRESET=anthropic-sonnet npm run test:api
+npm run test:api                                           # Claude Code CLI (default)
+TEST_BACKEND=api TEST_API_PRESET=xai-grok npm run test:api # API backend
 ```
 
-| Variable          | Description                                                    |
-| ----------------- | -------------------------------------------------------------- |
-| `TEST_BACKEND`    | `claude-code` (default) or `api`                               |
-| `TEST_API_PRESET` | Preset ID when using API backend (default: `anthropic-haiku`)  |
-| `TEST_MODEL`      | Override Claude Code model (default: `sonnet`); ignored for API |
+`createTestProvider()` in `src/test/helpers.ts` reads the env vars and returns the appropriate provider. Returns `null` when unavailable, causing tests to skip.
 
-The provider factory `createTestProvider()` in `src/test/helpers.ts` reads these env vars and returns the appropriate `CompletionProvider`. Returns `null` when the backend isn't available (missing SDK or API key), causing tests to skip.
+**Test suites:** `shared-scenarios.test.ts` (backend-agnostic: prose, code, no fences, no leading newlines), `claude-code.test.ts` (activation, warmup, slot reuse, abort, dispose), `api-adapters.test.ts` (raw HTTP adapter calls per provider), `content-validation.test.ts` (output quality checks), `slot-endurance.test.ts` (multi-request slot lifecycle), `anchor-echo.test.ts` (anchor document echo detection).
 
-**Shared scenarios:** prose completion, code completion, no markdown fences, no leading newlines.
-
-**OpenRouter testing:** Use specific model presets (not auto-routing). The two built-in OpenRouter presets (`openrouter-haiku`, `openrouter-gpt-4.1-nano`) cover both prefill and instruction extraction strategies:
-
-```bash
-TEST_BACKEND=api TEST_API_PRESET=openrouter-haiku npm run test:api
-TEST_BACKEND=api TEST_API_PRESET=openrouter-gpt-4.1-nano npm run test:api
-```
-
-**Claude Code-specific tests** (`claude-code.test.ts`): activation, warmup validation, slot reuse, abort-signal handling, dispose cleanup.
-
-**API adapter-specific tests** (`api-adapters.test.ts`): raw HTTP adapter calls — Anthropic (basic, prefill, caching), xAI, OpenAI. Skips when the required API key is unavailable.
-
-**Result output:** Tests persist results to `test-results/api-{timestamp}/`, organized by suite. Each JSON file records input context, completion text, duration, and timestamp. `test-results/latest-api` symlinks to the most recent run.
+Results persist to `test-results/api-{timestamp}/`. `test-results/latest-api` symlinks to the most recent run.
 
 ### Quality Tests (LLM-as-Judge)
 
-Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. They are backend-agnostic — the same scenarios run against Claude Code CLI or any API preset. Backend selection uses the same `TEST_BACKEND` and `TEST_API_PRESET` env vars as the integration tests:
+Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. Backend-agnostic.
 
 ```bash
-# Default — Claude Code CLI
-npm run test:quality
-
-# API backend with specific preset
-TEST_BACKEND=api TEST_API_PRESET=xai-grok-code npm run test:quality
-TEST_BACKEND=api TEST_API_PRESET=anthropic-sonnet npm run test:quality
+npm run test:quality                                                    # Claude Code CLI (default)
+TEST_BACKEND=api TEST_API_PRESET=xai-grok-code npm run test:quality     # API backend
 ```
 
-**Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}-{backend}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `raw-response.txt` (pre-post-processing model output), `requirements.json`, and `metadata.json`. Layer 1 only checks that the backend didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The output directory name includes the backend slug (e.g., `quality-2026-03-01-api-xai-grok-code`) for easy identification.
+**Layer 1 (automated):** Generates completions for every scenario, saves to `test-results/quality-{timestamp}-{backend}/` (`test-results/latest` symlinks to the most recent run). Only checks that the backend produced output without errors.
 
-**Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` in each scenario's directory and an overall `layer2-summary.md` at the run root. Validate every scenario — do not skip any. Use the Task tool with multiple parallel agents to speed up evaluation if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
+**Layer 2 (Claude Code in-session):**
 
-**Fabricated content is expected and acceptable.** Completions are predictions — the model will invent plausible content (names, dates, code, narrative). Judge whether fabricated content is contextually sensible, not whether it's factually accurate.
+1. Read `src/test/quality/validator-prompt.md` for the evaluation rubric.
+2. For every scenario in the run folder, evaluate `completion.txt` against the rubric and write `validation.md`. Validate every scenario — do not skip any. Null completions are failures.
+3. Write `layer2-summary.md` at the run root summarizing pass/fail counts.
+4. Use the Task tool with parallel agents to speed up evaluation.
 
-**Scenario categories:**
+**Fabricated content is expected.** The model invents plausible content (names, dates, code). Judge contextual sensibility, not factual accuracy.
 
-- `scenarios.ts` — Standard prose, code, and edge case scenarios
-- `regression-scenarios.ts` — Captured real-world completion failures
-- `scenarios/prose-mid-document.ts` — Full-window mid-document prose editing (8 scenarios)
-- `scenarios/prose-journal.ts` — Journal writing in `journal.jnl.md` format + meeting notes (12 scenarios)
-- `scenarios/prose-bridging.ts` — Fill-in-the-middle bridging (6 scenarios)
-- `scenarios/code-mid-file.ts` — Realistic mid-file code completion (6 scenarios)
-- `scenarios/prose-prompt-writing.ts` — Prompt/message writing to Claude Code (6 scenarios)
-- `scenarios/prose-full-window.ts` — Large anchor document prose scenarios (5 scenarios)
-- `scenarios/code-full-window.ts` — Large anchor document code scenarios (3 scenarios)
+**Scenario design:** Each scenario declares a `saturation` field (how full the context window should be, 0.0–1.0); the runner applies the same truncation logic used in production. See `docs/autocomplete-approach.md` Section 5. Standard scenarios are in `src/test/quality/scenarios.ts`; category-specific scenarios are in `src/test/quality/scenarios/` (browse the directory for the current set). Verify character counts with `npx tsx src/test/quality/measure-scenarios.ts`.
 
-**Scenario design:** Each scenario declares a `saturation` field (whether raw text exceeds the production context window) and the test runner applies production-equivalent truncation. For design principles (over-window content, saturation balance, anchor documents), see `docs/autocomplete-approach.md` Section 5. Verify character counts with `npx tsx src/test/quality/measure-scenarios.ts`.
+To add a scenario, add a `TestScenario` to `scenarios.ts` (for standard scenarios) or to a file in the `scenarios/` directory (for category-specific scenarios). To adjust judging criteria, edit `validator-prompt.md`.
 
-**Testing different models:** By default, integration and quality tests use `sonnet` for Claude Code CLI. Override with `TEST_MODEL` (Claude Code only) or `TEST_API_PRESET` (API backend):
+**Key files:** `scenarios.ts` (standard), `regression-scenarios.ts` (captured failures), `validator-prompt.md` (rubric), `judge.ts` (types).
+
+**Reference model set:** Test prompt changes against at least one model per extraction strategy (tag, prefill, instruction — see `prompt-strategy.ts`). Minimum set: CLI sonnet, `openai-gpt-4.1-nano`, `xai-grok`. Full list in `README.md` under "Tested Models".
+
+### Rapid Code Quality Test
+
+Standalone script for fast prompt iteration. Runs 7 cherry-picked code scenarios with objective pass/fail criteria (tag leaks, marker leaks, null completions, excessive length, assistant preamble). No subjective judgment — completes in ~30 seconds.
 
 ```bash
-TEST_MODEL=sonnet npm run test:quality                              # Claude Code with sonnet
-TEST_BACKEND=api TEST_API_PRESET=xai-grok-code npm run test:quality  # xAI Grok Code Fast
-TEST_BACKEND=api TEST_API_PRESET=anthropic-haiku npm run test:quality # Anthropic Haiku direct
+npx tsx src/test/quality/rapid-test.ts                      # default: xai-grok
+npx tsx src/test/quality/rapid-test.ts openai-gpt-4.1-nano  # specific preset
 ```
-
-`QUALITY_TEST_MODEL` is still supported as a backward-compatible alias but `TEST_MODEL` takes precedence. Backend, preset, and model info are recorded in `summary.json` and `metadata.json` so results are traceable. The reuse quality test (session drift) is skipped for API backends since they are stateless.
-
-**Key files:**
-
-- `src/test/quality/scenarios.ts` — Reference scenarios: input contexts and quality requirements
-- `src/test/quality/validator-prompt.md` — Evaluation criteria (scoring rubric, per-mode rules)
-- `src/test/quality/judge.ts` — Type definitions for scenarios and judgments
-- `test-results/` — Generated outputs (gitignored)
-
-To add a new scenario, add a `TestScenario` object to the prose, code, or edge-case scenario array in `scenarios.ts`. To adjust judging criteria, edit `validator-prompt.md`.
 
 ### Prompt Variant Comparison
 
-The comparison runner (`npm run test:quality:compare`) is a general-purpose A/B/N tool for testing prompt variants against the full scenario suite. It uses the same scenarios and truncation as the main quality runner but swaps in different prompt strategies via `PromptVariant` definitions in `prompt-variants.ts`.
-
-**Usage:**
+A/B/N tool for testing prompt variants against the full scenario suite. Uses the same scenarios and truncation as the quality runner.
 
 ```bash
-# Run the current baseline against all scenarios
 PROMPT_VARIANTS=current npm run test:quality:compare
-
-# Single variant (backward compat)
-PROMPT_VARIANT=current npm run test:quality:compare
 ```
 
-**Environment variables:**
+**Available variants:** `current` (production baseline, imports from `src/providers/claude-code.ts`). To add a variant, add a `PromptVariant` to `src/test/quality/prompt-variants.ts` and register it in the `PROMPT_VARIANTS` record. Each variant defines `systemPrompt`, `buildMessage()`, `extractCompletion()`, `buildWarmupMessage()`, and `validateWarmup()`.
 
-| Variable          | Description                                                |
-| ----------------- | ---------------------------------------------------------- |
-| `PROMPT_VARIANTS` | Comma-separated list of variant IDs to compare             |
-| `PROMPT_VARIANT`  | Single variant ID (used if `PROMPT_VARIANTS` not set)      |
-| `COMPARE_FILTER`  | Filter by mode: `prose`, `code`, or `all` (default: `all`) |
-| `TEST_MODEL`      | Override the Claude Code model                             |
-
-**Available variants:** `current` (production baseline). The `current` variant imports directly from `src/providers/claude-code.ts` so it stays in sync with production automatically. To add a new variant, add a `PromptVariant` object to `prompt-variants.ts` and register it in the `PROMPT_VARIANTS` record.
-
-**Output:** Results go to `test-results/compare-{timestamp}/{variant-id}/{scenario-id}/` with the same per-scenario files as the main runner (`input.json`, `completion.txt`, `raw-response.txt`, `sent-message.txt`, `requirements.json`, `metadata.json`). A `summary.json` at the run root has per-variant aggregates (generated count, nulls, errors, duration). The `test-results/latest-compare` symlink points to the most recent run.
-
-**Adding a new variant:** Add a `PromptVariant` object to `src/test/quality/prompt-variants.ts` and register it in the `PROMPT_VARIANTS` record. Each variant defines a `systemPrompt` string and four methods: `buildMessage()`, `extractCompletion()`, `buildWarmupMessage()`, and `validateWarmup()`.
-
-**Key files:**
-
-- `src/test/quality/prompt-comparison.test.ts` — Comparison test runner
-- `src/test/quality/prompt-variants.ts` — Variant definitions and registry
+Results go to `test-results/compare-{timestamp}/`. `test-results/latest-compare` symlinks to the most recent run.
 
 ## Known Limitations
 
@@ -534,7 +438,7 @@ These are deliberate trade-offs. Do not attempt to fix them unless explicitly as
 - The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values. Invalid settings pass through to the backend as-is.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
-- Context menu commands (Explain, Fix, Do) do not check the `bespokeAI.enabled` setting because they launch standalone Claude CLI processes independent of the pool server. They work even when inline completions are disabled.
-- **Context menu commands are CLI-only.** When `bespokeAI.backend` is set to `api`, context menu commands (Explain, Fix, Do) are hidden via `when` clause (`bespokeAI.cliAvailable`). These commands require the Claude Code CLI and cannot be routed through the API backend.
+- **Context menu commands (Explain, Fix, Do) are CLI-only.** They launch standalone Claude CLI processes, not the pool server. Hidden via `bespokeAI.cliAvailable` when backend is API. They do not check `bespokeAI.enabled` — they work even when inline completions are disabled.
 - **Context menu shell escaping (Windows):** `escapeForDoubleQuotes()` in `context-menu-utils.ts` uses bash/zsh escaping rules. On Windows with PowerShell or cmd.exe, context menu commands (Explain, Fix, Do) may produce incorrect escaping unless the VS Code terminal uses a bash-compatible shell (Git Bash, WSL).
 - **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If someone force-kills VS Code (e.g., `kill -9`), subprocesses may survive until they timeout or are manually cleaned. On macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`. On Windows: use Task Manager to end `node.exe` processes running Claude.
+- **Code override cross-backend:** `bespokeAI.codeOverride.backend` set to `claude-code` only works when the primary backend is also `claude-code`. The pool server only starts when the primary backend is `claude-code`, so code completions routed via the override will silently fail. The reverse (primary `claude-code`, code override to `api`) works because the API provider initializes regardless.
