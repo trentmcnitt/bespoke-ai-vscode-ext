@@ -2,6 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { expect } from 'vitest';
+import * as ts from 'typescript';
 import { CompletionContext, CompletionProvider, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
@@ -477,4 +478,170 @@ export async function createTestProvider(logger?: Logger): Promise<TestProviderI
   }
 
   return null;
+}
+
+// ─── Content validation helpers ─────────────────────────────────
+
+/**
+ * Scaffolding patterns — these are prompt construction artifacts that
+ * should NEVER appear in user-facing completions. Checked across the
+ * entire completion string.
+ */
+const SCAFFOLDING_PATTERNS = [
+  { pattern: /<\/?COMPLETION>/, label: '<COMPLETION> tag' },
+  { pattern: /\{\{FILL_HERE\}\}/, label: '{{FILL_HERE}} marker' },
+  { pattern: /<\/?document>/, label: '<document> tag' },
+];
+
+/**
+ * Preamble phrases that indicate the model switched to assistant voice.
+ * Only checked at the very start of the completion (after trimming
+ * whitespace) to avoid false positives from model thinking artifacts
+ * that appear later in the output.
+ */
+const PREAMBLE_PHRASES = [
+  /^Sure[,!.]/i,
+  /^Here'?s\b/i,
+  /^Here is\b/i,
+  /^Absolutely[,!.]/i,
+  /^Of course[,!.]/i,
+  /^Got it[,!.]/i,
+  /^Understood[,!.]/i,
+  /^I'd be happy\b/i,
+  /^Let me\b/i,
+  /^I can\b/i,
+  /^I'll\b/i,
+];
+
+/**
+ * Assert completion has no tag leaks, scaffolding, or leading preambles.
+ *
+ * - Scaffolding tags (COMPLETION, FILL_HERE, document) are checked across
+ *   the entire string — these are always bugs.
+ * - Code fences are checked only at the very start — fences within model
+ *   thinking text deeper in the completion are not flagged.
+ * - Assistant preambles are checked only against the trimmed start — this
+ *   avoids false positives from "Wait, let me reconsider" thinking blocks
+ *   that some models produce after the actual completion content.
+ */
+export function assertCleanCompletion(result: string): void {
+  for (const { pattern, label } of SCAFFOLDING_PATTERNS) {
+    expect(result, `Leaked scaffolding: ${label}`).not.toMatch(pattern);
+  }
+  // Fence check: only at the very start of the completion
+  expect(result, 'Completion starts with code fence').not.toMatch(/^```/);
+  // Preamble check: only at the trimmed start
+  const trimmed = result.trimStart();
+  for (const pattern of PREAMBLE_PHRASES) {
+    expect(trimmed, `Assistant preamble at start: ${pattern}`).not.toMatch(pattern);
+  }
+}
+
+// ─── Tree-sitter language loaders (lazy, cached) ────────────────
+
+type TreeSitterParser = {
+  setLanguage(lang: unknown): void;
+  parse(input: string): { rootNode: { toString(): string } };
+};
+
+/** Cache of loaded tree-sitter language grammars. */
+const treeSitterCache = new Map<string, unknown>();
+
+/**
+ * Dynamically load a tree-sitter language grammar.
+ * Returns null if the package isn't installed.
+ */
+async function loadTreeSitterLang(languageId: string): Promise<unknown | null> {
+  if (treeSitterCache.has(languageId)) return treeSitterCache.get(languageId)!;
+
+  const pkgMap: Record<string, string> = {
+    python: 'tree-sitter-python',
+    go: 'tree-sitter-go',
+    rust: 'tree-sitter-rust',
+    html: 'tree-sitter-html',
+    css: 'tree-sitter-css',
+    shellscript: 'tree-sitter-bash',
+    bash: 'tree-sitter-bash',
+  };
+
+  const pkg = pkgMap[languageId];
+  if (!pkg) return null;
+
+  try {
+    const mod = await import(pkg);
+    const lang = mod.default ?? mod;
+    treeSitterCache.set(languageId, lang);
+    return lang;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse prefix + completion + suffix and check for syntax errors.
+ *
+ * Uses tree-sitter for Python/Go/Rust/HTML/CSS/Bash/Shell,
+ * TypeScript compiler API for TS/JS, JSON.parse for JSON.
+ *
+ * Call only on scenarios where the combined text is expected to be
+ * syntactically valid — not all prefix+suffix combos form complete files.
+ */
+export async function assertValidSyntax(
+  prefix: string,
+  completion: string,
+  suffix: string,
+  languageId: string,
+): Promise<void> {
+  const full = prefix + completion + suffix;
+
+  // TypeScript / JavaScript — use the TS compiler parser
+  if (languageId === 'typescript' || languageId === 'javascript') {
+    const scriptKind = languageId === 'typescript' ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+    const sourceFile = ts.createSourceFile(
+      'test.ts',
+      full,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind,
+    );
+    const diagnostics = (sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] })
+      .parseDiagnostics;
+    if (diagnostics && diagnostics.length > 0) {
+      const msgs = diagnostics
+        .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+        .join('; ');
+      expect.fail(`TypeScript parse errors: ${msgs}\n\nFull text:\n${full}`);
+    }
+    return;
+  }
+
+  // JSON — use built-in JSON.parse
+  if (languageId === 'json' || languageId === 'jsonc') {
+    try {
+      JSON.parse(full);
+    } catch (e) {
+      expect.fail(`JSON parse error: ${(e as Error).message}\n\nFull text:\n${full}`);
+    }
+    return;
+  }
+
+  // Tree-sitter languages
+  const lang = await loadTreeSitterLang(languageId);
+  if (!lang) {
+    // Language not supported — skip silently
+    return;
+  }
+
+  const Parser = (await import('tree-sitter')).default ?? (await import('tree-sitter'));
+  const parser = new Parser() as TreeSitterParser;
+  parser.setLanguage(lang);
+
+  const tree = parser.parse(full);
+  const sExpr = tree.rootNode.toString();
+
+  if (sExpr.includes('ERROR') || sExpr.includes('MISSING')) {
+    expect.fail(
+      `Syntax errors in ${languageId} parse tree.\n\nS-expression (first 500 chars):\n${sExpr.slice(0, 500)}\n\nFull text:\n${full}`,
+    );
+  }
 }

@@ -94,11 +94,24 @@ function trimPrefixOverlap(completion: string, prefix: string): string {
 }
 
 /**
+ * Strip prompt scaffolding tags that leaked through extraction.
+ *
+ * These strings are never legitimate user-facing content — they are
+ * instruction/marker tags used in prompt construction. If extraction
+ * didn't remove them (e.g., model echoed them outside the expected
+ * position), strip them here as a safety net.
+ */
+function stripLeakedTags(text: string): string {
+  return text.replace(/<\/?COMPLETION>/g, '').replace(/\{\{FILL_HERE\}\}/g, '');
+}
+
+/**
  * Post-processing pipeline for completion text from any provider.
  *
  * 1. Trim prefix overlap — if the completion's head duplicates the current line fragment.
  * 2. Trim suffix overlap — if the completion's tail duplicates the document's suffix.
- * 3. Return null for empty results so callers get a clean "no completion" signal.
+ * 3. Strip leaked tags — remove prompt scaffolding that survived extraction.
+ * 4. Return null for empty results so callers get a clean "no completion" signal.
  */
 export function postProcessCompletion(
   text: string,
@@ -114,6 +127,8 @@ export function postProcessCompletion(
   if (suffix) {
     result = trimSuffixOverlap(result, suffix);
   }
+
+  result = stripLeakedTags(result);
 
   return result.trim() ? result : null;
 }

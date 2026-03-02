@@ -370,7 +370,7 @@ When asked to "run tests" (without further qualification), run the full test sui
 npm run check && npm run test:unit && npm run test:api && npm run test:quality
 ```
 
-If any suite fails, report the failure and stop (the `&&` chaining enforces this). The Claude Code tests and quality tests require the `@anthropic-ai/claude-agent-sdk` package and the `claude` CLI — no API key. Suites that lack required dependencies skip without error. After the run, report any skipped suites and why.
+If any suite fails, report the failure and stop (the `&&` chaining enforces this). The Claude Code tests require the `@anthropic-ai/claude-agent-sdk` package and the `claude` CLI. Quality tests default to Claude Code CLI but also support API backends via `TEST_BACKEND`/`TEST_API_PRESET` env vars. Suites that lack required dependencies skip without error. After the run, report any skipped suites and why.
 
 **`test:quality` is a two-step process:**
 
@@ -431,9 +431,18 @@ TEST_BACKEND=api TEST_API_PRESET=openrouter-gpt-4.1-nano npm run test:api
 
 ### Quality Tests (LLM-as-Judge)
 
-Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. They use the Claude Code backend and follow a two-layer validation pattern:
+Quality tests (`src/test/quality/`) evaluate whether completions are actually good, not just structurally valid. They are backend-agnostic — the same scenarios run against Claude Code CLI or any API preset. Backend selection uses the same `TEST_BACKEND` and `TEST_API_PRESET` env vars as the integration tests:
 
-**Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `raw-response.txt` (pre-post-processing model output), `requirements.json`, and `metadata.json`. Layer 1 only checks that the backend didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run.
+```bash
+# Default — Claude Code CLI
+npm run test:quality
+
+# API backend with specific preset
+TEST_BACKEND=api TEST_API_PRESET=xai-grok-code npm run test:quality
+TEST_BACKEND=api TEST_API_PRESET=anthropic-sonnet npm run test:quality
+```
+
+**Layer 1 (automated, `npm run test:quality`):** Generates real completions for every scenario and saves them to `test-results/quality-{timestamp}-{backend}/`. Each scenario gets a directory with `input.json`, `completion.txt`, `raw-response.txt` (pre-post-processing model output), `requirements.json`, and `metadata.json`. Layer 1 only checks that the backend didn't throw — it does not judge quality. The `test-results/latest` symlink always points to the most recent run. The output directory name includes the backend slug (e.g., `quality-2026-03-01-api-xai-grok-code`) for easy identification.
 
 **Layer 2 (Claude Code in-session, after Layer 1):** You are the evaluator. The Layer 1 test runner prints step-by-step instructions to stdout — follow them. The short version: read the validator prompt (`src/test/quality/validator-prompt.md`), evaluate every scenario's `completion.txt` against it, write a `validation.md` in each scenario's directory and an overall `layer2-summary.md` at the run root. Validate every scenario — do not skip any. Use the Task tool with multiple parallel agents to speed up evaluation if there are many scenarios. If a scenario's completion is null, mark it as a Layer 2 failure.
 
@@ -453,14 +462,15 @@ Quality tests (`src/test/quality/`) evaluate whether completions are actually go
 
 **Scenario design:** Each scenario declares a `saturation` field (whether raw text exceeds the production context window) and the test runner applies production-equivalent truncation. For design principles (over-window content, saturation balance, anchor documents), see `docs/autocomplete-approach.md` Section 5. Verify character counts with `npx tsx src/test/quality/measure-scenarios.ts`.
 
-**Testing different models:** By default, all integration and quality tests use the model from `makeConfig()` (currently `haiku`). Override with `TEST_MODEL`:
+**Testing different models:** By default, integration and quality tests use `haiku` for Claude Code CLI. Override with `TEST_MODEL` (Claude Code only) or `TEST_API_PRESET` (API backend):
 
 ```bash
-TEST_MODEL=haiku npm run test:api       # API tests with haiku
-TEST_MODEL=sonnet npm run test:quality   # quality tests with sonnet
+TEST_MODEL=sonnet npm run test:quality                              # Claude Code with sonnet
+TEST_BACKEND=api TEST_API_PRESET=xai-grok-code npm run test:quality  # xAI Grok Code Fast
+TEST_BACKEND=api TEST_API_PRESET=anthropic-haiku npm run test:quality # Anthropic Haiku direct
 ```
 
-`QUALITY_TEST_MODEL` is still supported as a backward-compatible alias but `TEST_MODEL` takes precedence. The model name is recorded in `summary.json` so results are traceable.
+`QUALITY_TEST_MODEL` is still supported as a backward-compatible alias but `TEST_MODEL` takes precedence. Backend, preset, and model info are recorded in `summary.json` and `metadata.json` so results are traceable. The reuse quality test (session drift) is skipped for API backends since they are stateless.
 
 **Key files:**
 

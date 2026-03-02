@@ -10,17 +10,27 @@
  * After generation completes, the afterAll hook prints instructions
  * for Claude to begin Layer 2 (semantic quality) validation.
  *
- * Model override:
+ * Backend selection:
+ *   TEST_BACKEND=api                       — use API backend (default: claude-code)
+ *   TEST_API_PRESET=xai-grok-code          — API preset (default: anthropic-haiku)
+ *
+ * Model override (Claude Code backend only):
  *   TEST_MODEL=sonnet           — override model (preferred)
  *   QUALITY_TEST_MODEL=sonnet   — backward-compatible alias
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ClaudeCodeProvider } from '../../providers/claude-code';
 import { CompletionContext } from '../../types';
 import { truncatePrefix, truncateSuffix } from '../../utils/truncation';
-import { makeConfig, makeCapturingLogger, getTestModel, assertModelMatch } from '../helpers';
+import {
+  makeConfig,
+  makeCapturingLogger,
+  getTestModel,
+  assertModelMatch,
+  getTestBackendConfig,
+  createTestProvider,
+} from '../helpers';
 import { TestScenario } from './judge';
 import {
   proseScenarios,
@@ -42,37 +52,55 @@ import {
 
 // ─── Backend selection ───────────────────────────────────────────────
 
+const { backend, preset: apiPreset } = getTestBackendConfig();
+
 let canRun = false;
 let skipReason = '';
 
-try {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk');
-  const queryFn = sdk.query ?? sdk.default?.query;
-  canRun = typeof queryFn === 'function';
-  if (!canRun) {
-    skipReason = 'Agent SDK does not export query()';
+if (backend === 'api') {
+  const info = await createTestProvider();
+  if (info) {
+    canRun = true;
+    info.dispose();
+  } else {
+    skipReason = `API preset "${apiPreset}" not available (missing API key?)`;
   }
-} catch {
-  canRun = false;
-  skipReason = 'Agent SDK not available (npm install @anthropic-ai/claude-agent-sdk)';
+} else {
+  try {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    const queryFn = sdk.query ?? sdk.default?.query;
+    canRun = typeof queryFn === 'function';
+    if (!canRun) {
+      skipReason = 'Agent SDK does not export query()';
+    }
+  } catch {
+    canRun = false;
+    skipReason = 'Agent SDK not available (npm install @anthropic-ai/claude-agent-sdk)';
+  }
 }
 
 function makeCompletionConfig() {
   const config = makeConfig();
-  config.claudeCode.model = getTestModel();
+  if (backend === 'api') {
+    config.backend = 'api';
+    config.api = { preset: apiPreset, customPresets: [] };
+  } else {
+    config.claudeCode.model = getTestModel();
+  }
   return config;
 }
 
-function getModelName(): string {
-  const config = makeCompletionConfig();
-  return `claude-code/${config.claudeCode.model}`;
+function getBackendLabel(): string {
+  if (backend === 'api') return `api/${apiPreset}`;
+  return `claude-code/${getTestModel()}`;
 }
 
 // ─── Output management ──────────────────────────────────────────────
 
 const RESULTS_DIR = path.join(__dirname, '..', '..', '..', 'test-results');
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-const RUN_DIR = path.join(RESULTS_DIR, `quality-${timestamp}`);
+const backendSlug = getBackendLabel().replace(/\//g, '-');
+const RUN_DIR = path.join(RESULTS_DIR, `quality-${timestamp}-${backendSlug}`);
 
 interface GenerationResult {
   scenario: TestScenario;
@@ -145,8 +173,9 @@ function saveScenarioOutput(result: GenerationResult): void {
         completionLength: result.completion?.length ?? 0,
         error: result.error ?? null,
         generatedAt: new Date().toISOString(),
-        backend: 'claude-code',
-        model: getModelName(),
+        backend,
+        preset: backend === 'api' ? apiPreset : null,
+        model: getBackendLabel(),
       },
       null,
       2,
@@ -178,6 +207,7 @@ function truncateScenario(scenario: TestScenario): {
 }
 
 async function generateWithFreshProvider(scenario: TestScenario): Promise<GenerationResult> {
+  const { ClaudeCodeProvider } = await import('../../providers/claude-code');
   const config = makeCompletionConfig();
   const capturing = makeCapturingLogger();
   const cc = new ClaudeCodeProvider(config, capturing.logger, 1);
@@ -223,9 +253,61 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
   }
 }
 
+async function generateWithFreshApiProvider(scenario: TestScenario): Promise<GenerationResult> {
+  const { clearApiKeyCache } = await import('../../utils/api-key-store');
+  const { ApiCompletionProvider } = await import('../../providers/api/api-provider');
+  clearApiKeyCache();
+
+  const capturing = makeCapturingLogger();
+  const config = makeCompletionConfig();
+  const provider = new ApiCompletionProvider(config, capturing.logger);
+
+  const truncated = truncateScenario(scenario);
+  const ctx: CompletionContext = {
+    prefix: truncated.prefix,
+    suffix: truncated.suffix,
+    languageId: scenario.languageId,
+    fileName: scenario.fileName,
+    filePath: `/${scenario.fileName}`,
+    mode: scenario.mode,
+  };
+
+  const start = Date.now();
+  try {
+    const completion = await provider.getCompletion(ctx, AbortSignal.timeout(30_000));
+    const result: GenerationResult = {
+      scenario,
+      completion,
+      rawResponse: capturing.getTrace('api ← raw'),
+      sentMessage: capturing.getTrace('api → user'),
+      durationMs: Date.now() - start,
+    };
+    saveScenarioOutput(result);
+    return result;
+  } catch (err) {
+    const result: GenerationResult = {
+      scenario,
+      completion: null,
+      sentMessage: capturing.getTrace('api → user'),
+      durationMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    saveScenarioOutput(result);
+    return result;
+  } finally {
+    provider.dispose();
+  }
+}
+
+function generateScenario(scenario: TestScenario): Promise<GenerationResult> {
+  return backend === 'api'
+    ? generateWithFreshApiProvider(scenario)
+    : generateWithFreshProvider(scenario);
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
-describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () => {
+describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()}]`, () => {
   // Ensure output directory exists before any concurrent test writes
   fs.mkdirSync(RUN_DIR, { recursive: true });
 
@@ -239,8 +321,9 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
 
     const summary = {
       timestamp,
-      backend: 'claude-code',
-      model: getModelName(),
+      backend,
+      preset: backend === 'api' ? apiPreset : null,
+      model: getBackendLabel(),
       totalScenarios: results.length,
       generated,
       nullResults: nulls,
@@ -275,8 +358,9 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     console.log('\n' + '='.repeat(70));
     console.log('  LAYER 1 COMPLETE — LAYER 2 VALIDATION REQUIRED');
     console.log('='.repeat(70));
-    console.log(`\n  Backend:   claude-code`);
-    console.log(`  Model:     ${getModelName()}`);
+    console.log(`\n  Backend:   ${backend}`);
+    if (backend === 'api') console.log(`  Preset:    ${apiPreset}`);
+    console.log(`  Model:     ${getBackendLabel()}`);
     console.log(`  Generated: ${generated}/${results.length} completions (${nulls} null)`);
     console.log(`  Duration:  ${(totalMs / 1000).toFixed(1)}s total`);
     console.log(`  Output:    ${RUN_DIR}`);
@@ -301,7 +385,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(proseScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         // Layer 1: completion was generated without throwing
         expect(result.error).toBeUndefined();
@@ -313,7 +397,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(codeScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -324,7 +408,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(edgeCaseScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -335,7 +419,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(regressionScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -348,7 +432,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(proseMidDocumentScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -359,7 +443,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(proseJournalScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -370,7 +454,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(proseBridgingScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -381,7 +465,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(codeMidFileScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -392,7 +476,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(prosePromptWritingScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -403,7 +487,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(proseFullWindowScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
@@ -414,18 +498,20 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [claude-code]`, () =
     it.concurrent.each(codeFullWindowScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
-        const result = await generateWithFreshProvider(scenario);
+        const result = await generateScenario(scenario);
         results.push(result);
         expect(result.error).toBeUndefined();
       },
     );
   });
 
-  describe('reuse quality (shared provider)', () => {
+  // Reuse quality tests session drift — only meaningful for Claude Code (stateful subprocess)
+  describe.skipIf(backend !== 'claude-code')('reuse quality (shared provider)', () => {
     // These scenarios share ONE provider instance. The slot serves
     // 5 priming completions first, then the real quality scenarios.
     // This tests whether accumulated session context degrades quality.
     it('reuse scenarios after priming', async () => {
+      const { ClaudeCodeProvider } = await import('../../providers/claude-code');
       const config = makeCompletionConfig();
       const capturing = makeCapturingLogger();
       // Single slot — forces all completions through the same subprocess

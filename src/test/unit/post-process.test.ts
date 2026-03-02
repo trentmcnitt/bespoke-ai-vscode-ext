@@ -94,6 +94,48 @@ describe('trimPrefixOverlap', () => {
   });
 });
 
+describe('stripLeakedTags', () => {
+  it('strips <COMPLETION> opening tag', () => {
+    const result = postProcessCompletion('hello <COMPLETION>world');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips </COMPLETION> closing tag', () => {
+    const result = postProcessCompletion('hello</COMPLETION> world');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips both opening and closing tags', () => {
+    const result = postProcessCompletion('<COMPLETION>hello world</COMPLETION>');
+    expect(result).toBe('hello world');
+  });
+
+  it('strips {{FILL_HERE}} marker', () => {
+    const result = postProcessCompletion('hello {{FILL_HERE}} world');
+    expect(result).toBe('hello  world');
+  });
+
+  it('strips multiple leaked tags in one string', () => {
+    const result = postProcessCompletion('<COMPLETION>text</COMPLETION> more {{FILL_HERE}} end');
+    expect(result).toBe('text more  end');
+  });
+
+  it('leaves clean text unchanged', () => {
+    const result = postProcessCompletion('perfectly normal text');
+    expect(result).toBe('perfectly normal text');
+  });
+
+  it('returns null when stripping leaves only whitespace', () => {
+    const result = postProcessCompletion('<COMPLETION></COMPLETION>');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when stripping FILL_HERE leaves only whitespace', () => {
+    const result = postProcessCompletion('  {{FILL_HERE}}  ');
+    expect(result).toBeNull();
+  });
+});
+
 describe('trimSuffixOverlap', () => {
   it('does not trim overlap below 10-character minimum threshold', () => {
     // "the end" is only 7 chars - should NOT be trimmed
