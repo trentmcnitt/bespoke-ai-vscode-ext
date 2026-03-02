@@ -50,13 +50,14 @@ export class BackendRouter implements CompletionProvider {
       return this.apiCompletion.getCompletion(context, signal);
     }
 
-    // CLI path
+    // CLI path — use a shallow copy to avoid mutating shared config across an await boundary
     if (effective.model && effective.model !== this.config.claudeCode.model) {
-      const origModel = this.config.claudeCode.model;
-      this.config.claudeCode.model = effective.model;
-      this.poolClient.updateConfig?.(this.config);
+      const overrideConfig = {
+        ...this.config,
+        claudeCode: { ...this.config.claudeCode, model: effective.model },
+      };
+      this.poolClient.updateConfig?.(overrideConfig);
       const result = await this.poolClient.getCompletion(context, signal);
-      this.config.claudeCode.model = origModel;
       this.poolClient.updateConfig?.(this.config);
       return result;
     }

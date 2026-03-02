@@ -4,10 +4,6 @@ import { postProcessCompletion } from '../utils/post-process';
 import { SlotPool } from './slot-pool';
 import { SYSTEM_PROMPT, buildFillMessage, extractCompletion } from './prompt-strategy';
 
-// Re-export for backward compatibility — consumers that import from this module
-// (tests, dump-prompts, prompt-variants) continue to work without changes.
-export { SYSTEM_PROMPT, buildFillMessage, extractCompletion };
-
 /** Maximum completions per slot before recycling. */
 const MAX_COMPLETION_REUSES = 8;
 

@@ -210,6 +210,14 @@ export function registerCustomPresets(customs: CustomPreset[]): void {
       }
       if (c.apiKeyEnvVar) {
         preset.apiKeyEnvVar = c.apiKeyEnvVar;
+      } else if (provider === 'anthropic') {
+        preset.apiKeyEnvVar = 'ANTHROPIC_API_KEY';
+      } else if (provider === 'google') {
+        preset.apiKeyEnvVar = 'GEMINI_API_KEY';
+      } else if (provider === 'openai') {
+        preset.apiKeyEnvVar = 'OPENAI_API_KEY';
+      } else if (provider === 'xai') {
+        preset.apiKeyEnvVar = 'XAI_API_KEY';
       } else if (provider === 'openrouter') {
         preset.apiKeyEnvVar = 'OPENROUTER_API_KEY';
       }
@@ -240,7 +248,7 @@ export function getPreset(id: string): Preset | undefined {
 }
 
 /** The default preset ID. */
-export const DEFAULT_PRESET_ID = 'anthropic-haiku';
+export const DEFAULT_PRESET_ID = 'xai-grok';
 
 /** Get all built-in preset IDs. */
 export function getBuiltInPresetIds(): string[] {

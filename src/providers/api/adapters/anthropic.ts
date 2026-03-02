@@ -120,6 +120,7 @@ export class AnthropicAdapter implements ApiAdapter {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     this.client = new Anthropic({
       apiKey,
+      ...(this.preset.baseUrl && { baseURL: this.preset.baseUrl }),
       ...(this.preset.extraHeaders && { defaultHeaders: this.preset.extraHeaders }),
     });
     return this.client as AnthropicClient;

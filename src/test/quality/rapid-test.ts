@@ -41,7 +41,7 @@ function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionConfig {
     prose: { contextChars: 2500, suffixChars: 2000, fileTypes: [] },
     code: { contextChars: 2500, suffixChars: 2000 },
     claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
-    api: { preset: 'anthropic-haiku', customPresets: [] },
+    api: { preset: 'xai-grok', customPresets: [] },
     codeOverride: { backend: '', model: '' },
     contextMenu: { permissionMode: 'default' },
     logLevel: 'info',

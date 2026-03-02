@@ -177,7 +177,7 @@ async function doGenerateCommitMessage(
 
   const message = parseCommitMessage(text);
   if (!message) {
-    vscode.window.showInformationMessage('Bespoke AI: Claude returned an empty response.');
+    vscode.window.showInformationMessage('Bespoke AI: The model returned an empty response.');
     return;
   }
 

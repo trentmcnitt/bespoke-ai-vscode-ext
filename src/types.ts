@@ -2,7 +2,7 @@ export type CompletionMode = 'prose' | 'code';
 
 /** Default model used throughout the extension and tests.
  *  Keep in sync with the "default" value in package.json (bespokeAI.claudeCode.model). */
-export const DEFAULT_MODEL = 'haiku';
+export const DEFAULT_MODEL = 'sonnet';
 
 /** Trigger presets control when completions appear. */
 export type TriggerPreset = 'relaxed' | 'eager' | 'on-demand';
@@ -36,7 +36,7 @@ export function resolvePreset(input: PresetResolutionInput): {
   debounceMs: number;
 } {
   let triggerPreset: TriggerPreset;
-  if (input.presetExplicitlySet) {
+  if (input.presetExplicitlySet && input.presetValue in TRIGGER_PRESET_DEFAULTS) {
     triggerPreset = input.presetValue as TriggerPreset;
   } else if (input.triggerModeExplicitlySet && input.triggerModeValue === 'manual') {
     triggerPreset = 'on-demand';

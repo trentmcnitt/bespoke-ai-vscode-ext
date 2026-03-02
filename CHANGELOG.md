@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Code override:** New `bespokeAI.codeOverride.backend` and `bespokeAI.codeOverride.model` settings let you route code completions to a different backend/model than prose (e.g., Claude Code CLI for writing, xAI Grok for code).
+- **Secure API key management:** "Enter API Key" command stores keys in the OS keychain via VS Code SecretStorage, with graceful fallback to environment variables and `~/.creds/api-keys.env`.
+- **Custom model wizard:** "Add Custom Model" command provides a guided setup flow for adding custom API presets.
+- **OpenRouter support:** Two built-in OpenRouter presets (`openrouter-haiku`, `openrouter-gpt-4.1-nano`) with attribution headers and auto-detection of Anthropic models for prefill strategy.
+- **Google Gemini support:** Built-in `google-gemini-flash` preset with auto-populated base URL.
+- **Expanded model coverage:** Added `openai-gpt-4.1-nano`, `xai-grok-code`, `xai-grok-4`, `ollama-qwen3-4b`, `ollama-qwen3-8b` presets. Total built-in presets: 13.
+- **Extra API passthrough:** Custom presets support `extraBody` and `extraHeaders` for provider-specific API configuration (e.g., OpenRouter `transforms`, `provider` routing).
+- **Default preset changed:** Default API preset is now `xai-grok` (was `anthropic-haiku`).
+- **Default CLI model changed:** Default Claude Code model is now `sonnet` (was `haiku`).
+
 ## 0.8.0 — API Backend
 
 - **API backend:** The extension now works without a Claude subscription. Set `bespokeAI.backend` to `"api"` and provide an API key (via environment variable or `~/.creds/api-keys.env`) to use Anthropic, OpenAI, xAI, or local Ollama models for completions, commit messages, and suggest-edits.

@@ -6,7 +6,8 @@ import * as ts from 'typescript';
 import { CompletionContext, CompletionProvider, DEFAULT_MODEL, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
-import { extractCompletion, WARMUP_EXPECTED } from '../providers/claude-code';
+import { extractCompletion } from '../providers/prompt-strategy';
+import { WARMUP_EXPECTED } from '../providers/claude-code';
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   enabled: true,
@@ -26,7 +27,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   },
   claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
   api: {
-    preset: 'anthropic-haiku',
+    preset: 'xai-grok',
     customPresets: [],
   },
   codeOverride: { backend: '', model: '' },

@@ -43,10 +43,8 @@ import {
   SYSTEM_PROMPT as CURRENT_SYSTEM_PROMPT,
   buildFillMessage,
   extractCompletion,
-  WARMUP_PREFIX,
-  WARMUP_SUFFIX,
-  WARMUP_EXPECTED,
-} from '../../providers/claude-code';
+} from '../../providers/prompt-strategy';
+import { WARMUP_PREFIX, WARMUP_SUFFIX, WARMUP_EXPECTED } from '../../providers/claude-code';
 
 const currentVariant: PromptVariant = {
   id: 'current',

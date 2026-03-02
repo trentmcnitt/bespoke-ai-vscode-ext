@@ -13,6 +13,7 @@ import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
 import { ApiCommandProvider } from './providers/api/api-command-provider';
 import {
+  DEFAULT_PRESET_ID,
   getPreset,
   getAllPresets,
   getBuiltInPresetIds,
@@ -82,6 +83,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 const SETUP_URL = 'https://docs.anthropic.com/en/docs/claude-code/setup';
 const WELCOME_SHOWN_KEY = 'bespokeAI.welcomeShown';
 const API_WELCOME_SHOWN_KEY = 'bespokeAI.apiWelcomeShown';
+const ONBOARDING_SHOWN_KEY = 'bespokeAI.onboardingShown';
 const CUSTOM_PRESETS_SEEDED_KEY = 'bespokeAI.customPresetsSeeded';
 
 let statusBarItem: vscode.StatusBarItem;
@@ -879,7 +881,7 @@ export function activate(context: vscode.ExtensionContext) {
       // If the removed model was active, switch to default
       const activePreset = ws.get<string>('api.preset');
       if (activePreset === slugify(pick.label)) {
-        await ws.update('api.preset', 'anthropic-haiku', vscode.ConfigurationTarget.Global);
+        await ws.update('api.preset', DEFAULT_PRESET_ID, vscode.ConfigurationTarget.Global);
       }
 
       logger.info(`Custom model removed: ${pick.label}`);
@@ -1105,7 +1107,7 @@ function loadConfig(): ExtensionConfig {
       models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
     },
     api: {
-      preset: ws.get<string>('api.preset', 'anthropic-haiku')!,
+      preset: ws.get<string>('api.preset', DEFAULT_PRESET_ID)!,
       customPresets: ws.get<CustomPreset[]>('api.customPresets', [])!,
     },
     codeOverride: {
@@ -1187,7 +1189,7 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
         return {
           message: 'Claude Code CLI not found',
           detail: 'Install the Claude Code CLI, or switch to the Direct API backend.',
-          actionLabel: 'Install Guide',
+          actionLabel: '',
           action: () => vscode.env.openExternal(vscode.Uri.parse(SETUP_URL)),
         };
       case 'activation-failed':
@@ -1256,7 +1258,7 @@ function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
 
     if (isCodeOverrideActive && backendRouter) {
       const modelInfo = backendRouter.getCurrentModelForMode('code');
-      const suffix = modelInfo.backend === 'api' ? ' (API)' : '';
+      const suffix = modelInfo.backend === 'api' ? ' (API)' : ' (CC)';
       statusBarItem.text = `${presetIcon} ${displayMode} | ${modelInfo.label}${suffix}`;
       statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode (code override), ${config.triggerPreset} trigger, ${modelInfo.label} (click for menu)`;
     } else if (config.backend === 'api') {
@@ -1266,8 +1268,8 @@ function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
       statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${modelLabel} via API (click for menu)`;
     } else {
       const modelLabel = shortenModelName(config.claudeCode.model);
-      statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel}`;
-      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} (click for menu)`;
+      statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel} (CC)`;
+      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} via Claude Code (click for menu)`;
     }
   }
   statusBarItem.show();
@@ -1321,7 +1323,7 @@ function updateStatusBarSpinner(spinning: boolean) {
 
     if (isCodeOverrideActive && backendRouter) {
       const modelInfo = backendRouter.getCurrentModelForMode('code');
-      const suffix = modelInfo.backend === 'api' ? ' (API)' : '';
+      const suffix = modelInfo.backend === 'api' ? ' (API)' : ' (CC)';
       statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelInfo.label}${suffix}`;
     } else if (config.backend === 'api') {
       const apiPreset = getPreset(config.api.preset);
@@ -1329,7 +1331,7 @@ function updateStatusBarSpinner(spinning: boolean) {
       statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel} (API)`;
     } else {
       const modelLabel = shortenModelName(config.claudeCode.model);
-      statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel}`;
+      statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel} (CC)`;
     }
   } else {
     updateStatusBar(config);
@@ -1718,16 +1720,50 @@ async function activateWithPreflight(
     logger.error('Pre-flight: Claude Code CLI not found');
     setupReason = { backend: 'cli', issue: 'sdk-not-found' };
     updateStatusBar(config, 'setup-needed');
-    vscode.window
-      .showErrorMessage(
-        'Bespoke AI: Claude Code CLI not found. Install Claude Code to get started.',
-        'Open Install Guide',
-      )
-      .then((action) => {
-        if (action === 'Open Install Guide') {
-          vscode.env.openExternal(vscode.Uri.parse(SETUP_URL));
-        }
-      });
+
+    const isFirstActivation = !context.globalState.get<boolean>(ONBOARDING_SHOWN_KEY);
+
+    if (isFirstActivation) {
+      context.globalState.update(ONBOARDING_SHOWN_KEY, true);
+
+      const choice = await vscode.window.showInformationMessage(
+        'Bespoke AI: Choose how to get started',
+        'Install Claude Code CLI',
+        'Use an API key instead',
+      );
+
+      if (choice === 'Install Claude Code CLI') {
+        vscode.env.openExternal(vscode.Uri.parse(SETUP_URL));
+        vscode.window
+          .showInformationMessage(
+            'After installing Claude Code, reload VS Code to activate.',
+            'Reload Window',
+          )
+          .then((action) => {
+            if (action === 'Reload Window') {
+              vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+          });
+      } else if (choice === 'Use an API key instead') {
+        const ws = vscode.workspace.getConfiguration('bespokeAI');
+        await ws.update('backend', 'api', vscode.ConfigurationTarget.Global);
+        logger.info('Onboarding: user chose API backend');
+      }
+      // Dismissed — status bar already shows "setup-needed"; status bar menu has "Switch to Direct API"
+    } else {
+      // Subsequent activations with missing CLI — show the standard error toast
+      vscode.window
+        .showErrorMessage(
+          'Bespoke AI: Claude Code CLI not found. Install Claude Code to get started.',
+          'Open Install Guide',
+        )
+        .then((action) => {
+          if (action === 'Open Install Guide') {
+            vscode.env.openExternal(vscode.Uri.parse(SETUP_URL));
+          }
+        });
+    }
+
     return;
   }
 
@@ -1747,12 +1783,15 @@ async function activateWithPreflight(
     context.globalState.update(WELCOME_SHOWN_KEY, true);
     vscode.window
       .showInformationMessage(
-        'Bespoke AI is ready! Press Alt+Enter to trigger a completion anytime.',
+        'Bespoke AI is ready! Completions appear automatically, or press Alt+Enter to trigger one instantly. If Alt+Enter doesn\'t work, check Keyboard Shortcuts for conflicts.',
         'Open Settings',
+        'Keyboard Shortcuts',
       )
       .then((action) => {
         if (action === 'Open Settings') {
           vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+        } else if (action === 'Keyboard Shortcuts') {
+          vscode.commands.executeCommand('workbench.action.openGlobalKeybindings', 'alt+enter');
         }
       });
   }

@@ -1,6 +1,7 @@
 import { ExtensionConfig } from '../../types';
 import { Logger } from '../../utils/logger';
 import { UsageLedger } from '../../utils/usage-ledger';
+import { CircuitBreaker } from '../../utils/circuit-breaker';
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
@@ -8,10 +9,6 @@ import { createAdapter } from './adapters';
 /** Max output tokens for commands (commit messages, suggest-edits need much
  *  more than the 200 tokens used for inline completions). */
 const COMMAND_MAX_TOKENS = 4096;
-
-/** Circuit breaker constants. */
-const CIRCUIT_BREAKER_THRESHOLD = 5;
-const CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
 
 /**
  * API-based command provider for commit messages and suggest-edits.
@@ -26,20 +23,18 @@ export class ApiCommandProvider {
   private ledger?: UsageLedger;
   private adapter: ApiAdapter | null = null;
   private activePreset: Preset | null = null;
-
-  // Circuit breaker state
-  private consecutiveFailures = 0;
-  private circuitOpenedAt = 0;
+  private breaker: CircuitBreaker;
 
   constructor(config: ExtensionConfig, logger: Logger, ledger?: UsageLedger) {
     this.config = config;
     this.logger = logger;
     this.ledger = ledger;
+    this.breaker = new CircuitBreaker(5, 30_000, logger, 'API command');
     this.loadAdapter();
   }
 
   isAvailable(): boolean {
-    if (this.isCircuitOpen()) return false;
+    if (this.breaker.isOpen()) return false;
     return this.adapter?.isConfigured() ?? false;
   }
 
@@ -57,7 +52,7 @@ export class ApiCommandProvider {
     signal?: AbortSignal,
   ): Promise<string | null> {
     if (!this.adapter || !this.activePreset) return null;
-    if (this.isCircuitOpen()) return null;
+    if (this.breaker.isOpen()) return null;
 
     const preset = this.activePreset;
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
@@ -76,7 +71,7 @@ export class ApiCommandProvider {
         stopSequences: preset.stopSequences,
       });
     } catch (err) {
-      this.recordFailure();
+      this.breaker.recordFailure();
       throw err;
     }
 
@@ -94,11 +89,11 @@ export class ApiCommandProvider {
     });
 
     if (!result.text) {
-      if (!result.aborted) this.recordFailure();
+      if (!result.aborted) this.breaker.recordFailure();
       return null;
     }
 
-    this.consecutiveFailures = 0;
+    this.breaker.recordSuccess();
     this.logger.traceBlock('api-cmd ← raw', result.text);
     return result.text;
   }
@@ -107,25 +102,6 @@ export class ApiCommandProvider {
     this.adapter?.dispose();
     this.adapter = null;
     this.activePreset = null;
-  }
-
-  private isCircuitOpen(): boolean {
-    if (this.consecutiveFailures < CIRCUIT_BREAKER_THRESHOLD) return false;
-    if (Date.now() - this.circuitOpenedAt > CIRCUIT_BREAKER_COOLDOWN_MS) {
-      this.consecutiveFailures = 0;
-      return false;
-    }
-    return true;
-  }
-
-  private recordFailure(): void {
-    this.consecutiveFailures++;
-    if (this.consecutiveFailures === CIRCUIT_BREAKER_THRESHOLD) {
-      this.circuitOpenedAt = Date.now();
-      this.logger.error(
-        `API command: circuit breaker open after ${CIRCUIT_BREAKER_THRESHOLD} consecutive failures`,
-      );
-    }
   }
 
   private loadAdapter(): void {
@@ -142,7 +118,7 @@ export class ApiCommandProvider {
 
     this.activePreset = preset;
     this.adapter = createAdapter(preset);
-    this.consecutiveFailures = 0;
+    this.breaker.reset();
 
     this.logger.info(`API command: loaded ${preset.displayName} (${preset.modelId})`);
   }

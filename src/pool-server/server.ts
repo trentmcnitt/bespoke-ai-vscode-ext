@@ -161,7 +161,8 @@ export class PoolServer {
       this.logger.info(`Pool server: model changed ${oldModel} → ${request.model}, recycling`);
       this.completionProvider.updateConfig(this.config);
       this.commandPool.updateModel(request.model);
-      await Promise.all([this.completionProvider.recycleAll(), this.commandPool.recycleAll()]);
+      // Only recycle completionProvider — commandPool.updateModel() already triggers recycleAll()
+      await this.completionProvider.recycleAll();
     }
   }
 

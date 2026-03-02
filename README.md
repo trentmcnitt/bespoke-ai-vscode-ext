@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
-> **Early release** — This extension is functional and actively used by the author, but hasn't been widely tested yet. If you encounter issues, please [open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues).
+> **New here?** The extension auto-detects your setup — use your existing Claude subscription or bring your own API key. [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if you run into problems.
 
 **🖊️ Writing, not just code** — Inline completions for prompts, journals, notes, and docs — plus all the code completions you'd expect.
 
@@ -58,43 +58,56 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 ## 🚀 Getting Started
 
-### Option A: Claude Code CLI (default)
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search "Bespoke AI"). On first launch, the extension checks for the Claude Code CLI and offers you a choice — install the CLI or switch to API mode with your own key.
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search "Bespoke AI")
-2. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup):
+### Option A: Claude Code CLI (recommended for Claude subscribers)
+
+Use your existing Claude subscription — no per-token billing.
+
+1. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup):
    ```bash
    # macOS / Linux
    curl -fsSL https://claude.ai/install.sh | bash
    # Windows (or any platform via npm)
    npm install -g @anthropic-ai/claude-code
    ```
-3. Authenticate — run `claude` in your terminal and follow the login prompts
-4. Have an active Claude subscription (Pro, Team, or Enterprise)
-5. Start typing — completions appear as ghost text after a ~2 second pause
+2. Authenticate — run `claude` in your terminal and follow the login prompts
+3. Have an active Claude subscription (Pro, Team, or Enterprise)
+4. Reload VS Code — completions appear as ghost text after a ~2 second pause
 
-### Option B: API Key
+> **Recommended model:** Sonnet (the default) — best balance of quality and speed for both prose and code. Switch to Haiku for faster, lighter completions via the status bar menu.
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai)
-2. Set `bespokeAI.backend` to `"api"` in VS Code settings (or use the status bar menu)
-3. Run the **"Bespoke AI: Enter API Key"** command (`Ctrl+Shift+P` → "Enter API Key") to securely store your key
-4. Optionally change the model via the status bar menu or `bespokeAI.api.preset` setting
-5. Start typing — completions appear as ghost text
+### Option B: API Key (recommended for non-subscribers)
+
+Bring your own API key — pay per token with the provider of your choice.
+
+1. Choose "Use an API key instead" when prompted (or set `bespokeAI.backend` to `"api"` in settings)
+2. Run the **"Bespoke AI: Enter API Key"** command (`Ctrl+Shift+P` → "Enter API Key") to securely store your key in the OS keychain
+3. Start typing — completions appear as ghost text
+
+> **Recommended model:** [Grok 4.1 Fast](https://console.x.ai/) (`xai-grok`, the default) — fast, affordable, and high quality for both prose and code.
 
 **Built-in models:**
 
-| Preset                      | Provider                                    | Model                      | API Key              |
-| --------------------------- | ------------------------------------------- | -------------------------- | -------------------- |
-| `anthropic-haiku` (default) | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5           | `ANTHROPIC_API_KEY`  |
-| `anthropic-sonnet`          | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5          | `ANTHROPIC_API_KEY`  |
-| `openai-gpt-4.1-nano`       | [OpenAI](https://platform.openai.com/)      | gpt-4.1-nano               | `OPENAI_API_KEY`     |
-| `openai-gpt-4o-mini`        | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini                | `OPENAI_API_KEY`     |
-| `google-gemini-flash`       | [Google](https://aistudio.google.com/)      | gemini-2.5-flash           | `GEMINI_API_KEY`     |
-| `xai-grok`                  | [xAI](https://console.x.ai/)                | grok-4-1-fast-non-reasoning | `XAI_API_KEY`        |
-| `openrouter-haiku`          | [OpenRouter](https://openrouter.ai/)        | anthropic/claude-haiku-4.5 | `OPENROUTER_API_KEY` |
-| `openrouter-gpt-4.1-nano`   | [OpenRouter](https://openrouter.ai/)        | openai/gpt-4.1-nano        | `OPENROUTER_API_KEY` |
-| `ollama-default`            | [Ollama](https://ollama.com/) (local)       | qwen2.5-coder              | none                 |
+| Preset                    | Provider                                    | Model                       | API Key              |
+| ------------------------- | ------------------------------------------- | --------------------------- | -------------------- |
+| `xai-grok` (default)     | [xAI](https://console.x.ai/)               | grok-4-1-fast-non-reasoning | `XAI_API_KEY`        |
+| `xai-grok-code`          | [xAI](https://console.x.ai/)               | grok-code-fast-1            | `XAI_API_KEY`        |
+| `xai-grok-4`             | [xAI](https://console.x.ai/)               | grok-4-0709                 | `XAI_API_KEY`        |
+| `anthropic-haiku`        | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5            | `ANTHROPIC_API_KEY`  |
+| `anthropic-sonnet`       | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5           | `ANTHROPIC_API_KEY`  |
+| `openai-gpt-4.1-nano`   | [OpenAI](https://platform.openai.com/)      | gpt-4.1-nano                | `OPENAI_API_KEY`     |
+| `openai-gpt-4o-mini`    | [OpenAI](https://platform.openai.com/)      | gpt-4o-mini                 | `OPENAI_API_KEY`     |
+| `google-gemini-flash`   | [Google](https://aistudio.google.com/)      | gemini-2.5-flash            | `GEMINI_API_KEY`     |
+| `openrouter-haiku`      | [OpenRouter](https://openrouter.ai/)        | anthropic/claude-haiku-4.5  | `OPENROUTER_API_KEY` |
+| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)      | openai/gpt-4.1-nano         | `OPENROUTER_API_KEY` |
+| `ollama-default`        | [Ollama](https://ollama.com/) (local, free) | qwen2.5-coder               | none                 |
+| `ollama-qwen3-4b`       | [Ollama](https://ollama.com/) (local, free) | qwen3:4b                    | none                 |
+| `ollama-qwen3-8b`       | [Ollama](https://ollama.com/) (local, free) | qwen3:8b                    | none                 |
 
-**Custom models:** Use the **"Bespoke AI: Add Custom Model"** command (`Ctrl+Shift+P` → "Add Custom Model") for a guided setup wizard. Any OpenAI-compatible API, Anthropic, Google Gemini, or OpenRouter endpoint works. You can also add models manually via the `bespokeAI.api.customPresets` setting:
+Change models anytime via the status bar menu or `bespokeAI.api.preset` setting.
+
+**Custom models:** Use the **"Bespoke AI: Add Custom Model"** command (`Ctrl+Shift+P` → "Add Custom Model") for a guided setup wizard. Any OpenAI-compatible API (LM Studio, Together, Mistral, etc.), Anthropic, Google Gemini, or OpenRouter endpoint works. You can also add models manually via the `bespokeAI.api.customPresets` setting:
 
 ```json
 "bespokeAI.api.customPresets": [
@@ -106,9 +119,13 @@ Most AI extensions charge per API call or push you toward cheaper models to keep
 
 > **Note:** Context menu commands (Explain, Fix, Do) require the Claude Code CLI backend and are hidden in API mode.
 
-> **Tip:** Press `Alt+Enter` to trigger a completion immediately. Change the trigger preset via the status bar menu — choose between `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
+### Triggering Completions
 
-> **Note:** If `Alt+Enter` doesn't work, another keybinding is likely intercepting it. Open Keyboard Shortcuts (`Ctrl+K Ctrl+S`), search for `alt+enter`, and remove or rebind any conflicting entries — Inline Chat is the most common culprit, but other extensions or custom bindings can also conflict.
+Completions appear automatically after a ~2 second pause (the `relaxed` preset). Press **Alt+Enter** to trigger one instantly at any time.
+
+> **Important:** If `Alt+Enter` doesn't work, another keybinding is likely intercepting it. Open Keyboard Shortcuts (`Ctrl+K Ctrl+S`), search for `alt+enter`, and remove or rebind any conflicting entries — **Inline Chat** is the most common culprit.
+
+Change the trigger behavior via the status bar menu: `relaxed` (~2s delay), `eager` (~800ms), or `on-demand` (Alt+Enter only).
 
 > **Platform:** macOS, Linux, and Windows.
 
@@ -145,7 +162,7 @@ All settings live under `bespokeAI.*` in VS Code settings.
 | Setting      | Default             | Description                                                 |
 | ------------ | ------------------- | ----------------------------------------------------------- |
 | `backend`    | `"claude-code"`     | Active backend: `claude-code` (CLI) or `api` (HTTP)         |
-| `api.preset` | `"anthropic-haiku"` | Active API model (dropdown in settings, or status bar menu) |
+| `api.preset` | `"xai-grok"`        | Active API model (dropdown in settings, or status bar menu) |
 
 </details>
 
@@ -154,7 +171,7 @@ All settings live under `bespokeAI.*` in VS Code settings.
 
 | Setting             | Default                       | Description                              |
 | ------------------- | ----------------------------- | ---------------------------------------- |
-| `claudeCode.model`  | `"haiku"`                     | Active model (haiku, sonnet, opus, etc.) |
+| `claudeCode.model`  | `"sonnet"`                    | Active model (sonnet, haiku, opus, etc.) |
 | `claudeCode.models` | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
 
 </details>
@@ -169,6 +186,18 @@ All settings live under `bespokeAI.*` in VS Code settings.
 | `prose.fileTypes`    | `[]`    | Additional language IDs to treat as writing |
 | `code.contextChars`  | `2500`  | Prefix context (characters) for code        |
 | `code.suffixChars`   | `2000`  | Suffix context (characters) for code        |
+
+</details>
+
+<details>
+<summary><strong>Code Override</strong></summary>
+
+Route code completions to a different backend or model than prose. For example, use Claude Code CLI for writing and an xAI preset for code — or vice versa.
+
+| Setting                 | Default | Description                                                                                                     |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `codeOverride.backend`  | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                     |
+| `codeOverride.model`    | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default. |
 
 </details>
 
@@ -274,18 +303,18 @@ npm run test:quality              # LLM-as-judge quality tests
 
 ### Tested Models
 
-These are the models the quality test suite runs against. Contributors should test prompt changes against at least one model per extraction strategy (e.g., CLI haiku, GPT-4.1 Nano, xAI Grok).
+These are the models the quality test suite runs against. Contributors should test prompt changes against at least one model per extraction strategy (e.g., CLI sonnet, GPT-4.1 Nano, xAI Grok).
 
 | # | Backend | Preset ID | Model |
 |---|---------|-----------|-------|
-| 1 | CLI | *(default)* | haiku |
-| 2 | CLI | *(default)* | sonnet |
-| 3 | API | `anthropic-haiku` | claude-haiku-4-5-20251001 |
-| 4 | API | `anthropic-sonnet` | claude-sonnet-4-5-20250929 |
-| 5 | API | `openai-gpt-4.1-nano` | gpt-4.1-nano |
-| 6 | API | `google-gemini-flash` | gemini-2.5-flash |
-| 7 | API | `xai-grok` | grok-4-1-fast-non-reasoning |
-| 8 | API | `xai-grok-code` | grok-code-fast-1 |
+| 1 | CLI | *(default)* | sonnet |
+| 2 | CLI | — | haiku |
+| 3 | API | `xai-grok` | grok-4-1-fast-non-reasoning |
+| 4 | API | `xai-grok-code` | grok-code-fast-1 |
+| 5 | API | `anthropic-haiku` | claude-haiku-4-5-20251001 |
+| 6 | API | `anthropic-sonnet` | claude-sonnet-4-5-20250929 |
+| 7 | API | `openai-gpt-4.1-nano` | gpt-4.1-nano |
+| 8 | API | `google-gemini-flash` | gemini-2.5-flash |
 | 9 | API | `ollama-default` | qwen2.5-coder:7b |
 
 Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `CLAUDE.md` for testing commands.

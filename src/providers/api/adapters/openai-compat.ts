@@ -112,8 +112,9 @@ export class OpenAICompatAdapter implements ApiAdapter {
         );
       }
 
-      // Connection refused — likely Ollama not running
-      if (isConnectionError(err)) {
+      // Connection refused — for Ollama, return null silently (likely not running).
+      // For cloud APIs, let the error propagate to the circuit breaker.
+      if (this.preset.provider === 'ollama' && isConnectionError(err)) {
         return {
           text: null,
           usage: { inputTokens: 0, outputTokens: 0 },

@@ -1,6 +1,7 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../../types';
 import { Logger } from '../../utils/logger';
 import { UsageLedger } from '../../utils/usage-ledger';
+import { CircuitBreaker } from '../../utils/circuit-breaker';
 import { postProcessCompletion } from '../../utils/post-process';
 import {
   getPromptStrategy,
@@ -12,10 +13,6 @@ import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
 
-/** Circuit breaker constants. */
-const CIRCUIT_BREAKER_THRESHOLD = 5;
-const CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
-
 export class ApiCompletionProvider implements CompletionProvider {
   private config: ExtensionConfig;
   private logger: Logger;
@@ -23,20 +20,18 @@ export class ApiCompletionProvider implements CompletionProvider {
   private adapter: ApiAdapter | null = null;
   private activePreset: Preset | null = null;
   private strategy: PromptStrategy | null = null;
-
-  // Circuit breaker state
-  private consecutiveFailures = 0;
-  private circuitOpenedAt = 0;
+  private breaker: CircuitBreaker;
 
   constructor(config: ExtensionConfig, logger: Logger, ledger?: UsageLedger) {
     this.config = config;
     this.logger = logger;
     this.ledger = ledger;
+    this.breaker = new CircuitBreaker(5, 30_000, logger, 'API');
     this.loadAdapter();
   }
 
   isAvailable(): boolean {
-    if (this.isCircuitOpen()) return false;
+    if (this.breaker.isOpen()) return false;
     return this.adapter?.isConfigured() ?? false;
   }
 
@@ -50,7 +45,7 @@ export class ApiCompletionProvider implements CompletionProvider {
 
   async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
     if (!this.adapter || !this.activePreset || !this.strategy) return null;
-    if (this.isCircuitOpen()) return null;
+    if (this.breaker.isOpen()) return null;
 
     const preset = this.activePreset;
     const messages = this.strategy.buildMessages(
@@ -82,7 +77,7 @@ export class ApiCompletionProvider implements CompletionProvider {
         stopSequences: preset.stopSequences,
       });
     } catch (err) {
-      this.recordFailure();
+      this.breaker.recordFailure();
       throw err;
     }
 
@@ -100,12 +95,11 @@ export class ApiCompletionProvider implements CompletionProvider {
     });
 
     if (!result.text) {
-      if (!result.aborted) this.recordFailure();
+      if (!result.aborted) this.breaker.recordFailure();
       return null;
     }
 
-    // Reset circuit breaker on success
-    this.consecutiveFailures = 0;
+    this.breaker.recordSuccess();
 
     this.logger.traceBlock('api ← raw', result.text);
 
@@ -189,26 +183,6 @@ export class ApiCompletionProvider implements CompletionProvider {
     }
   }
 
-  private isCircuitOpen(): boolean {
-    if (this.consecutiveFailures < CIRCUIT_BREAKER_THRESHOLD) return false;
-    // Auto-recover after cooldown
-    if (Date.now() - this.circuitOpenedAt > CIRCUIT_BREAKER_COOLDOWN_MS) {
-      this.consecutiveFailures = 0;
-      return false;
-    }
-    return true;
-  }
-
-  private recordFailure(): void {
-    this.consecutiveFailures++;
-    if (this.consecutiveFailures === CIRCUIT_BREAKER_THRESHOLD) {
-      this.circuitOpenedAt = Date.now();
-      this.logger.error(
-        `API: circuit breaker open after ${CIRCUIT_BREAKER_THRESHOLD} consecutive failures`,
-      );
-    }
-  }
-
   /** Run a completion using a specific preset (for code override routing). */
   async getCompletionWithPreset(
     presetId: string,
@@ -247,7 +221,7 @@ export class ApiCompletionProvider implements CompletionProvider {
     this.activePreset = preset;
     this.strategy = getPromptStrategy(preset.promptStrategy);
     this.adapter = createAdapter(preset);
-    this.consecutiveFailures = 0;
+    this.breaker.reset();
 
     this.logger.info(`API: loaded ${preset.displayName} (${preset.modelId})`);
   }
