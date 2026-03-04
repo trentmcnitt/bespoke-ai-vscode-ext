@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.8.2 — Native Ollama Adapter
+
+- **Native Ollama API adapter:** Ollama models now use the native `/api/chat` endpoint instead of the OpenAI-compatible `/v1/chat/completions`. This fixes thinking/reasoning models (like Qwen 3.5) that burned their entire token budget on reasoning and returned empty completions via the OpenAI-compat layer.
+- **New preset:** `ollama-qwen35-9b` for Qwen 3.5 9B.
+- **Thinking disabled by default:** The adapter sends `think: false` to ensure fast, direct completions. Override with `extraBody: { think: true }` in a custom preset if needed.
+- **Backward compatible:** Existing Ollama presets and custom presets with `/v1` base URLs continue to work — the adapter strips the `/v1` suffix automatically.
 
 ## 0.8.0 — API Backend
 
