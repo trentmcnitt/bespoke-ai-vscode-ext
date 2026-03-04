@@ -219,7 +219,7 @@
           "type": "string",
           "default": "xai-grok",
           "scope": "application",
-          "markdownDescription": "Active API model preset. Built-in presets: `xai-grok` (default), `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok-code`, `xai-grok-4`, `openrouter-haiku`, `openrouter-gpt-4.1-nano`, `ollama-default`, `ollama-qwen3-4b`, `ollama-qwen3-8b`. Custom preset IDs (from `#bespokeAI.api.customPresets#`) are also accepted. Changeable via the status bar menu.",
+          "markdownDescription": "Active API model preset. Built-in presets: `xai-grok` (default), `anthropic-haiku`, `anthropic-sonnet`, `openai-gpt-4.1-nano`, `openai-gpt-4o-mini`, `google-gemini-flash`, `xai-grok-code`, `xai-grok-4`, `openrouter-haiku`, `openrouter-gpt-4.1-nano`, `ollama-default`, `ollama-qwen3-4b`, `ollama-qwen3-8b`, `ollama-qwen35-9b`. Custom preset IDs (from `#bespokeAI.api.customPresets#`) are also accepted. Changeable via the status bar menu.",
           "examples": [
             "anthropic-haiku",
             "anthropic-sonnet",
@@ -233,7 +233,8 @@
             "openrouter-gpt-4.1-nano",
             "ollama-default",
             "ollama-qwen3-4b",
-            "ollama-qwen3-8b"
+            "ollama-qwen3-8b",
+            "ollama-qwen35-9b"
           ]
         },
         "bespokeAI.api.customPresets": {

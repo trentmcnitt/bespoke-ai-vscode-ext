@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { AnthropicAdapter } from '../../providers/api/adapters/anthropic';
+import { OllamaAdapter } from '../../providers/api/adapters/ollama';
 import { OpenAICompatAdapter } from '../../providers/api/adapters/openai-compat';
 import { getPreset } from '../../providers/api/presets';
 import { resolveApiKey, clearApiKeyCache } from '../../utils/api-key-store';
@@ -234,6 +235,53 @@ describe.skipIf(!hasOpenAiKey())('OpenAICompatAdapter — OpenAI extraHeaders (l
     expect(result.text).toBeTruthy();
     expect(result.usage.inputTokens).toBeGreaterThan(0);
 
+    adapter.dispose();
+  });
+});
+
+// --- Ollama Adapter (native API) ---
+
+const isOllamaRunning = async () => {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags', {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
+const ollamaAvailable = await isOllamaRunning();
+
+describe.skipIf(!ollamaAvailable)('OllamaAdapter — native API (live)', () => {
+  it('completes a simple prose prompt', async () => {
+    const preset = getPreset('ollama-default')!;
+    const adapter = new OllamaAdapter(preset);
+
+    const result = await adapter.complete(
+      'You are a helpful writing assistant. Continue the text naturally.',
+      [{ role: 'user', content: 'The quick brown fox' }],
+      {
+        signal: AbortSignal.timeout(30000),
+        maxTokens: 50,
+        temperature: 0.2,
+      },
+    );
+
+    expect(result.text).toBeTruthy();
+    expect(result.text!.length).toBeGreaterThan(0);
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
+    expect(result.usage.outputTokens).toBeGreaterThan(0);
+    expect(result.durationMs).toBeGreaterThan(0);
+
+    adapter.dispose();
+  });
+
+  it('isConfigured returns true without API key', () => {
+    const preset = getPreset('ollama-default')!;
+    const adapter = new OllamaAdapter(preset);
+    expect(adapter.isConfigured()).toBe(true);
     adapter.dispose();
   });
 });

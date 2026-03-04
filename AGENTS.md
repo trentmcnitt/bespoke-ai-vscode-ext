@@ -143,7 +143,8 @@ File paths relative to `src/`. Read source files for full API surface; the Notes
 | `providers/api/api-provider.ts` | `ApiCompletionProvider` — inline completions via API | Uses shared `CircuitBreaker` from `utils/` |
 | `providers/api/api-command-provider.ts` | `ApiCommandProvider` — commit message / suggest-edit via API | Uses shared `CircuitBreaker` from `utils/` |
 | `providers/api/adapters/anthropic.ts` | Anthropic SDK adapter (bundled) | Supports prefill, prompt caching, `extraBody`/`extraHeaders` passthrough |
-| `providers/api/adapters/openai-compat.ts` | OpenAI-compat adapter (OpenAI, Gemini, xAI, OpenRouter, Ollama) | Ollama: no API key, silent `null` on connection error. xAI: cache affinity header |
+| `providers/api/adapters/openai-compat.ts` | OpenAI-compat adapter (OpenAI, Gemini, xAI, OpenRouter) | xAI: cache affinity header |
+| `providers/api/adapters/ollama.ts` | Native Ollama API adapter (fetch-based) | Always sends `think: false`; strips `/v1` from legacy baseUrls |
 | `providers/api/adapters/index.ts` | Adapter factory: `createAdapter(preset)` | |
 
 #### Commands and Utilities

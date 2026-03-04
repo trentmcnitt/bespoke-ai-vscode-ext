@@ -129,7 +129,7 @@ const BUILT_IN_PRESETS: Preset[] = [
     description: 'Local, free',
     provider: 'ollama',
     modelId: 'qwen2.5-coder:7b',
-    baseUrl: 'http://localhost:11434/v1',
+    baseUrl: 'http://localhost:11434',
     maxTokens: 200,
     temperature: 0.2,
     promptStrategy: 'instruction-extraction',
@@ -140,7 +140,7 @@ const BUILT_IN_PRESETS: Preset[] = [
     description: 'Local, free, general',
     provider: 'ollama',
     modelId: 'qwen3:4b',
-    baseUrl: 'http://localhost:11434/v1',
+    baseUrl: 'http://localhost:11434',
     maxTokens: 200,
     temperature: 0.2,
     promptStrategy: 'instruction-extraction',
@@ -151,7 +151,18 @@ const BUILT_IN_PRESETS: Preset[] = [
     description: 'Local, free, general',
     provider: 'ollama',
     modelId: 'qwen3:8b',
-    baseUrl: 'http://localhost:11434/v1',
+    baseUrl: 'http://localhost:11434',
+    maxTokens: 200,
+    temperature: 0.2,
+    promptStrategy: 'instruction-extraction',
+  },
+  {
+    id: 'ollama-qwen35-9b',
+    displayName: 'Ollama (Qwen3.5 9B)',
+    description: 'Local, free, general',
+    provider: 'ollama',
+    modelId: 'qwen3.5:9b',
+    baseUrl: 'http://localhost:11434',
     maxTokens: 200,
     temperature: 0.2,
     promptStrategy: 'instruction-extraction',
@@ -206,7 +217,7 @@ export function registerCustomPresets(customs: CustomPreset[]): void {
       } else if (provider === 'openrouter') {
         preset.baseUrl = 'https://openrouter.ai/api/v1';
       } else if (provider === 'ollama') {
-        preset.baseUrl = 'http://localhost:11434/v1';
+        preset.baseUrl = 'http://localhost:11434';
       }
       if (c.apiKeyEnvVar) {
         preset.apiKeyEnvVar = c.apiKeyEnvVar;

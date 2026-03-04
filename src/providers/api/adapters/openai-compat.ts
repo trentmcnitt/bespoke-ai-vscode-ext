@@ -4,7 +4,7 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 
 /**
  * OpenAI-compatible adapter. Covers OpenAI, xAI/Grok, Google Gemini,
- * OpenRouter, and Ollama.
+ * and OpenRouter.
  *
  * Uses the `openai` npm package with configurable `baseURL` for
  * provider-specific endpoints.
@@ -22,8 +22,6 @@ export class OpenAICompatAdapter implements ApiAdapter {
   }
 
   isConfigured(): boolean {
-    // Ollama doesn't need an API key
-    if (this.preset.provider === 'ollama') return true;
     if (!this.preset.apiKeyEnvVar) return false;
     return !!resolveApiKey(this.preset.apiKeyEnvVar);
   }
@@ -112,17 +110,6 @@ export class OpenAICompatAdapter implements ApiAdapter {
         );
       }
 
-      // Connection refused — for Ollama, return null silently (likely not running).
-      // For cloud APIs, let the error propagate to the circuit breaker.
-      if (this.preset.provider === 'ollama' && isConnectionError(err)) {
-        return {
-          text: null,
-          usage: { inputTokens: 0, outputTokens: 0 },
-          model: this.preset.modelId,
-          durationMs: Date.now() - startTime,
-        };
-      }
-
       throw err;
     }
   }
@@ -134,17 +121,11 @@ export class OpenAICompatAdapter implements ApiAdapter {
   private async getClient(): Promise<OpenAIClient> {
     if (this.client) return this.client as OpenAIClient;
 
-    let apiKey: string | undefined;
-    if (this.preset.provider === 'ollama') {
-      // Ollama doesn't require auth — use a dummy key
-      apiKey = 'ollama';
-    } else {
-      apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
-      if (!apiKey) {
-        throw new Error(
-          `API key not found for ${this.preset.apiKeyEnvVar}. Set it in your environment or ~/.creds/api-keys.env`,
-        );
-      }
+    const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (!apiKey) {
+      throw new Error(
+        `API key not found for ${this.preset.apiKeyEnvVar}. Set it in your environment or ~/.creds/api-keys.env`,
+      );
     }
 
     // Provider-specific headers
@@ -175,12 +156,6 @@ function isAbortError(err: unknown): boolean {
   // OpenAI SDK wraps abort errors
   if (err instanceof Error && err.message?.includes('aborted')) return true;
   return false;
-}
-
-function isConnectionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes('econnrefused') || msg.includes('fetch failed') || msg.includes('network');
 }
 
 // Minimal type definitions to avoid import-time dependency
