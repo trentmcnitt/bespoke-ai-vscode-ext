@@ -47,7 +47,7 @@
 2. On first launch, the extension detects whether you have the Claude Code CLI — if not, it offers to help you set it up or switch to **API key** mode
 3. Start typing — completions appear as gray suggestion text after a ~2-second pause
 
-That's it. The extension walks you through setup. Details for each path below if you need them.
+That's it. For Claude Code CLI, the extension walks you through setup. For API mode, set `bespokeAI.backend` to `api` and choose a model from the status bar menu. Details for each path below.
 
 <details>
 <summary><strong>Claude subscription</strong> — no per-token costs, uses your existing Claude Pro/Team/Enterprise plan</summary>

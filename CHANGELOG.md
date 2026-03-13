@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.3 — Auto-Select Available Preset
+
+- **Auto-select preset:** When the active API preset is unavailable (e.g., missing API key), the extension now automatically selects the first available preset — prioritizing custom presets, then built-in Ollama presets. This fixes the "Setup needed" nag loop for users who define a custom preset without also setting `bespokeAI.api.preset`. (#1)
+- **README fix:** Corrected the "Getting Started" section to accurately describe the API mode setup flow.
+
 ## 0.8.2 — Native Ollama Adapter
 
 - **Native Ollama API adapter:** Ollama models now use the native `/api/chat` endpoint instead of the OpenAI-compatible `/v1/chat/completions`. This fixes thinking/reasoning models (like Qwen 3.5) that burned their entire token budget on reasoning and returned empty completions via the OpenAI-compat layer.

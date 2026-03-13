@@ -19,6 +19,8 @@ import {
   getBuiltInPresetIds,
   registerCustomPresets,
   slugify,
+  isPresetAvailable,
+  findFirstAvailablePreset,
 } from './providers/api/presets';
 import { Logger } from './utils/logger';
 import { shortenModelName } from './utils/model-name';
@@ -98,6 +100,7 @@ let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
 let extensionContext: vscode.ExtensionContext;
+let autoSelectedPresetId: string | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   extensionContext = context;
@@ -217,6 +220,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Wait for SecretStorage keys to load before checking availability —
     // resolveApiKey() is synchronous, so the cache must be populated first.
     keyLoadPromise.then(() => {
+      tryAutoSelectPreset(config);
       const apiAvailable = apiCompletion.isAvailable();
       if (!apiAvailable) setupReason = deriveApiSetupReason(config);
       updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
@@ -951,6 +955,7 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             } else {
               // API mode — ready immediately
+              tryAutoSelectPreset(newConfig);
               const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
               if (!apiAvailable) setupReason = deriveApiSetupReason(newConfig);
               updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
@@ -983,6 +988,7 @@ export function activate(context: vscode.ExtensionContext) {
           } else {
             logger.info(`Backend: claude-code → api (CLI pools idled)`);
             // Switching to API — ready immediately
+            tryAutoSelectPreset(newConfig);
             const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
             if (apiAvailable) {
               vscode.window.showInformationMessage('Bespoke AI: Switched to Direct API.');
@@ -1016,7 +1022,11 @@ export function activate(context: vscode.ExtensionContext) {
           const presetLabel = preset?.displayName ?? newConfig.api.preset;
           logger.info(`API model → ${presetLabel} (clearing cache)`);
           completionProvider.clearCache();
-          vscode.window.showInformationMessage(`Bespoke AI: Model changed to ${presetLabel}.`);
+          if (autoSelectedPresetId === newConfig.api.preset) {
+            autoSelectedPresetId = null;
+          } else {
+            vscode.window.showInformationMessage(`Bespoke AI: Model changed to ${presetLabel}.`);
+          }
 
           const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
           if (apiAvailable) {
@@ -1122,6 +1132,35 @@ function loadConfig(): ExtensionConfig {
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
+}
+
+/**
+ * When the active API preset isn't available (e.g., default xai-grok with no key),
+ * auto-select the first available preset (custom first, then built-in).
+ * Mutates config.api.preset and persists to settings. Returns true if a fallback was selected.
+ */
+function tryAutoSelectPreset(config: ExtensionConfig): boolean {
+  const current = getPreset(config.api.preset);
+  if (current && isPresetAvailable(current)) return false;
+
+  const fallback = findFirstAvailablePreset(config.api.preset);
+  if (!fallback) return false;
+
+  const originalLabel = current?.displayName ?? config.api.preset;
+  const reason = current ? 'requires an API key' : 'not found';
+  config.api.preset = fallback.id;
+  backendRouter.updateConfig(config);
+  logger.info(`Auto-selected preset "${fallback.displayName}" (${originalLabel} ${reason})`);
+
+  vscode.window.showInformationMessage(
+    `Bespoke AI: Auto-selected "${fallback.displayName}" — ${originalLabel} ${reason}.`,
+  );
+
+  autoSelectedPresetId = fallback.id;
+  const ws = vscode.workspace.getConfiguration('bespokeAI');
+  ws.update('api.preset', fallback.id, vscode.ConfigurationTarget.Global);
+
+  return true;
 }
 
 /** Derive the reason API backend is unavailable (re-derived for freshness at menu-open time). */

@@ -1,11 +1,21 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+
+vi.mock('../../utils/api-key-store', () => ({
+  resolveApiKey: vi.fn(),
+}));
+
+import { resolveApiKey } from '../../utils/api-key-store';
 import {
   getAllPresets,
   getPreset,
   getBuiltInPresetIds,
   registerCustomPresets,
   DEFAULT_PRESET_ID,
+  isPresetAvailable,
+  findFirstAvailablePreset,
 } from '../../providers/api/presets';
+
+const mockResolveApiKey = vi.mocked(resolveApiKey);
 
 describe('Presets', () => {
   describe('getAllPresets', () => {
@@ -233,6 +243,70 @@ describe('Presets', () => {
       const preset = getPreset('custom-no-extras');
       expect(preset?.extraBody).toBeUndefined();
       expect(preset?.extraHeaders).toBeUndefined();
+    });
+  });
+
+  describe('isPresetAvailable', () => {
+    afterEach(() => {
+      mockResolveApiKey.mockReset();
+    });
+
+    it('returns true for preset with no apiKeyEnvVar (Ollama)', () => {
+      const preset = getPreset('ollama-default')!;
+      expect(isPresetAvailable(preset)).toBe(true);
+    });
+
+    it('returns true when API key is present', () => {
+      mockResolveApiKey.mockReturnValue('sk-test-key');
+      const preset = getPreset('anthropic-haiku')!;
+      expect(isPresetAvailable(preset)).toBe(true);
+    });
+
+    it('returns false when API key is missing', () => {
+      mockResolveApiKey.mockReturnValue(undefined);
+      const preset = getPreset('anthropic-haiku')!;
+      expect(isPresetAvailable(preset)).toBe(false);
+    });
+  });
+
+  describe('findFirstAvailablePreset', () => {
+    afterEach(() => {
+      registerCustomPresets([]);
+      mockResolveApiKey.mockReset();
+    });
+
+    it('returns Ollama preset when no API keys are configured', () => {
+      mockResolveApiKey.mockReturnValue(undefined);
+      const preset = findFirstAvailablePreset();
+      expect(preset).toBeDefined();
+      expect(preset?.provider).toBe('ollama');
+    });
+
+    it('prioritizes custom presets over built-in', () => {
+      registerCustomPresets([
+        { name: 'My Ollama', provider: 'ollama', modelId: 'llama3' },
+      ]);
+      mockResolveApiKey.mockReturnValue(undefined);
+      const preset = findFirstAvailablePreset();
+      expect(preset?.id).toBe('custom-my-ollama');
+    });
+
+    it('skips the excluded ID', () => {
+      registerCustomPresets([
+        { name: 'My Ollama', provider: 'ollama', modelId: 'llama3' },
+      ]);
+      mockResolveApiKey.mockReturnValue(undefined);
+      const preset = findFirstAvailablePreset('custom-my-ollama');
+      // Should skip the custom one and find a built-in Ollama
+      expect(preset).toBeDefined();
+      expect(preset?.id).not.toBe('custom-my-ollama');
+    });
+
+    it('does not return the excluded preset', () => {
+      mockResolveApiKey.mockReturnValue(undefined);
+      const preset = findFirstAvailablePreset('ollama-default');
+      expect(preset).toBeDefined();
+      expect(preset?.id).not.toBe('ollama-default');
     });
   });
 });

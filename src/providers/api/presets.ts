@@ -1,5 +1,6 @@
 import { Preset } from './types';
 import { CustomPreset } from '../../types';
+import { resolveApiKey } from '../../utils/api-key-store';
 
 const BUILT_IN_PRESETS: Preset[] = [
   {
@@ -264,4 +265,16 @@ export const DEFAULT_PRESET_ID = 'xai-grok';
 /** Get all built-in preset IDs. */
 export function getBuiltInPresetIds(): string[] {
   return BUILT_IN_PRESETS.map((p) => p.id);
+}
+
+/** Check if a preset is available (no API key needed, or key is present). */
+export function isPresetAvailable(preset: Preset): boolean {
+  if (!preset.apiKeyEnvVar) return true;
+  return !!resolveApiKey(preset.apiKeyEnvVar);
+}
+
+/** Find the first available preset, prioritizing custom presets over built-in. */
+export function findFirstAvailablePreset(excludeId?: string): Preset | undefined {
+  const all = [...customPresets, ...BUILT_IN_PRESETS];
+  return all.find((p) => p.id !== excludeId && isPresetAvailable(p));
 }
