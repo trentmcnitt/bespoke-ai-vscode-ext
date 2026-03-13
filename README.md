@@ -323,6 +323,6 @@ Contributions welcome — fork the repo, create a branch, and open a pull reques
 
 ## 👤 Author
 
-Built by [Trent McNitt](https://github.com/trentmcnitt) — AI developer specializing in agent development, prompt engineering, and full-stack applications.
+Built by [Trent McNitt](https://mcnitt.io) — AI developer specializing in agent development, prompt engineering, and full-stack applications.
 
-[Available for contract work on Upwork →](https://www.upwork.com/freelancers/~01e01437b5f36dc7e5)
+[Available for contract work →](https://mcnitt.io)
