@@ -161,18 +161,31 @@ export class PoolServer {
       this.logger.info(`Pool server: model changed ${oldModel} → ${request.model}, recycling`);
       this.completionProvider.updateConfig(this.config);
       this.commandPool.updateModel(request.model);
-      // Only recycle completionProvider — commandPool.updateModel() already triggers recycleAll()
-      await this.completionProvider.recycleAll();
+      // Only recycle completionProvider — commandPool.updateModel() already handles its own recycle.
+      // Use restart() if degraded, since recycleAll() early-returns on unavailable pools.
+      if (this.completionProvider.isAvailable()) {
+        await this.completionProvider.recycleAll();
+      } else {
+        await this.completionProvider.restart();
+      }
     }
   }
 
   /** Direct recycle for local fast path (bypasses IPC serialization). */
   async handleRecycleDirect(pool: 'completion' | 'command' | 'all'): Promise<void> {
     if (pool === 'completion' || pool === 'all') {
-      await this.completionProvider.recycleAll();
+      if (this.completionProvider.isAvailable()) {
+        await this.completionProvider.recycleAll();
+      } else {
+        await this.completionProvider.restart();
+      }
     }
     if (pool === 'command' || pool === 'all') {
-      await this.commandPool.recycleAll();
+      if (this.commandPool.isAvailable()) {
+        await this.commandPool.recycleAll();
+      } else {
+        await this.commandPool.restart();
+      }
     }
   }
 

@@ -16,12 +16,15 @@ export class CircuitBreaker {
     private readonly cooldownMs: number,
     private readonly logger: Logger,
     private readonly label: string,
+    private readonly onOpen?: () => void,
+    private readonly onClose?: () => void,
   ) {}
 
   isOpen(): boolean {
     if (this.consecutiveFailures < this.threshold) return false;
     if (Date.now() - this.circuitOpenedAt > this.cooldownMs) {
       this.consecutiveFailures = 0;
+      this.onClose?.();
       return false;
     }
     return true;
@@ -34,11 +37,14 @@ export class CircuitBreaker {
       this.logger.error(
         `${this.label}: circuit breaker open after ${this.threshold} consecutive failures`,
       );
+      this.onOpen?.();
     }
   }
 
   recordSuccess(): void {
+    const wasOpen = this.consecutiveFailures >= this.threshold;
     this.consecutiveFailures = 0;
+    if (wasOpen) this.onClose?.();
   }
 
   reset(): void {

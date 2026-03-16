@@ -22,11 +22,17 @@ export class ApiCompletionProvider implements CompletionProvider {
   private strategy: PromptStrategy | null = null;
   private breaker: CircuitBreaker;
 
-  constructor(config: ExtensionConfig, logger: Logger, ledger?: UsageLedger) {
+  constructor(
+    config: ExtensionConfig,
+    logger: Logger,
+    ledger?: UsageLedger,
+    onBreakerOpen?: () => void,
+    onBreakerClose?: () => void,
+  ) {
     this.config = config;
     this.logger = logger;
     this.ledger = ledger;
-    this.breaker = new CircuitBreaker(5, 30_000, logger, 'API');
+    this.breaker = new CircuitBreaker(5, 30_000, logger, 'API', onBreakerOpen, onBreakerClose);
     this.loadAdapter();
   }
 
@@ -220,7 +226,12 @@ export class ApiCompletionProvider implements CompletionProvider {
 
     this.activePreset = preset;
     this.strategy = getPromptStrategy(preset.promptStrategy);
-    this.adapter = createAdapter(preset);
+    try {
+      this.adapter = createAdapter(preset);
+    } catch (err) {
+      this.logger.error(`API: failed to create adapter for "${preset.displayName}": ${err}`);
+      return;
+    }
     this.breaker.reset();
 
     this.logger.info(`API: loaded ${preset.displayName} (${preset.modelId})`);

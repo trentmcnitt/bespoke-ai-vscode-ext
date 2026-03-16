@@ -130,7 +130,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  registerCustomPresets(config.api.customPresets);
+  for (const w of registerCustomPresets(config.api.customPresets)) logger.info(w);
 
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
@@ -150,13 +150,18 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar(lastConfig, 'setup-needed');
         const action = await vscode.window.showErrorMessage(
           'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.',
-          'Restart',
+          'Restart Pools',
           'Open Terminal',
         );
-        if (action === 'Restart') {
-          poolClient.restart().catch((err) => {
-            logger.error(`Pool restart failed: ${err}`);
-          });
+        if (action === 'Restart Pools') {
+          poolClient.restart()
+            .then(() => {
+              setupReason = null;
+              updateStatusBar(lastConfig, 'ready');
+            })
+            .catch((err) => {
+              logger.error(`Pool restart failed: ${err}`);
+            });
         } else if (action === 'Open Terminal') {
           const terminal = vscode.window.createTerminal('Claude Login');
           terminal.show();
@@ -191,7 +196,19 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Create API providers (lightweight — no subprocess, just hold config)
-  const apiCompletion = new ApiCompletionProvider(config, logger, usageLedger);
+  const apiCompletion = new ApiCompletionProvider(config, logger, usageLedger,
+    () => {
+      // Circuit breaker opened — notify user
+      const presetName = getPreset(lastConfig.api.preset)?.displayName ?? lastConfig.api.preset;
+      setupReason = { backend: 'api', issue: 'circuit-open', presetName };
+      updateStatusBar(lastConfig, 'setup-needed');
+    },
+    () => {
+      // Circuit breaker recovered
+      setupReason = null;
+      updateStatusBar(lastConfig, 'ready');
+    },
+  );
   const apiCommand = new ApiCommandProvider(config, logger, usageLedger);
 
   // BackendRouter wraps both backends
@@ -226,6 +243,19 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
       if (!apiAvailable) {
         showApiSetupGuidance(config);
+      } else if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
+        extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
+        const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
+        vscode.window
+          .showInformationMessage(
+            `Bespoke AI is ready! Completions appear automatically via ${presetLabel}, or press Alt+Enter to trigger one instantly.`,
+            'Open Settings',
+          )
+          .then((action) => {
+            if (action === 'Open Settings') {
+              vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+            }
+          });
       }
     });
   } else {
@@ -608,6 +638,8 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         await poolClient.restart();
         completionProvider.clearCache();
+        setupReason = null;
+        updateStatusBar(lastConfig, 'ready');
         vscode.window.showInformationMessage('Bespoke AI: Pools restarted.');
       } catch (err) {
         logger.error(`Pool restart failed: ${err}`);
@@ -911,7 +943,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Propagate config before recycling so initSlot uses the new model
         logger.setLevel(newConfig.logLevel);
-        registerCustomPresets(newConfig.api.customPresets);
+        for (const w of registerCustomPresets(newConfig.api.customPresets)) logger.info(w);
         // Eagerly load any new custom preset API keys into SecretStorage cache
         for (const cp of newConfig.api.customPresets) {
           if (cp.apiKeyEnvVar) loadSecretKey(cp.apiKeyEnvVar).catch(() => {});
@@ -941,18 +973,11 @@ export function activate(context: vscode.ExtensionContext) {
             logger.info('Enabled — restarting');
             vscode.window.showInformationMessage('Bespoke AI: Enabled.');
             if (newConfig.backend === 'claude-code') {
-              updateStatusBar(newConfig, 'initializing');
               poolClient.updateConfig(newConfig);
-              poolClient
-                .activate()
-                .then(() => {
-                  updateStatusBar(newConfig, 'ready');
-                })
-                .catch((err) => {
-                  logger.error(`Pool client activation failed: ${err}`);
-                  setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };
-                  updateStatusBar(newConfig, 'setup-needed');
-                });
+              updateStatusBar(newConfig, 'initializing');
+              activateWithPreflight(newConfig, extensionContext).catch((err) => {
+                logger.error(`Pool activation failed: ${err}`);
+              });
             } else {
               // API mode — ready immediately
               tryAutoSelectPreset(newConfig);
@@ -972,19 +997,11 @@ export function activate(context: vscode.ExtensionContext) {
           if (newConfig.backend === 'claude-code') {
             logger.info(`Backend: api → claude-code`);
             vscode.window.showInformationMessage('Bespoke AI: Switched to Claude Code CLI.');
-            // Switching to CLI — may need to start pools
-            updateStatusBar(newConfig, 'initializing');
             poolClient.updateConfig(newConfig);
-            poolClient
-              .activate()
-              .then(() => {
-                updateStatusBar(newConfig, 'ready');
-              })
-              .catch((err) => {
-                logger.error(`Pool client activation failed: ${err}`);
-                setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };
-                updateStatusBar(newConfig, 'setup-needed');
-              });
+            updateStatusBar(newConfig, 'initializing');
+            activateWithPreflight(newConfig, extensionContext).catch((err) => {
+              logger.error(`Pool activation failed: ${err}`);
+            });
           } else {
             logger.info(`Backend: claude-code → api (CLI pools idled)`);
             // Switching to API — ready immediately
@@ -1034,6 +1051,7 @@ export function activate(context: vscode.ExtensionContext) {
           } else {
             setupReason = deriveApiSetupReason(newConfig);
             updateStatusBar(newConfig, 'setup-needed');
+            showApiSetupGuidance(newConfig);
           }
         }
 
@@ -1157,8 +1175,19 @@ function tryAutoSelectPreset(config: ExtensionConfig): boolean {
   );
 
   autoSelectedPresetId = fallback.id;
+
+  // Only persist the auto-selection when the user hasn't explicitly set a preset.
+  // If they explicitly chose a preset (but its key is missing), preserve their setting
+  // so it takes effect once they add the key.
   const ws = vscode.workspace.getConfiguration('bespokeAI');
-  ws.update('api.preset', fallback.id, vscode.ConfigurationTarget.Global);
+  const inspected = ws.inspect('api.preset');
+  const isExplicit =
+    inspected?.globalValue !== undefined ||
+    inspected?.workspaceValue !== undefined ||
+    inspected?.workspaceFolderValue !== undefined;
+  if (!isExplicit) {
+    ws.update('api.preset', fallback.id, vscode.ConfigurationTarget.Global);
+  }
 
   return true;
 }
@@ -1215,8 +1244,8 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
       case 'circuit-open':
         return {
           message: 'API requests failing repeatedly',
-          detail: `${reason.presetName} returned multiple consecutive errors. Will auto-recover in 30 seconds, or restart now.`,
-          actionLabel: 'Restart',
+          detail: `${reason.presetName} returned multiple consecutive errors. Will auto-recover in 30 seconds, or retry now.`,
+          actionLabel: 'Retry',
           action: () => backendRouter.recycleAll(),
         };
     }

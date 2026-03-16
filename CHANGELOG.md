@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.4 — Circuit Breaker Feedback and Pool Recovery
+
+- **Circuit breaker status bar:** When the API circuit breaker opens after repeated failures, the status bar now shows "Setup needed" with a retry option. Recovers automatically when requests succeed again or the cooldown expires.
+- **Pool recovery:** Recycling degraded pools now falls back to a full restart instead of silently no-oping. The "Restart Pools" command and CLI auth restart both reset the status bar to "ready" on success.
+- **API welcome message:** A one-time info message greets new API-mode users with their active preset name and a shortcut to settings.
+- **Custom preset validation:** Invalid or conflicting custom presets now log warnings explaining why they were skipped (missing fields, ID conflicts with built-ins).
+- **Safer adapter creation:** `createAdapter()` failures in both API providers are now caught and logged instead of throwing unhandled errors.
+- **Auto-select preserves explicit choice:** When the user has explicitly set `bespokeAI.api.preset`, auto-selection no longer overwrites their choice — it only activates when no preset is configured.
+- **Consistent CLI activation:** Re-enabling the extension or switching to Claude Code backend now uses the same preflight activation path as initial startup.
+
 ## 0.8.3 — Auto-Select Available Preset
 
 - **Auto-select preset:** When the active API preset is unavailable (e.g., missing API key), the extension now automatically selects the first available preset — prioritizing custom presets, then built-in Ollama presets. This fixes the "Setup needed" nag loop for users who define a custom preset without also setting `bespokeAI.api.preset`. (#1)

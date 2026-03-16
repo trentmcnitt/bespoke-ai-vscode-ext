@@ -117,7 +117,12 @@ export class ApiCommandProvider {
     }
 
     this.activePreset = preset;
-    this.adapter = createAdapter(preset);
+    try {
+      this.adapter = createAdapter(preset);
+    } catch (err) {
+      this.logger.error(`API command: failed to create adapter for "${preset.displayName}": ${err}`);
+      return;
+    }
     this.breaker.reset();
 
     this.logger.info(`API command: loaded ${preset.displayName} (${preset.modelId})`);

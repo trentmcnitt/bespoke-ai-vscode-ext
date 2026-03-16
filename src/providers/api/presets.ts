@@ -186,10 +186,19 @@ export function slugify(name: string): string {
  * with built-in presets. Custom presets with IDs that conflict with
  * built-in presets are skipped.
  */
-export function registerCustomPresets(customs: CustomPreset[]): void {
+export function registerCustomPresets(customs: CustomPreset[]): string[] {
+  const warnings: string[] = [];
   const builtInIds = new Set(BUILT_IN_PRESETS.map((p) => p.id));
   customPresets = customs
-    .filter((c) => c.name && c.provider && c.modelId)
+    .filter((c, i) => {
+      if (!c.name || !c.provider || !c.modelId) {
+        const label = c.name || `index ${i}`;
+        const missing = !c.name ? 'name' : !c.provider ? 'provider' : 'modelId';
+        warnings.push(`Custom preset "${label}" skipped: missing ${missing}`);
+        return false;
+      }
+      return true;
+    })
     .map((c) => {
       const id = slugify(c.name);
       const provider =
@@ -246,7 +255,14 @@ export function registerCustomPresets(customs: CustomPreset[]): void {
 
       return preset;
     })
-    .filter((p) => !builtInIds.has(p.id));
+    .filter((p) => {
+      if (builtInIds.has(p.id)) {
+        warnings.push(`Custom preset "${p.displayName}" skipped: ID "${p.id}" conflicts with built-in preset`);
+        return false;
+      }
+      return true;
+    });
+  return warnings;
 }
 
 /** Get all available presets (built-in + custom). */
