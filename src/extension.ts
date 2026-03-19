@@ -68,7 +68,7 @@ type SetupReason =
   | { backend: 'api'; issue: 'circuit-open'; presetName: string }
   | { backend: 'cli'; issue: 'sdk-not-found' }
   | { backend: 'cli'; issue: 'activation-failed'; error: string }
-  | { backend: 'cli'; issue: 'pool-degraded' }
+  | { backend: 'cli'; issue: 'pool-degraded'; reason: string }
   | null;
 
 type MenuHandler = () => void | Thenable<void>;
@@ -144,31 +144,33 @@ export function activate(context: vscode.ExtensionContext) {
     logger,
     ledger: usageLedger,
     clientId,
-    onPoolDegraded: async (pool) => {
+    onPoolDegraded: async (pool, reason) => {
       if (pool === 'completion') {
-        setupReason = { backend: 'cli', issue: 'pool-degraded' };
+        setupReason = { backend: 'cli', issue: 'pool-degraded', reason };
         updateStatusBar(lastConfig, 'setup-needed');
+
+        // Pick a user-facing message based on the reason
+        const isWarmup = reason.includes('warmup') || reason.includes('timed out');
+        const isCircuitBreaker = reason.includes('circuit breaker');
+        const userMsg = isWarmup
+          ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+          : isCircuitBreaker
+            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+            : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+
         const action = await vscode.window.showErrorMessage(
-          'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.',
+          userMsg,
           'Restart Pools',
-          'Open Terminal',
+          'Open Log',
         );
         if (action === 'Restart Pools') {
-          poolClient.restart()
-            .then(() => {
-              setupReason = null;
-              updateStatusBar(lastConfig, 'ready');
-            })
-            .catch((err) => {
-              logger.error(`Pool restart failed: ${err}`);
-            });
-        } else if (action === 'Open Terminal') {
-          const terminal = vscode.window.createTerminal('Claude Login');
-          terminal.show();
-          terminal.sendText('claude');
+          // Delegate to the restartPools command which handles status bar updates
+          vscode.commands.executeCommand('bespoke-ai.restartPools');
+        } else if (action === 'Open Log') {
+          logger.show();
         }
       } else {
-        logger.error('CommandPool degraded');
+        logger.error(`CommandPool degraded: ${reason}`);
       }
     },
     onRoleChange: (role) => {
@@ -636,9 +638,13 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       try {
+        // Clear setup-needed before restart so we can detect if onPoolDegraded
+        // fires again during initAllSlots (which would re-set setup-needed).
+        updateStatusBar(lastConfig, 'initializing');
         await poolClient.restart();
         completionProvider.clearCache();
-        setupReason = null;
+        // If onPoolDegraded fired during restart, status is already setup-needed
+        if (statusBarState === 'setup-needed') return;
         updateStatusBar(lastConfig, 'ready');
         vscode.window.showInformationMessage('Bespoke AI: Pools restarted.');
       } catch (err) {
@@ -1276,8 +1282,7 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
       case 'pool-degraded':
         return {
           message: 'Autocomplete unavailable',
-          detail:
-            'Claude Code may need re-authentication or is experiencing errors. Try restarting.',
+          detail: `Claude Code failed: ${reason.reason}. Check the output log for details, then try restarting.`,
           actionLabel: 'Restart Pools',
           action: () => vscode.commands.executeCommand('bespoke-ai.restartPools'),
         };
@@ -1295,6 +1300,9 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
 
 function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
   if (state) {
+    if (state !== statusBarState) {
+      logger.debug(`Status: ${statusBarState} → ${state}`);
+    }
     statusBarState = state;
     if (state !== 'setup-needed') setupReason = null;
   }
