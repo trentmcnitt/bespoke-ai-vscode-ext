@@ -255,14 +255,14 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
     it('TypeScript: completes template literal', async () => {
       const ctx = makeCodeContext({
         prefix:
-          'import { Request, Response } from \'express\';\n\n' +
+          "import { Request, Response } from 'express';\n\n" +
           'interface User {\n' +
           '  id: string;\n' +
           '  displayName: string;\n' +
           '  email: string;\n' +
           '}\n\n' +
           'function formatWelcome(user: User): string {\n' +
-          '  const greeting = user.displayName || \'there\';\n' +
+          "  const greeting = user.displayName || 'there';\n" +
           '  return `Hello, ${greeting',
         suffix: '`;\n}',
         languageId: 'typescript',
@@ -322,7 +322,8 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
           '<body>\n' +
           '  <header class="navbar">\n' +
           '    <img src="/assets/logo.svg" alt="',
-        suffix: '" />\n    <nav>\n      <a href="/dashboard">Dashboard</a>\n      <a href="/settings">Settings</a>\n    </nav>\n  </header>\n</body>\n</html>',
+        suffix:
+          '" />\n    <nav>\n      <a href="/dashboard">Dashboard</a>\n      <a href="/settings">Settings</a>\n    </nav>\n  </header>\n</body>\n</html>',
         languageId: 'html',
         fileName: 'index.html',
         filePath: '/public/index.html',
@@ -344,10 +345,7 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
   describe('language breadth', () => {
     it('JSON: completes version field value', async () => {
       const ctx = makeCodeContext({
-        prefix:
-          '{\n' +
-          '  "name": "@acme/data-pipeline",\n' +
-          '  "version": "',
+        prefix: '{\n' + '  "name": "@acme/data-pipeline",\n' + '  "version": "',
         suffix:
           '",\n' +
           '  "description": "ETL pipeline for analytics data",\n' +
@@ -393,7 +391,8 @@ describe.skipIf(!isAvailable)(describeLabel, () => {
           '  flex-wrap: wrap;\n' +
           '  gap: var(--spacing);\n' +
           '  justify-content: ',
-        suffix: ';\n  align-items: stretch;\n}\n\n.card {\n  flex: 1 1 300px;\n  border: 1px solid #e5e7eb;\n  border-radius: 8px;\n}',
+        suffix:
+          ';\n  align-items: stretch;\n}\n\n.card {\n  flex: 1 1 300px;\n  border: 1px solid #e5e7eb;\n  border-radius: 8px;\n}',
         languageId: 'css',
         fileName: 'layout.css',
         filePath: '/styles/layout.css',

@@ -129,10 +129,7 @@ const PROSE_PREAMBLE_PATTERNS = [
   /^I'll\b/i,
 ];
 
-function checkCompletion(
-  completion: string | null,
-  scenarioId: string,
-): CheckResult {
+function checkCompletion(completion: string | null, scenarioId: string): CheckResult {
   const failures: string[] = [];
 
   if (completion === null || completion.trim() === '') {

@@ -254,7 +254,9 @@ export class PoolClient implements ICompletionProvider {
         break;
 
       case 'pool-degraded':
-        this.logger.error(`Pool client: ${event.pool} pool degraded — ${event.reason ?? 'unknown reason'}`);
+        this.logger.error(
+          `Pool client: ${event.pool} pool degraded — ${event.reason ?? 'unknown reason'}`,
+        );
         this.onPoolDegraded?.(event.pool, event.reason ?? 'unknown');
         break;
     }

@@ -455,14 +455,14 @@ export const regressionScenarios: RegressionScenario[] = [
     languageId: 'typescript',
     fileName: 'user-service.ts',
     prefix:
-      'import { Request, Response } from \'express\';\n\n' +
+      "import { Request, Response } from 'express';\n\n" +
       'interface User {\n' +
       '  id: string;\n' +
       '  displayName: string;\n' +
       '  email: string;\n' +
       '}\n\n' +
       'function formatWelcome(user: User): string {\n' +
-      '  const greeting = user.displayName || \'there\';\n' +
+      "  const greeting = user.displayName || 'there';\n" +
       '  return `Hello, ${greeting',
     suffix: '`;\n}',
     saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },

@@ -4,11 +4,7 @@
  * overlap. Uses whitespace-normalized comparison (min 10 chars to avoid
  * false positives on common short phrases).
  */
-function trimSuffixOverlap(
-  completion: string,
-  suffix: string,
-  mode?: 'prose' | 'code',
-): string {
+function trimSuffixOverlap(completion: string, suffix: string, mode?: 'prose' | 'code'): string {
   if (!suffix) {
     return completion;
   }

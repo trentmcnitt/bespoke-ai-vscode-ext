@@ -1005,7 +1005,7 @@ export { createLoggingMiddleware, createValidationMiddleware };`,
       must_not_include: ['```', 'import', 'class TTLCache'],
       quality_notes:
         'End-of-file completion inside a get() method. Should check if key exists, ' +
-        'verify TTL hasn\'t expired, and return the value or None. Valid Python.',
+        "verify TTL hasn't expired, and return the value or None. Valid Python.",
     },
   },
 
@@ -1068,9 +1068,7 @@ export { createLoggingMiddleware, createValidationMiddleware };`,
       '      - uses: actions/setup-node@v4\n' +
       '        with:\n' +
       '          node-version: ',
-    suffix:
-      '\n      - run: npm ci\n' +
-      '      - run: npm test',
+    suffix: '\n      - run: npm ci\n' + '      - run: npm test',
     saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['```', 'name:', 'on:'],
@@ -1097,14 +1095,12 @@ export { createLoggingMiddleware, createValidationMiddleware };`,
       '}\n\n' +
       'export function useLoginForm() {\n' +
       '  const [state, setState] = useState<FormState>({\n' +
-      '    email: \'\',\n' +
-      '    password: \'\',\n' +
+      "    email: '',\n" +
+      "    password: '',\n" +
       '    errors: {},\n' +
       '  });\n\n' +
       '  const handleSu',
-    suffix:
-      '\n\n' +
-      '  return { state, handleSubmit: handleSu',
+    suffix: '\n\n' + '  return { state, handleSubmit: handleSu',
     saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['```', 'import', 'interface FormState'],

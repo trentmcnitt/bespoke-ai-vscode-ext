@@ -5,6 +5,7 @@
 Bespoke AI has no CI pipeline. Code quality is enforced only by local pre-commit hooks (Husky + lint-staged). If hooks are bypassed or a contributor doesn't have them set up, broken code can land on main unchecked.
 
 The pipeline should:
+
 1. Catch regressions before they hit main
 2. Enforce the same checks the pre-commit hooks already run
 3. Gate merges via branch protection rules
@@ -15,7 +16,7 @@ The pipeline should:
 
 Triggers on push to `main` and pull requests targeting `main`.
 
-All jobs run on `ubuntu-latest`. Node version pinned to `18` (matches the `engines` target in esbuild config). Dependencies installed with `npm ci`.
+All jobs run on `ubuntu-latest`. Node version pinned to `20` (Vitest 4 requires Node 20+; the esbuild `target: 'node18'` controls output syntax, not the CI runtime). Dependencies installed with `npm ci`.
 
 ### Jobs
 
@@ -52,7 +53,7 @@ Both jobs start immediately in parallel. Simple and fast.
 ### Action versions
 
 - `actions/checkout@v4`
-- `actions/setup-node@v4` (with `node-version: '18'`, `cache: 'npm'`)
+- `actions/setup-node@v4` (with `node-version: '20'`, `cache: 'npm'`)
 
 ### Security
 

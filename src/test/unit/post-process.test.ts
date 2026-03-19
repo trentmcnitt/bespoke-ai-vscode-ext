@@ -245,7 +245,12 @@ describe('mode-gated suffix overlap', () => {
 
   it('prose mode: preserves short overlap below 10-char threshold', () => {
     // "the end" is 7 chars — prose mode should NOT trim
-    const result = postProcessCompletion('This is the end', undefined, 'the end of the document', 'prose');
+    const result = postProcessCompletion(
+      'This is the end',
+      undefined,
+      'the end of the document',
+      'prose',
+    );
     expect(result).toBe('This is the end');
   });
 

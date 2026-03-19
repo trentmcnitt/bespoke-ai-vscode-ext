@@ -257,7 +257,9 @@ export function registerCustomPresets(customs: CustomPreset[]): string[] {
     })
     .filter((p) => {
       if (builtInIds.has(p.id)) {
-        warnings.push(`Custom preset "${p.displayName}" skipped: ID "${p.id}" conflicts with built-in preset`);
+        warnings.push(
+          `Custom preset "${p.displayName}" skipped: ID "${p.id}" conflicts with built-in preset`,
+        );
         return false;
       }
       return true;

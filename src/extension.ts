@@ -158,11 +158,7 @@ export function activate(context: vscode.ExtensionContext) {
             ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
             : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
-        const action = await vscode.window.showErrorMessage(
-          userMsg,
-          'Restart Pools',
-          'Open Log',
-        );
+        const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {
           // Delegate to the restartPools command which handles status bar updates
           vscode.commands.executeCommand('bespoke-ai.restartPools');
@@ -198,7 +194,10 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Create API providers (lightweight — no subprocess, just hold config)
-  const apiCompletion = new ApiCompletionProvider(config, logger, usageLedger,
+  const apiCompletion = new ApiCompletionProvider(
+    config,
+    logger,
+    usageLedger,
     () => {
       // Circuit breaker opened — notify user
       const presetName = getPreset(lastConfig.api.preset)?.displayName ?? lastConfig.api.preset;
@@ -1859,7 +1858,7 @@ async function activateWithPreflight(
     context.globalState.update(WELCOME_SHOWN_KEY, true);
     vscode.window
       .showInformationMessage(
-        'Bespoke AI is ready! Completions appear automatically, or press Alt+Enter to trigger one instantly. If Alt+Enter doesn\'t work, check Keyboard Shortcuts for conflicts.',
+        "Bespoke AI is ready! Completions appear automatically, or press Alt+Enter to trigger one instantly. If Alt+Enter doesn't work, check Keyboard Shortcuts for conflicts.",
         'Open Settings',
         'Keyboard Shortcuts',
       )

@@ -283,18 +283,14 @@ describe('Presets', () => {
     });
 
     it('prioritizes custom presets over built-in', () => {
-      registerCustomPresets([
-        { name: 'My Ollama', provider: 'ollama', modelId: 'llama3' },
-      ]);
+      registerCustomPresets([{ name: 'My Ollama', provider: 'ollama', modelId: 'llama3' }]);
       mockResolveApiKey.mockReturnValue(undefined);
       const preset = findFirstAvailablePreset();
       expect(preset?.id).toBe('custom-my-ollama');
     });
 
     it('skips the excluded ID', () => {
-      registerCustomPresets([
-        { name: 'My Ollama', provider: 'ollama', modelId: 'llama3' },
-      ]);
+      registerCustomPresets([{ name: 'My Ollama', provider: 'ollama', modelId: 'llama3' }]);
       mockResolveApiKey.mockReturnValue(undefined);
       const preset = findFirstAvailablePreset('custom-my-ollama');
       // Should skip the custom one and find a built-in Ollama

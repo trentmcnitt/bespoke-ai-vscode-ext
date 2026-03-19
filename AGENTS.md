@@ -120,51 +120,51 @@ File paths relative to `src/`. Read source files for full API surface; the Notes
 
 #### Core Pipeline
 
-| File | Role | Notes |
-|------|------|-------|
-| `extension.ts` | Activation entry point; config, status bar, commands | Status bar: 4 states (initializing/ready/setup-needed/disabled). Sets `bespokeAI.cliAvailable` context for menu visibility |
-| `completion-provider.ts` | Inline completion orchestrator (cache, debounce, mode, backend call) | Explicit triggers (Alt+Enter) bypass debounce with zero-delay |
-| `pool-server/client.ts` | IPC client + leader election | Local fast path when client is also the server (leader) |
-| `pool-server/server.ts` | IPC server, manages ClaudeCodeProvider + CommandPool | Lockfile at `~/.bespokeai/pool.lock` |
-| `pool-server/protocol.ts` | IPC message types and serialization | Newline-delimited JSON |
-| `pool-server/ipc-path.ts` | Platform-aware IPC path (`pool.sock` / named pipe) | |
-| `providers/slot-pool.ts` | Abstract base for CLI session pools | Has its own circuit breaker (separate from `utils/circuit-breaker.ts`). Latest-request-wins queue; generation guards (monotonic counters tracking the latest request) discard stale responses |
-| `providers/prompt-strategy.ts` | Shared prompts: `SYSTEM_PROMPT`, `buildFillMessage()`, `extractCompletion()` | 3 strategies: `tagExtraction` (CLI), `prefillExtraction` (Anthropic API), `instructionExtraction` (OpenAI-compat) |
-| `providers/backend-router.ts` | Routes between CLI and API backends | Also handles code override routing via `resolveEffectiveBackend(mode)` |
-| `providers/claude-code.ts` | Claude Code CLI backend (extends SlotPool, 1 slot) | `AbortSignal` accepted but **ignored** after slot acquisition |
-| `providers/command-pool.ts` | CLI command pool for commit message / suggest-edit (1 slot) | Task-specific instructions go in user message, not system prompt |
+| File                           | Role                                                                         | Notes                                                                                                                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extension.ts`                 | Activation entry point; config, status bar, commands                         | Status bar: 4 states (initializing/ready/setup-needed/disabled). Sets `bespokeAI.cliAvailable` context for menu visibility                                                                    |
+| `completion-provider.ts`       | Inline completion orchestrator (cache, debounce, mode, backend call)         | Explicit triggers (Alt+Enter) bypass debounce with zero-delay                                                                                                                                 |
+| `pool-server/client.ts`        | IPC client + leader election                                                 | Local fast path when client is also the server (leader)                                                                                                                                       |
+| `pool-server/server.ts`        | IPC server, manages ClaudeCodeProvider + CommandPool                         | Lockfile at `~/.bespokeai/pool.lock`                                                                                                                                                          |
+| `pool-server/protocol.ts`      | IPC message types and serialization                                          | Newline-delimited JSON                                                                                                                                                                        |
+| `pool-server/ipc-path.ts`      | Platform-aware IPC path (`pool.sock` / named pipe)                           |                                                                                                                                                                                               |
+| `providers/slot-pool.ts`       | Abstract base for CLI session pools                                          | Has its own circuit breaker (separate from `utils/circuit-breaker.ts`). Latest-request-wins queue; generation guards (monotonic counters tracking the latest request) discard stale responses |
+| `providers/prompt-strategy.ts` | Shared prompts: `SYSTEM_PROMPT`, `buildFillMessage()`, `extractCompletion()` | 3 strategies: `tagExtraction` (CLI), `prefillExtraction` (Anthropic API), `instructionExtraction` (OpenAI-compat)                                                                             |
+| `providers/backend-router.ts`  | Routes between CLI and API backends                                          | Also handles code override routing via `resolveEffectiveBackend(mode)`                                                                                                                        |
+| `providers/claude-code.ts`     | Claude Code CLI backend (extends SlotPool, 1 slot)                           | `AbortSignal` accepted but **ignored** after slot acquisition                                                                                                                                 |
+| `providers/command-pool.ts`    | CLI command pool for commit message / suggest-edit (1 slot)                  | Task-specific instructions go in user message, not system prompt                                                                                                                              |
 
 #### API Backend
 
-| File | Role | Notes |
-|------|------|-------|
-| `providers/api/presets.ts` | Preset registry (built-in + custom) | Default: `xai-grok`. Custom presets auto-detect Anthropic models via OpenRouter for prefill strategy |
-| `providers/api/types.ts` | `Preset`, `ApiAdapter`, `ApiAdapterResult` interfaces | |
-| `providers/api/api-provider.ts` | `ApiCompletionProvider` — inline completions via API | Uses shared `CircuitBreaker` from `utils/` |
-| `providers/api/api-command-provider.ts` | `ApiCommandProvider` — commit message / suggest-edit via API | Uses shared `CircuitBreaker` from `utils/` |
-| `providers/api/adapters/anthropic.ts` | Anthropic SDK adapter (bundled) | Supports prefill, prompt caching, `extraBody`/`extraHeaders` passthrough |
-| `providers/api/adapters/openai-compat.ts` | OpenAI-compat adapter (OpenAI, Gemini, xAI, OpenRouter) | xAI: cache affinity header |
-| `providers/api/adapters/ollama.ts` | Native Ollama API adapter (fetch-based) | Always sends `think: false`; strips `/v1` from legacy baseUrls |
-| `providers/api/adapters/index.ts` | Adapter factory: `createAdapter(preset)` | |
+| File                                      | Role                                                         | Notes                                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `providers/api/presets.ts`                | Preset registry (built-in + custom)                          | Default: `xai-grok`. Custom presets auto-detect Anthropic models via OpenRouter for prefill strategy |
+| `providers/api/types.ts`                  | `Preset`, `ApiAdapter`, `ApiAdapterResult` interfaces        |                                                                                                      |
+| `providers/api/api-provider.ts`           | `ApiCompletionProvider` — inline completions via API         | Uses shared `CircuitBreaker` from `utils/`                                                           |
+| `providers/api/api-command-provider.ts`   | `ApiCommandProvider` — commit message / suggest-edit via API | Uses shared `CircuitBreaker` from `utils/`                                                           |
+| `providers/api/adapters/anthropic.ts`     | Anthropic SDK adapter (bundled)                              | Supports prefill, prompt caching, `extraBody`/`extraHeaders` passthrough                             |
+| `providers/api/adapters/openai-compat.ts` | OpenAI-compat adapter (OpenAI, Gemini, xAI, OpenRouter)      | xAI: cache affinity header                                                                           |
+| `providers/api/adapters/ollama.ts`        | Native Ollama API adapter (fetch-based)                      | Always sends `think: false`; strips `/v1` from legacy baseUrls                                       |
+| `providers/api/adapters/index.ts`         | Adapter factory: `createAdapter(preset)`                     |                                                                                                      |
 
 #### Commands and Utilities
 
-| File | Role | Notes |
-|------|------|-------|
-| `commit-message.ts` | Commit message generation via BackendRouter | Pure helpers in `utils/commit-message-utils.ts` |
-| `suggest-edit.ts` | Suggest-edit command via BackendRouter | Pure helpers in `utils/suggest-edit-utils.ts` |
-| `commands/context-menu.ts` | Explain/Fix/Do — launches standalone Claude CLI | Pure helpers in `commands/context-menu-utils.ts`. Does **not** use pool server |
-| `mode-detector.ts` | `languageId` → `prose` or `code` | Unknown languages default to prose |
-| `utils/context-builder.ts` | Extracts prefix/suffix from document + position | Delegates to `truncation.ts` for boundary-snapped truncation (prefix to line boundaries, suffix to word boundaries) |
-| `utils/post-process.ts` | Trims prefix/suffix overlap before caching | |
-| `utils/api-key-store.ts` | API key resolution: SecretStorage → env → `~/.creds/api-keys.env` | Keys eagerly loaded into memory so `resolveApiKey()` stays synchronous |
-| `utils/circuit-breaker.ts` | Consecutive-failure circuit breaker for API providers | Distinct from SlotPool's built-in breaker |
-| `utils/cache.ts` | LRU completion cache | |
-| `utils/usage-ledger.ts` | Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl` | Concurrent-safe across multiple VS Code windows |
-| `utils/debouncer.ts` | Promise-based debounce with `CancellationToken` + `AbortSignal` | |
-| `utils/logger.ts` | Logger wrapping VS Code OutputChannel | See [Log Format and Levels](#log-format-and-levels) |
-| `types.ts` | `CompletionProvider`, `ExtensionConfig`, `CustomPreset`, `TriggerPreset` | `ExtensionConfig` mirrors `bespokeAI.*` in `package.json` — keep in sync |
-| `types/git.d.ts` | Type defs for VS Code's built-in Git extension API | |
+| File                       | Role                                                                     | Notes                                                                                                               |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `commit-message.ts`        | Commit message generation via BackendRouter                              | Pure helpers in `utils/commit-message-utils.ts`                                                                     |
+| `suggest-edit.ts`          | Suggest-edit command via BackendRouter                                   | Pure helpers in `utils/suggest-edit-utils.ts`                                                                       |
+| `commands/context-menu.ts` | Explain/Fix/Do — launches standalone Claude CLI                          | Pure helpers in `commands/context-menu-utils.ts`. Does **not** use pool server                                      |
+| `mode-detector.ts`         | `languageId` → `prose` or `code`                                         | Unknown languages default to prose                                                                                  |
+| `utils/context-builder.ts` | Extracts prefix/suffix from document + position                          | Delegates to `truncation.ts` for boundary-snapped truncation (prefix to line boundaries, suffix to word boundaries) |
+| `utils/post-process.ts`    | Trims prefix/suffix overlap before caching                               |                                                                                                                     |
+| `utils/api-key-store.ts`   | API key resolution: SecretStorage → env → `~/.creds/api-keys.env`        | Keys eagerly loaded into memory so `resolveApiKey()` stays synchronous                                              |
+| `utils/circuit-breaker.ts` | Consecutive-failure circuit breaker for API providers                    | Distinct from SlotPool's built-in breaker                                                                           |
+| `utils/cache.ts`           | LRU completion cache                                                     |                                                                                                                     |
+| `utils/usage-ledger.ts`    | Persistent JSONL ledger at `~/.bespokeai/usage-ledger.jsonl`             | Concurrent-safe across multiple VS Code windows                                                                     |
+| `utils/debouncer.ts`       | Promise-based debounce with `CancellationToken` + `AbortSignal`          |                                                                                                                     |
+| `utils/logger.ts`          | Logger wrapping VS Code OutputChannel                                    | See [Log Format and Levels](#log-format-and-levels)                                                                 |
+| `types.ts`                 | `CompletionProvider`, `ExtensionConfig`, `CustomPreset`, `TriggerPreset` | `ExtensionConfig` mirrors `bespokeAI.*` in `package.json` — keep in sync                                            |
+| `types/git.d.ts`           | Type defs for VS Code's built-in Git extension API                       |                                                                                                                     |
 
 Omitted from table (simple/trivial): `pool-server/index.ts` and `providers/api/index.ts` (re-exports), `utils/message-channel.ts`, `utils/model-name.ts`, `utils/workspace.ts`, `utils/usage-tracker.ts`, `utils/truncation.ts`, `scripts/dump-prompts.ts`.
 
@@ -319,13 +319,13 @@ If completions stop working entirely:
 
 All test runners share these env vars:
 
-| Variable          | Description                                                    |
-| ----------------- | -------------------------------------------------------------- |
-| `TEST_BACKEND`    | `claude-code` (default) or `api`                               |
-| `TEST_API_PRESET` | Preset ID for API backend (default: `anthropic-haiku`)         |
-| `TEST_MODEL`      | Override Claude Code CLI model (default: `sonnet`)             |
-| `PROMPT_VARIANTS` | Comma-separated variant IDs for comparison runner              |
-| `COMPARE_FILTER`  | Filter comparison by mode: `prose`, `code`, or `all`           |
+| Variable          | Description                                            |
+| ----------------- | ------------------------------------------------------ |
+| `TEST_BACKEND`    | `claude-code` (default) or `api`                       |
+| `TEST_API_PRESET` | Preset ID for API backend (default: `anthropic-haiku`) |
+| `TEST_MODEL`      | Override Claude Code CLI model (default: `sonnet`)     |
+| `PROMPT_VARIANTS` | Comma-separated variant IDs for comparison runner      |
+| `COMPARE_FILTER`  | Filter comparison by mode: `prose`, `code`, or `all`   |
 
 Backward-compatible aliases: `QUALITY_TEST_MODEL` → `TEST_MODEL`, `PROMPT_VARIANT` → `PROMPT_VARIANTS`.
 
@@ -353,11 +353,11 @@ If any suite fails, report the failure and stop (the `&&` chaining enforces this
 
 **`test:quality` is a two-step process:**
 
-| Step    | Action                     | What it does                                     | Done when                              |
-| ------- | -------------------------- | ------------------------------------------------ | -------------------------------------- |
-| Layer 1 | `npm run test:quality`     | Generates completions, saves to `test-results/`  | All scenarios produce output (or skip) |
+| Step    | Action                                | What it does                                     | Done when                              |
+| ------- | ------------------------------------- | ------------------------------------------------ | -------------------------------------- |
+| Layer 1 | `npm run test:quality`                | Generates completions, saves to `test-results/`  | All scenarios produce output (or skip) |
 | Layer 2 | Follow steps in Quality Tests section | Evaluate each `completion.txt` against validator | `layer2-summary.md` written            |
-| Skip    | Report skip reason         | If all scenarios skipped (e.g., no SDK)          | Layer 2 does not apply                 |
+| Skip    | Report skip reason                    | If all scenarios skipped (e.g., no SDK)          | Layer 2 does not apply                 |
 
 **Do not report quality tests as complete until Layer 2 is done.** See [Quality Tests (LLM-as-Judge)](#quality-tests-llm-as-judge) for the full Layer 2 workflow. After evaluation, report results to the user. Do not attempt fixes unless asked.
 

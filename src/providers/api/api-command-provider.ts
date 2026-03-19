@@ -120,7 +120,9 @@ export class ApiCommandProvider {
     try {
       this.adapter = createAdapter(preset);
     } catch (err) {
-      this.logger.error(`API command: failed to create adapter for "${preset.displayName}": ${err}`);
+      this.logger.error(
+        `API command: failed to create adapter for "${preset.displayName}": ${err}`,
+      );
       return;
     }
     this.breaker.reset();

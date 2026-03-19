@@ -17,12 +17,12 @@ Ran a full quality validation sweep across 4 backends after prompt and post-proc
 
 **Results — code completion pass rates:**
 
-| Backend | Before (pre-changes) | After | Delta |
-|---------|---------------------|-------|-------|
-| CLI haiku | 100% (24/24) | 97% (33/34) | -3% (1 null on new scenario) |
-| xAI Grok | 86.9% (20/23) | 100% (26/26) | **+13.1%** |
-| GPT-4.1 Nano | 56.5% (13/23) | 93.9% (31/33) | **+37.4%** |
-| Anthropic Haiku | (new baseline) | 87.9% (29/33) | — |
+| Backend         | Before (pre-changes) | After         | Delta                        |
+| --------------- | -------------------- | ------------- | ---------------------------- |
+| CLI haiku       | 100% (24/24)         | 97% (33/34)   | -3% (1 null on new scenario) |
+| xAI Grok        | 86.9% (20/23)        | 100% (26/26)  | **+13.1%**                   |
+| GPT-4.1 Nano    | 56.5% (13/23)        | 93.9% (31/33) | **+37.4%**                   |
+| Anthropic Haiku | (new baseline)       | 87.9% (29/33) | —                            |
 
 **What fixed the failures:**
 
