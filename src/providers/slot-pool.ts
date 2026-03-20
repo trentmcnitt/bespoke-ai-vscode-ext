@@ -79,6 +79,8 @@ export interface Slot {
   lastResultMeta: ResultMetadata | null;
   /** Model from the most recent assistant message in the stream. */
   lastAssistantModel: string | null;
+  /** Buffered stderr output from the CLI subprocess for diagnostics. */
+  stderrChunks: string[];
 }
 
 /** Circuit breaker: max rapid recycles before marking a slot dead. */
@@ -91,6 +93,8 @@ const MAX_TURNS = 50;
 const MAX_THINKING_TOKENS = 0;
 /** Warmup timeout — if subprocess produces no output within this window, treat as failure. */
 const WARMUP_TIMEOUT_MS = 30_000;
+/** Max stderr chunks to buffer per slot (prevent unbounded memory if CLI is unexpectedly chatty). */
+const MAX_STDERR_CHUNKS = 100;
 
 export abstract class SlotPool {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,6 +141,7 @@ export abstract class SlotPool {
       rapidRecycleCount: 0,
       lastResultMeta: null,
       lastAssistantModel: null,
+      stderrChunks: [],
     }));
     this._warmupResolvers = Array.from({ length: poolSize }, () => null);
   }
@@ -290,6 +295,7 @@ export abstract class SlotPool {
       // The SDK resolves cli.js via import.meta.url, which is undefined when
       // loaded via require() in a CJS bundle. Pass the path explicitly.
       const sdkCliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
+      slot.stderrChunks = [];
       const stream = this.queryFn!({
         prompt: channel.iterable,
         options: {
@@ -304,6 +310,11 @@ export abstract class SlotPool {
           maxTurns: MAX_TURNS,
           persistSession: false,
           pathToClaudeCodeExecutable: sdkCliPath,
+          stderr: (data: string) => {
+            if (slot.stderrChunks.length < MAX_STDERR_CHUNKS) {
+              slot.stderrChunks.push(data);
+            }
+          },
         },
       });
 
@@ -416,6 +427,21 @@ export abstract class SlotPool {
       sessionId: message.session_id ?? '',
       model: assistantModel || '',
     };
+  }
+
+  /** Drain and log any buffered stderr from a slot's subprocess. */
+  protected drainStderr(slotIndex: number, level: 'error' | 'debug'): void {
+    const slot = this.slots[slotIndex];
+    if (slot.stderrChunks.length === 0) return;
+    const stderr = slot.stderrChunks.join('').trim();
+    slot.stderrChunks = [];
+    if (!stderr) return;
+    const msg = `${this.getPoolLabel()}: subprocess stderr (slot ${slotIndex}):\n${stderr}`;
+    if (level === 'error') {
+      this.logger.error(msg);
+    } else {
+      this.logger.debug(msg);
+    }
   }
 
   protected resetResultPromise(slot: Slot): void {
@@ -568,6 +594,7 @@ export abstract class SlotPool {
       this.logger.error(
         `${this.getPoolLabel()}: stream error on slot ${slotIndex}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
       );
+      this.drainStderr(slotIndex, 'error');
       slot.deliverResult?.(null);
       // Also resolve warmup if still pending (failure)
       this._warmupResolvers[slotIndex]?.(false);
@@ -611,6 +638,7 @@ export abstract class SlotPool {
       slot.resultCount = 0;
       slot.lastResultMeta = null;
       slot.lastAssistantModel = null;
+      slot.stderrChunks = [];
       // Reset circuit breaker so intentional recycles (recycleAll) don't count
       slot.lastRecycleTime = 0;
       slot.rapidRecycleCount = 0;
@@ -678,6 +706,9 @@ export abstract class SlotPool {
     }
 
     slot.state = 'initializing';
+
+    // Log any stderr warnings from the completed subprocess before recycling
+    this.drainStderr(index, 'debug');
 
     // Close old channel (kills subprocess)
     try {
