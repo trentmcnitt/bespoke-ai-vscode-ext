@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 — Subprocess Stderr Capture
+
+- **Stderr capture:** CLI subprocess stderr output is now captured and logged, so when the Claude Code process exits with an error, the actual reason (auth failure, missing dependency, etc.) appears in the Output panel instead of just "process exited with code 1." (#2)
+- **Success-path warnings:** Stderr warnings from healthy subprocesses (deprecation notices, etc.) are logged at debug level on slot recycle instead of being silently discarded.
+- **Bounded buffer:** Stderr accumulation is capped at 100 chunks per slot to prevent unbounded memory growth.
+
 ## 0.8.5 — Better Diagnostics and CI
 
 - **Specific error messages:** Pool degradation notifications now explain _why_ autocomplete is unavailable — warmup failure, circuit breaker, or authentication — instead of always suggesting "run `claude` in your terminal." (#2)
