@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.5 — Better Diagnostics and CI
+
+- **Specific error messages:** Pool degradation notifications now explain _why_ autocomplete is unavailable — warmup failure, circuit breaker, or authentication — instead of always suggesting "run `claude` in your terminal." (#2)
+- **Warmup timeout:** CLI subprocesses that produce no output within 30 seconds are now detected and reported, instead of hanging silently.
+- **Open Log button:** The error notification now offers "Open Log" instead of "Open Terminal," making it easier to diagnose issues.
+- **Restart flow fix:** "Restart Pools" from the error notification now properly resets the status bar state.
+- **CI pipeline:** Added GitHub Actions workflow (lint, type-check, format, unit tests) with branch protection on main.
+
 ## 0.8.4 — Circuit Breaker Feedback and Pool Recovery
 
 - **Circuit breaker status bar:** When the API circuit breaker opens after repeated failures, the status bar now shows "Setup needed" with a retry option. Recovers automatically when requests succeed again or the cooldown expires.

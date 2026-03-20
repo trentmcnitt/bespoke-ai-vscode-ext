@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI — Autocomplete and One-Click Commit Messages",
   "description": "AI autocomplete for prose and code — use your Claude subscription or bring your own API key (xAI, OpenAI, Anthropic, Gemini, Ollama)",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -432,6 +432,14 @@
     "typescript": "^5.3.0",
     "vitest": "^4.0.18",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "tree-sitter-html": {
+      "tree-sitter": "$tree-sitter"
+    },
+    "tree-sitter-rust": {
+      "tree-sitter": "$tree-sitter"
+    }
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.77"

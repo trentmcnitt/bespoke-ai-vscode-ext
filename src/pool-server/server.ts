@@ -30,7 +30,7 @@ export interface PoolServerOptions {
   logger: Logger;
   ledger: UsageLedger;
   serverId: string;
-  onPoolDegraded?: (pool: 'completion' | 'command') => void;
+  onPoolDegraded?: (pool: 'completion' | 'command', reason: string) => void;
 }
 
 interface ConnectedClient {
@@ -49,7 +49,7 @@ export class PoolServer {
   private config: ExtensionConfig;
   private serverId: string;
   private disposed = false;
-  private onPoolDegraded?: (pool: 'completion' | 'command') => void;
+  private onPoolDegraded?: (pool: 'completion' | 'command', reason: string) => void;
 
   constructor(options: PoolServerOptions) {
     this.config = options.config;
@@ -61,16 +61,16 @@ export class PoolServer {
     // Create providers
     this.completionProvider = new ClaudeCodeProvider(this.config, this.logger);
     this.completionProvider.setLedger(this.ledger);
-    this.completionProvider.onPoolDegraded = () => {
-      this.broadcastEvent({ type: 'pool-degraded', pool: 'completion' });
-      this.onPoolDegraded?.('completion');
+    this.completionProvider.onPoolDegraded = (reason) => {
+      this.broadcastEvent({ type: 'pool-degraded', pool: 'completion', reason });
+      this.onPoolDegraded?.('completion', reason);
     };
 
     this.commandPool = new CommandPool(this.config.claudeCode.model, this.logger);
     this.commandPool.setLedger(this.ledger);
-    this.commandPool.onPoolDegraded = () => {
-      this.broadcastEvent({ type: 'pool-degraded', pool: 'command' });
-      this.onPoolDegraded?.('command');
+    this.commandPool.onPoolDegraded = (reason) => {
+      this.broadcastEvent({ type: 'pool-degraded', pool: 'command', reason });
+      this.onPoolDegraded?.('command', reason);
     };
   }
 

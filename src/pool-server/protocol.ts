@@ -206,6 +206,8 @@ export interface ServerShuttingDownEvent {
 export interface PoolDegradedEvent {
   type: 'pool-degraded';
   pool: 'completion' | 'command';
+  /** Why the pool degraded (e.g., 'warmup failed after retry'). Optional for backward compat. */
+  reason?: string;
 }
 
 export type ServerEvent = ServerShuttingDownEvent | PoolDegradedEvent;

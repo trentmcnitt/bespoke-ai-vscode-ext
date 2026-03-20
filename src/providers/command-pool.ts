@@ -124,6 +124,7 @@ export class CommandPool extends SlotPool {
         timeoutId = setTimeout(() => {
           if (resolved) return;
           resolved = true;
+          this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
           // Timeout: deliver null to unblock, close channel to force recycle
           slot.deliverResult?.(null);
           slot.channel?.close();
@@ -149,6 +150,7 @@ export class CommandPool extends SlotPool {
         const onAbort = () => {
           if (resolved) return;
           resolved = true;
+          this.logger.debug('CommandPool: request cancelled');
           // Clean up slot to prevent "busy forever" leak — matches timeout behavior
           slot.deliverResult?.(null);
           slot.channel?.close();

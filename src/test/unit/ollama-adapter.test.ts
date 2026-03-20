@@ -69,10 +69,7 @@ describe('OllamaAdapter', () => {
       const adapter = new OllamaAdapter(makePreset({ baseUrl: 'http://localhost:11434' }));
       await adapter.complete('system', [{ role: 'user', content: 'hi' }], defaultOptions);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:11434/api/chat',
-        expect.anything(),
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:11434/api/chat', expect.anything());
     });
 
     it('strips /v1 suffix for backward compat', async () => {
@@ -82,10 +79,7 @@ describe('OllamaAdapter', () => {
       const adapter = new OllamaAdapter(makePreset({ baseUrl: 'http://localhost:11434/v1' }));
       await adapter.complete('system', [{ role: 'user', content: 'hi' }], defaultOptions);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:11434/api/chat',
-        expect.anything(),
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:11434/api/chat', expect.anything());
     });
 
     it('strips trailing slash', async () => {
@@ -95,10 +89,7 @@ describe('OllamaAdapter', () => {
       const adapter = new OllamaAdapter(makePreset({ baseUrl: 'http://localhost:11434/' }));
       await adapter.complete('system', [{ role: 'user', content: 'hi' }], defaultOptions);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:11434/api/chat',
-        expect.anything(),
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:11434/api/chat', expect.anything());
     });
 
     it('defaults to localhost:11434 when no baseUrl', async () => {
@@ -108,10 +99,7 @@ describe('OllamaAdapter', () => {
       const adapter = new OllamaAdapter(makePreset({ baseUrl: undefined }));
       await adapter.complete('system', [{ role: 'user', content: 'hi' }], defaultOptions);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:11434/api/chat',
-        expect.anything(),
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:11434/api/chat', expect.anything());
     });
 
     it('supports custom host', async () => {
@@ -121,10 +109,7 @@ describe('OllamaAdapter', () => {
       const adapter = new OllamaAdapter(makePreset({ baseUrl: 'http://gpu-server:11434' }));
       await adapter.complete('system', [{ role: 'user', content: 'hi' }], defaultOptions);
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://gpu-server:11434/api/chat',
-        expect.anything(),
-      );
+      expect(fetchMock).toHaveBeenCalledWith('http://gpu-server:11434/api/chat', expect.anything());
     });
   });
 
@@ -233,9 +218,7 @@ describe('OllamaAdapter', () => {
       const fetchMock = mockFetchOk(makeOllamaResponse());
       globalThis.fetch = fetchMock;
 
-      const adapter = new OllamaAdapter(
-        makePreset({ extraHeaders: { 'X-Custom': 'value' } }),
-      );
+      const adapter = new OllamaAdapter(makePreset({ extraHeaders: { 'X-Custom': 'value' } }));
       await adapter.complete('sys', [{ role: 'user', content: 'hi' }], defaultOptions);
 
       const headers = fetchMock.mock.calls[0][1].headers;
@@ -261,9 +244,7 @@ describe('OllamaAdapter', () => {
     });
 
     it('maps token counts from Ollama fields', async () => {
-      globalThis.fetch = mockFetchOk(
-        makeOllamaResponse({ prompt_eval_count: 55, eval_count: 23 }),
-      );
+      globalThis.fetch = mockFetchOk(makeOllamaResponse({ prompt_eval_count: 55, eval_count: 23 }));
 
       const adapter = new OllamaAdapter(makePreset());
       const result = await adapter.complete(

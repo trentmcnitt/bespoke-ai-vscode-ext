@@ -38,7 +38,7 @@ export interface PoolClientOptions {
   logger: Logger;
   ledger: UsageLedger;
   clientId: string;
-  onPoolDegraded?: (pool: 'completion' | 'command') => void;
+  onPoolDegraded?: (pool: 'completion' | 'command', reason: string) => void;
   onRoleChange?: (role: PoolRole) => void;
 }
 
@@ -59,7 +59,7 @@ export class PoolClient implements ICompletionProvider {
   private disposed = false;
   private buffer = '';
   private pendingRequests = new Map<string, PendingRequest>();
-  private onPoolDegraded?: (pool: 'completion' | 'command') => void;
+  private onPoolDegraded?: (pool: 'completion' | 'command', reason: string) => void;
   private onRoleChange?: (role: PoolRole) => void;
   private reconnectAttempts = 0;
   private connecting = false;
@@ -254,8 +254,10 @@ export class PoolClient implements ICompletionProvider {
         break;
 
       case 'pool-degraded':
-        this.logger.error(`Pool client: ${event.pool} pool degraded`);
-        this.onPoolDegraded?.(event.pool);
+        this.logger.error(
+          `Pool client: ${event.pool} pool degraded — ${event.reason ?? 'unknown reason'}`,
+        );
+        this.onPoolDegraded?.(event.pool, event.reason ?? 'unknown');
         break;
     }
   }

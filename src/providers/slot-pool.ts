@@ -89,6 +89,8 @@ const RAPID_RECYCLE_WINDOW_MS = 5_000;
 const MAX_TURNS = 50;
 /** Thinking tokens disabled for autocomplete (immediate response preferred). */
 const MAX_THINKING_TOKENS = 0;
+/** Warmup timeout — if subprocess produces no output within this window, treat as failure. */
+const WARMUP_TIMEOUT_MS = 30_000;
 
 export abstract class SlotPool {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,7 +121,7 @@ export abstract class SlotPool {
   private _totalCostUsd = 0;
 
   /** Called when the pool is fully degraded (all warmup retries exhausted). */
-  onPoolDegraded: (() => void) | null = null;
+  onPoolDegraded: ((reason: string) => void) | null = null;
 
   constructor(logger: Logger, poolSize: number) {
     this.logger = logger;
@@ -194,6 +196,7 @@ export abstract class SlotPool {
    *  Serialized: overlapping calls return the same promise. */
   async recycleAll(): Promise<void> {
     if (!this.sdkAvailable) {
+      this.logger.debug(`${this.getPoolLabel()}: recycleAll skipped (SDK not available)`);
       return;
     }
 
@@ -213,6 +216,7 @@ export abstract class SlotPool {
   /**
    * Restart the pool from scratch. Resets warmup failure tracking and
    * re-initializes all slots. Use after the pool has been degraded.
+   * Fires onPoolDegraded if the SDK is unavailable on restart.
    */
   async restart(): Promise<void> {
     this.killAllSlots();
@@ -223,6 +227,7 @@ export abstract class SlotPool {
     await this.loadSdk();
     if (!this.sdkAvailable) {
       this.logger.error(`${this.getPoolLabel()}: SDK not available on restart`);
+      this.onPoolDegraded?.('SDK not available');
       return;
     }
 
@@ -278,6 +283,7 @@ export abstract class SlotPool {
       // Push a warmup message to prime the session
       const warmup = this.buildWarmupMessage();
       channel.push(warmup);
+      this.logger.debug(`${this.getPoolLabel()}: slot ${index} warming up...`);
       this.logger.traceBlock(`warmup → sent (slot ${index})`, warmup);
 
       // Start streaming query — it consumes messages from the channel.
@@ -324,6 +330,7 @@ export abstract class SlotPool {
       }
 
       slot.state = 'available';
+      this.logger.debug(`${this.getPoolLabel()}: slot ${index} ready`);
 
       // Record startup in ledger
       this.ledger?.record({
@@ -419,9 +426,21 @@ export abstract class SlotPool {
 
   protected waitForWarmup(index: number): Promise<boolean> {
     return new Promise((resolve) => {
-      // Store a callback that the consumer calls after validating the warmup result.
-      // Resolves true on success, false on validation failure.
-      this._warmupResolvers[index] = resolve;
+      const timer = setTimeout(() => {
+        // Timeout fired — subprocess never produced warmup output
+        this._warmupResolvers[index] = null;
+        this.logger.error(
+          `${this.getPoolLabel()}: warmup timed out on slot ${index} after ${WARMUP_TIMEOUT_MS / 1000}s — subprocess may be unresponsive`,
+        );
+        resolve(false);
+      }, WARMUP_TIMEOUT_MS);
+
+      // Wrap the resolver so it clears the timeout when called normally
+      // (by consumeStream or killAllSlots).
+      this._warmupResolvers[index] = (ok: boolean) => {
+        clearTimeout(timer);
+        resolve(ok);
+      };
     });
   }
 
@@ -433,6 +452,7 @@ export abstract class SlotPool {
   protected async consumeStream(stream: AsyncIterable<unknown>, slotIndex: number): Promise<void> {
     const slot = this.slots[slotIndex];
     const myGeneration = slot.generation;
+    this.logger.debug(`${this.getPoolLabel()}: slot ${slotIndex} stream consumer started`);
     // Keep reference to iterator for cleanup on early return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const iterator = (stream as AsyncIterable<any>)[Symbol.asyncIterator]();
@@ -481,7 +501,7 @@ export abstract class SlotPool {
               warmupOk = this.validateWarmupResponse(text);
               if (!warmupOk) {
                 this.logger.error(
-                  `warmup validation failed on slot ${slotIndex}: raw="${text.slice(0, 100)}"`,
+                  `${this.getPoolLabel()}: warmup validation failed on slot ${slotIndex}: got "${text.slice(0, 200)}"`,
                 );
               }
             } else {
@@ -652,7 +672,7 @@ export abstract class SlotPool {
         this.logger.error(
           `${this.getPoolLabel()}: all slots dead (circuit breaker), pool degraded`,
         );
-        this.onPoolDegraded?.();
+        this.onPoolDegraded?.('circuit breaker: all slots dead after rapid recycles');
       }
       return;
     }
@@ -708,7 +728,7 @@ export abstract class SlotPool {
       // Exhausted retries — shut down
       this.sdkAvailable = false;
       this.logger.error(`${this.getPoolLabel()}: warmup failed after retry, autocomplete disabled`);
-      this.onPoolDegraded?.();
+      this.onPoolDegraded?.('warmup failed after retry');
     } else {
       // Retry once
       this.logger.info(`${this.getPoolLabel()}: retrying all slots after warmup failure...`);

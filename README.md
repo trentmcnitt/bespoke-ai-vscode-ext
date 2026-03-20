@@ -25,7 +25,7 @@
 
 **✏️ Suggest edits** — One-command typo, grammar, and bug fixes for visible text.
 
-**🔧 Context menu** — Right-click to Explain, Fix, or Do custom actions on selected text. *(Requires Claude Code backend.)*
+**🔧 Context menu** — Right-click to Explain, Fix, or Do custom actions on selected text. _(Requires Claude Code backend.)_
 
 ### Screenshots
 
@@ -80,11 +80,11 @@ Change trigger behavior via the status bar menu: `relaxed` (~2s), `eager` (~800m
 
 ### Modes
 
-| Mode | Activates for | Strategy |
-|------|---------------|----------|
-| **Writing** | `markdown`, `plaintext`, `latex`, `restructuredtext`, and others | Continuation-style. Matches voice, style, and format. |
-| **Code** | All recognized programming languages | Uses code before and after your cursor, language-aware. |
-| **Auto** *(default)* | — | Selects Writing or Code based on file type. |
+| Mode                 | Activates for                                                    | Strategy                                                |
+| -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| **Writing**          | `markdown`, `plaintext`, `latex`, `restructuredtext`, and others | Continuation-style. Matches voice, style, and format.   |
+| **Code**             | All recognized programming languages                             | Uses code before and after your cursor, language-aware. |
+| **Auto** _(default)_ | —                                                                | Selects Writing or Code based on file type.             |
 
 Override via settings or the status bar menu.
 
@@ -94,27 +94,27 @@ I tried every open-source AI autocomplete extension I could find. Most handled c
 
 So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering, but the result handles writing just as well as code.
 
-*The Claude Code backend uses your existing subscription (Pro, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider.*
+_The Claude Code backend uses your existing subscription (Pro, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider._
 
 ## 🧩 Available Models
 
 The API backend includes presets for popular providers. Change the active preset via the status bar menu or the `bespokeAI.api.preset` setting.
 
-| Preset | Provider | Model |
-|--------|----------|-------|
-| `xai-grok` *(default)* | [xAI](https://console.x.ai/) | grok-4-1-fast-non-reasoning |
-| `xai-grok-code` | [xAI](https://console.x.ai/) | grok-code-fast-1 |
-| `xai-grok-4` | [xAI](https://console.x.ai/) | grok-4-0709 |
-| `anthropic-haiku` | [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5 |
-| `anthropic-sonnet` | [Anthropic](https://console.anthropic.com/) | claude-sonnet-4-5 |
-| `openai-gpt-4.1-nano` | [OpenAI](https://platform.openai.com/) | gpt-4.1-nano |
-| `openai-gpt-4o-mini` | [OpenAI](https://platform.openai.com/) | gpt-4o-mini |
-| `google-gemini-flash` | [Google](https://aistudio.google.com/) | gemini-2.5-flash |
-| `openrouter-haiku` | [OpenRouter](https://openrouter.ai/) | anthropic/claude-haiku-4.5 |
-| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/) | openai/gpt-4.1-nano |
-| `ollama-default` | [Ollama](https://ollama.com/) *(local, free)* | qwen2.5-coder:7b |
-| `ollama-qwen3-4b` | [Ollama](https://ollama.com/) *(local, free)* | qwen3:4b |
-| `ollama-qwen3-8b` | [Ollama](https://ollama.com/) *(local, free)* | qwen3:8b |
+| Preset                    | Provider                                      | Model                       |
+| ------------------------- | --------------------------------------------- | --------------------------- |
+| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning |
+| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1            |
+| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                 |
+| `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5            |
+| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-4-5           |
+| `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                |
+| `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                 |
+| `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash            |
+| `openrouter-haiku`        | [OpenRouter](https://openrouter.ai/)          | anthropic/claude-haiku-4.5  |
+| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)          | openai/gpt-4.1-nano         |
+| `ollama-default`          | [Ollama](https://ollama.com/) _(local, free)_ | qwen2.5-coder:7b            |
+| `ollama-qwen3-4b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:4b                    |
+| `ollama-qwen3-8b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:8b                    |
 
 **API keys:** Store keys via the **Enter API Key** command (Command Palette → "Enter API Key"). Keys are saved in your OS keychain. As a fallback, the extension also checks environment variables and `~/.creds/api-keys.env`:
 
@@ -135,46 +135,46 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>General</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `true` | Master on/off toggle |
-| `mode` | `"auto"` | Completion mode (auto-detects) |
+| Setting         | Default     | Description                                                                     |
+| --------------- | ----------- | ------------------------------------------------------------------------------- |
+| `enabled`       | `true`      | Master on/off toggle                                                            |
+| `mode`          | `"auto"`    | Completion mode (auto-detects)                                                  |
 | `triggerPreset` | `"relaxed"` | Trigger preset: `relaxed` (~2s), `eager` (~800ms), `on-demand` (Alt+Enter only) |
-| `debounceMs` | `2000` | Override the debounce delay from your trigger preset |
-| `logLevel` | `"info"` | Logging verbosity in Output channel |
+| `debounceMs`    | `2000`      | Override the debounce delay from your trigger preset                            |
+| `logLevel`      | `"info"`    | Logging verbosity in Output channel                                             |
 
 </details>
 
 <details>
 <summary><strong>Backend</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `backend` | `"claude-code"` | Active backend: `claude-code` (CLI) or `api` (HTTP) |
-| `api.preset` | `"xai-grok"` | Active API model (dropdown in settings, or status bar menu) |
+| Setting      | Default         | Description                                                 |
+| ------------ | --------------- | ----------------------------------------------------------- |
+| `backend`    | `"claude-code"` | Active backend: `claude-code` (CLI) or `api` (HTTP)         |
+| `api.preset` | `"xai-grok"`    | Active API model (dropdown in settings, or status bar menu) |
 
 </details>
 
 <details>
 <summary><strong>Model (Claude Code backend)</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `claudeCode.model` | `"sonnet"` | Active model (sonnet, haiku, opus, etc.) |
-| `claudeCode.models` | `["haiku", "sonnet", "opus"]` | Available models catalog |
+| Setting             | Default                       | Description                              |
+| ------------------- | ----------------------------- | ---------------------------------------- |
+| `claudeCode.model`  | `"sonnet"`                    | Active model (sonnet, haiku, opus, etc.) |
+| `claudeCode.models` | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
 
 </details>
 
 <details>
 <summary><strong>Context Windows</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `prose.contextChars` | `2500` | Prefix context (characters) for writing |
-| `prose.suffixChars` | `2000` | Suffix context (characters) for writing |
-| `prose.fileTypes` | `[]` | Additional language IDs to treat as writing |
-| `code.contextChars` | `2500` | Prefix context (characters) for code |
-| `code.suffixChars` | `2000` | Suffix context (characters) for code |
+| Setting              | Default | Description                                 |
+| -------------------- | ------- | ------------------------------------------- |
+| `prose.contextChars` | `2500`  | Prefix context (characters) for writing     |
+| `prose.suffixChars`  | `2000`  | Suffix context (characters) for writing     |
+| `prose.fileTypes`    | `[]`    | Additional language IDs to treat as writing |
+| `code.contextChars`  | `2500`  | Prefix context (characters) for code        |
+| `code.suffixChars`   | `2000`  | Suffix context (characters) for code        |
 
 </details>
 
@@ -183,18 +183,18 @@ All settings live under `bespokeAI.*` in VS Code settings.
 
 Route code completions to a different backend or model than prose. For example, use Claude Code CLI for writing and an xAI preset for code — or vice versa.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `codeOverride.backend` | `""` | Backend for code files: `claude-code`, `api`, or empty (use global default) |
-| `codeOverride.model` | `""` | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default. |
+| Setting                | Default | Description                                                                                                   |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| `codeOverride.backend` | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                   |
+| `codeOverride.model`   | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default. |
 
 </details>
 
 <details>
 <summary><strong>Context Menu Permissions</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
+| Setting                      | Default     | Description                          |
+| ---------------------------- | ----------- | ------------------------------------ |
 | `contextMenu.permissionMode` | `"default"` | Permission mode for Explain, Fix, Do |
 
 Options:
@@ -207,21 +207,21 @@ Options:
 
 ## 📋 Commands
 
-| Command | Keybinding | Description |
-|---------|------------|-------------|
-| `Trigger Completion` | `Alt+Enter` | Manually trigger a completion |
-| `Toggle Enabled` | — | Toggle the extension on/off |
-| `Cycle Mode` | — | Cycle through auto → prose → code |
-| `Clear Completion Cache` | — | Clear the LRU cache |
-| `Show Menu` | — | Status bar menu |
-| `Generate Commit Message` | — | AI commit message from staged diffs |
-| `Suggest Edits` | — | Fix typos/grammar/bugs in visible text |
-| `Explain` / `Fix` / `Do` | — | Context menu actions on selected text |
-| `Enter API Key` | — | Store an API key in the OS keychain |
-| `Remove API Key` | — | Remove a stored API key |
-| `Add Custom Model` | — | Guided wizard to add a custom API model |
-| `Remove Custom Model` | — | Remove a custom API model |
-| `Restart Pools` | — | Restart Claude Code subprocesses |
+| Command                   | Keybinding  | Description                             |
+| ------------------------- | ----------- | --------------------------------------- |
+| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion           |
+| `Toggle Enabled`          | —           | Toggle the extension on/off             |
+| `Cycle Mode`              | —           | Cycle through auto → prose → code       |
+| `Clear Completion Cache`  | —           | Clear the LRU cache                     |
+| `Show Menu`               | —           | Status bar menu                         |
+| `Generate Commit Message` | —           | AI commit message from staged diffs     |
+| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text  |
+| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text   |
+| `Enter API Key`           | —           | Store an API key in the OS keychain     |
+| `Remove API Key`          | —           | Remove a stored API key                 |
+| `Add Custom Model`        | —           | Guided wizard to add a custom API model |
+| `Remove Custom Model`     | —           | Remove a custom API model               |
+| `Restart Pools`           | —           | Restart Claude Code subprocesses        |
 
 <details>
 <summary><strong>Architecture</strong></summary>
@@ -237,14 +237,14 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 
 **Key design decisions:**
 
-| Decision | Rationale |
-|----------|-----------|
-| Writing-first defaults | Unrecognized languages fall back to writing, not code |
-| Dual backend | Claude Code CLI for subscribers, API for key-based access |
-| Shared prompts | Same system prompt across all backends — only extraction differs |
-| No streaming | VS Code's inline completion API requires complete strings |
-| LRU cache (50 entries) | 5-minute TTL prevents redundant calls when revisiting positions |
-| Session reuse (CLI) | One subprocess serves many requests — avoids cold-start per call |
+| Decision               | Rationale                                                        |
+| ---------------------- | ---------------------------------------------------------------- |
+| Writing-first defaults | Unrecognized languages fall back to writing, not code            |
+| Dual backend           | Claude Code CLI for subscribers, API for key-based access        |
+| Shared prompts         | Same system prompt across all backends — only extraction differs |
+| No streaming           | VS Code's inline completion API requires complete strings        |
+| LRU cache (50 entries) | 5-minute TTL prevents redundant calls when revisiting positions  |
+| Session reuse (CLI)    | One subprocess serves many requests — avoids cold-start per call |
 
 </details>
 
@@ -299,17 +299,17 @@ npm run test:quality              # LLM-as-judge quality tests
 
 These are the models the quality test suite runs against. Contributors should test prompt changes against at least one model per extraction strategy (e.g., CLI sonnet, GPT-4.1 Nano, xAI Grok).
 
-| # | Backend | Preset ID | Model |
-|---|---------|-----------|-------|
-| 1 | CLI | *(default)* | sonnet |
-| 2 | CLI | — | haiku |
-| 3 | API | `xai-grok` | grok-4-1-fast-non-reasoning |
-| 4 | API | `xai-grok-code` | grok-code-fast-1 |
-| 5 | API | `anthropic-haiku` | claude-haiku-4-5-20251001 |
-| 6 | API | `anthropic-sonnet` | claude-sonnet-4-5-20250929 |
-| 7 | API | `openai-gpt-4.1-nano` | gpt-4.1-nano |
-| 8 | API | `google-gemini-flash` | gemini-2.5-flash |
-| 9 | API | `ollama-default` | qwen2.5-coder:7b |
+| #   | Backend | Preset ID             | Model                       |
+| --- | ------- | --------------------- | --------------------------- |
+| 1   | CLI     | _(default)_           | sonnet                      |
+| 2   | CLI     | —                     | haiku                       |
+| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning |
+| 4   | API     | `xai-grok-code`       | grok-code-fast-1            |
+| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   |
+| 6   | API     | `anthropic-sonnet`    | claude-sonnet-4-5-20250929  |
+| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                |
+| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            |
+| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            |
 
 Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `CLAUDE.md` for testing commands.
 

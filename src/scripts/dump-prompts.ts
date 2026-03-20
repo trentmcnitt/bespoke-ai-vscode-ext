@@ -10,7 +10,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SYSTEM_PROMPT as CLAUDE_CODE_SYSTEM, buildFillMessage } from '../providers/prompt-strategy';
+import {
+  SYSTEM_PROMPT as CLAUDE_CODE_SYSTEM,
+  buildFillMessage,
+} from '../providers/prompt-strategy';
 import { makeConfig, makeProseContext, makeCodeContext } from '../test/helpers';
 import { CompletionContext } from '../types';
 
