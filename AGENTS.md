@@ -78,7 +78,7 @@ esbuild bundles `src/extension.ts` into `dist/extension.js` (CommonJS, targeting
 npm run compile && vsce package -o bespoke-ai.vsix && code --install-extension bespoke-ai.vsix
 ```
 
-Do not increment the version in `package.json` unless explicitly asked.
+Increment the patch version in `package.json` when committing user-facing changes (bug fixes, new features, behavior changes). Do not bump for internal-only changes (CI, docs, dev tooling, refactors with no behavior change). Update `CHANGELOG.md` with a summary when bumping.
 
 ## Architecture
 
