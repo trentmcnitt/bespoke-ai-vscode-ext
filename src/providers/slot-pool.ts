@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { UsageLedger } from '../utils/usage-ledger';
@@ -269,6 +269,9 @@ export abstract class SlotPool {
       this.queryFn = queryFn;
       this.sdkAvailable = true;
       this.logger.info(`${this.getPoolLabel()}: SDK loaded`);
+      this.logger.debug(
+        `${this.getPoolLabel()}: using bundled Node ${process.version} (${process.execPath})`,
+      );
     } catch (err) {
       this.sdkAvailable = false;
       this.logger.error(
@@ -311,10 +314,30 @@ export abstract class SlotPool {
           maxTurns: MAX_TURNS,
           persistSession: false,
           pathToClaudeCodeExecutable: sdkCliPath,
-          stderr: (data: string) => {
-            if (slot.stderrChunks.length < MAX_STDERR_CHUNKS) {
-              slot.stderrChunks.push(data);
-            }
+          // Use VS Code's bundled Node.js (via Electron) instead of system PATH node.
+          // This guarantees Node 18+ regardless of the user's system Node version.
+          // Same pattern used by vscode-languageclient (ESLint, TypeScript, etc.).
+          spawnClaudeCodeProcess: (opts: {
+            args: string[];
+            cwd?: string;
+            env: Record<string, string | undefined>;
+            signal: AbortSignal;
+          }) => {
+            const child = spawn(process.execPath, opts.args, {
+              cwd: opts.cwd,
+              env: { ...opts.env, ELECTRON_RUN_AS_NODE: '1' },
+              stdio: ['pipe', 'pipe', 'pipe'],
+              signal: opts.signal,
+              windowsHide: true,
+            });
+            // Capture stderr for diagnostics (replaces the SDK's stderr callback
+            // which only works with the default spawnLocalProcess)
+            child.stderr?.on('data', (data: Buffer) => {
+              if (slot.stderrChunks.length < MAX_STDERR_CHUNKS) {
+                slot.stderrChunks.push(data.toString());
+              }
+            });
+            return child;
           },
         },
       });
@@ -755,6 +778,7 @@ export abstract class SlotPool {
 
     this.logger.info(`${label}: running CLI diagnostics...`);
     this.logger.info(`${label}: SDK cli.js path: ${sdkCliPath}`);
+    this.logger.info(`${label}: process.execPath: ${process.execPath}`);
 
     const commands = ['node --version', 'claude --version', 'claude auth status'];
     for (const cmd of commands) {
