@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.7 — Automatic CLI Diagnostics on Warmup Failure
+
+- **Auto-diagnostics:** When the CLI subprocess fails to start after both warmup attempts, the extension now automatically runs `node --version`, `claude --version`, and `claude auth status` and logs the results. A single log dump now captures everything needed to debug startup failures without asking users to run commands manually. (#2)
+
 ## 0.8.6 — Subprocess Stderr Capture
 
 - **Stderr capture:** CLI subprocess stderr output is now captured and logged, so when the Claude Code process exits with an error, the actual reason (auth failure, missing dependency, etc.) appears in the Output panel instead of just "process exited with code 1." (#2)

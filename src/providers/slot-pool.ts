@@ -1,3 +1,4 @@
+import { exec } from 'child_process';
 import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { UsageLedger } from '../utils/usage-ledger';
@@ -737,6 +738,46 @@ export abstract class SlotPool {
   }
 
   /**
+   * Run CLI diagnostics after warmup exhaustion. Fire-and-forget — appends
+   * results to the log so a single log dump captures everything needed to
+   * debug "exit code 1" failures without asking the user to run commands.
+   */
+  private logCliDiagnostics(): void {
+    const DIAG_TIMEOUT_MS = 10_000;
+    const label = this.getPoolLabel();
+
+    let sdkCliPath: string;
+    try {
+      sdkCliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
+    } catch {
+      sdkCliPath = '(not found)';
+    }
+
+    this.logger.info(`${label}: running CLI diagnostics...`);
+    this.logger.info(`${label}: SDK cli.js path: ${sdkCliPath}`);
+
+    const commands = ['node --version', 'claude --version', 'claude auth status'];
+    for (const cmd of commands) {
+      exec(cmd, { timeout: DIAG_TIMEOUT_MS }, (err, stdout, stderr) => {
+        const out = (stdout || '').trim();
+        const errOut = (stderr || '').trim();
+        if (err) {
+          const reason = (err as NodeJS.ErrnoException & { killed?: boolean }).killed
+            ? `timed out after ${DIAG_TIMEOUT_MS / 1000}s`
+            : err.message;
+          this.logger.error(
+            `${label}: diagnostic \`${cmd}\` failed: ${reason}${errOut ? `\n${errOut}` : ''}`,
+          );
+        } else {
+          this.logger.info(
+            `${label}: diagnostic \`${cmd}\`:\n${out}${errOut ? `\nstderr: ${errOut}` : ''}`,
+          );
+        }
+      });
+    }
+  }
+
+  /**
    * Handle a warmup validation failure. Kills the entire pool immediately.
    * On first failure: retries all slots. On second failure: shuts down and
    * notifies the host via onPoolDegraded.
@@ -759,6 +800,7 @@ export abstract class SlotPool {
       // Exhausted retries — shut down
       this.sdkAvailable = false;
       this.logger.error(`${this.getPoolLabel()}: warmup failed after retry, autocomplete disabled`);
+      this.logCliDiagnostics();
       this.onPoolDegraded?.('warmup failed after retry');
     } else {
       // Retry once
