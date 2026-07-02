@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shortenModelName } from '../../utils/model-name';
+import { displayModelName, shortenModelName } from '../../utils/model-name';
 
 describe('shortenModelName', () => {
   it('strips claude- prefix and date suffix, converts version dots', () => {
@@ -24,5 +24,29 @@ describe('shortenModelName', () => {
 
   it('handles unknown model format', () => {
     expect(shortenModelName('my-custom-model')).toBe('my-custom-model');
+  });
+});
+
+describe('displayModelName', () => {
+  it('formats a dated model ID with major.minor version', () => {
+    expect(displayModelName('claude-opus-4-8-20250915')).toBe('Opus 4.8');
+    expect(displayModelName('claude-sonnet-4-5-20250929')).toBe('Sonnet 4.5');
+    expect(displayModelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+  });
+
+  it('formats an undated alias-style ID', () => {
+    expect(displayModelName('claude-sonnet-5')).toBe('Sonnet 5');
+    expect(displayModelName('claude-haiku-4-5')).toBe('Haiku 4.5');
+  });
+
+  it('formats a major-only dated ID', () => {
+    expect(displayModelName('claude-sonnet-4-20250514')).toBe('Sonnet 4');
+  });
+
+  it('returns null for IDs outside the Claude naming pattern', () => {
+    expect(displayModelName('qwen2.5:3b')).toBeNull();
+    expect(displayModelName('my-custom-model')).toBeNull();
+    expect(displayModelName('sonnet')).toBeNull();
+    expect(displayModelName('claude-3-5-haiku-20241022')).toBeNull();
   });
 });

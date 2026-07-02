@@ -47,6 +47,8 @@ export interface PoolStats {
   totalCacheCreationTokens: number;
   /** Cumulative cost in USD. */
   totalCostUsd: number;
+  /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
+  resolvedModel: string | null;
 }
 
 export interface ResultMetadata {
@@ -116,6 +118,8 @@ export abstract class SlotPool {
   private _warmupFailureHandled = false;
   /** Set when the CLI prints a plain-text config error to stdout (see consumeStream). */
   private _cliConfigCorrupted = false;
+  /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
+  private _resolvedModel: string | null = null;
 
   // --- Pool-level statistics ---
   private _activatedAt: number | null = null;
@@ -189,6 +193,7 @@ export abstract class SlotPool {
       totalCacheReadTokens: this._totalCacheReadTokens,
       totalCacheCreationTokens: this._totalCacheCreationTokens,
       totalCostUsd: this._totalCostUsd,
+      resolvedModel: this._resolvedModel,
     };
   }
 
@@ -232,6 +237,7 @@ export abstract class SlotPool {
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
+    this._resolvedModel = null;
     this.sdkAvailable = null;
 
     await this.loadSdk();
@@ -535,6 +541,9 @@ export abstract class SlotPool {
         const message = iterResult.value;
         if (message.type === 'assistant') {
           slot.lastAssistantModel = message.message?.model ?? null;
+          if (slot.lastAssistantModel) {
+            this._resolvedModel = slot.lastAssistantModel;
+          }
         }
         if (message.type === 'result') {
           resultCount++;
@@ -712,6 +721,8 @@ export abstract class SlotPool {
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
+    // Recycles follow model changes — the new warmup will repopulate this.
+    this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
     this.killAllSlots();
 
