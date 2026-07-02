@@ -4,6 +4,20 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 07-02-26
+
+### Fix: CLI backend fails to start when `node` is not on PATH (Windows)
+
+A user reported warmup failing on Windows with the auto-diagnostics logging `'node' is not recognized` and `claude --version` → `Access is denied`.
+
+**Root cause:** We passed the SDK's bundled `cli.js` as `pathToClaudeCodeExecutable`. The SDK's `isNativeBinary()` checks the file extension — a `.js` path is treated as non-native, so the SDK spawns it as **`node cli.js`**, which requires `node` on PATH. The VS Code extension host on Windows often has no `node` on PATH (especially for native-installer users), so the spawn fails. The auto-diagnostics then ran bare `node`/`claude`, hitting the same PATH gap and mis-reporting the tools as missing.
+
+**Fix:** New `src/utils/claude-executable.ts` resolves a **native** Claude binary first — `~/.local/bin/claude(.exe)` (checked directly on disk, so it works even when the installer's PATH update didn't reach the extension host), then a native binary on PATH — before falling back to the bundled `cli.js`. A native path makes the SDK spawn the binary directly, no `node` needed. `slot-pool.ts` uses the resolved path for both the SDK spawn and the diagnostics (which now probe the real executable path via `execFile`, and only check `node` when the bundled `cli.js` is in use).
+
+**Not changed:** Context-menu commands (`commands/context-menu.ts`) send `claude ...` to an integrated terminal, which inherits the user's login PATH, so they were not affected.
+
+---
+
 ## 03-01-26
 
 ### Code completion quality sweep — prompt + post-processing improvements

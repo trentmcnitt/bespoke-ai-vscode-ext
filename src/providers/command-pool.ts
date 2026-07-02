@@ -37,7 +37,7 @@ export class CommandPool extends SlotPool {
       return;
     }
 
-    this.logger.info('CommandPool: initializing pool...');
+    this.logger.debug('CommandPool: initializing pool...');
     await this.initAllSlots();
     this.logger.info('CommandPool: pool ready');
   }

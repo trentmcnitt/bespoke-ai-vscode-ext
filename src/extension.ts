@@ -150,13 +150,16 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar(lastConfig, 'setup-needed');
 
         // Pick a user-facing message based on the reason
+        const isConfigCorrupted = reason.includes('config file corrupted');
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
-        const userMsg = isWarmup
-          ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
-          : isCircuitBreaker
-            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
-            : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+        const userMsg = isConfigCorrupted
+          ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
+          : isWarmup
+            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+            : isCircuitBreaker
+              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+              : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
         const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {
@@ -170,7 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     },
     onRoleChange: (role) => {
-      logger.info(`Pool client role changed to: ${role}`);
+      logger.debug(`Pool: role changed to ${role}`);
     },
   });
   context.subscriptions.push({ dispose: () => poolClient.dispose() });
@@ -244,19 +247,22 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
       if (!apiAvailable) {
         showApiSetupGuidance(config);
-      } else if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
-        extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
-        const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
-        vscode.window
-          .showInformationMessage(
-            `Bespoke AI is ready! Completions appear automatically via ${presetLabel}, or press Alt+Enter to trigger one instantly.`,
-            'Open Settings',
-          )
-          .then((action) => {
-            if (action === 'Open Settings') {
-              vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
-            }
-          });
+      } else {
+        logger.info(`Ready | API (${config.api.preset})`);
+        if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
+          extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
+          const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
+          vscode.window
+            .showInformationMessage(
+              `Bespoke AI is ready! Completions appear automatically via ${presetLabel}, or press Alt+Enter to trigger one instantly.`,
+              'Open Settings',
+            )
+            .then((action) => {
+              if (action === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+              }
+            });
+        }
       }
     });
   } else {
@@ -569,8 +575,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
 
+      const version = context.extension.packageJSON.version as string;
       const picked = await vscode.window.showQuickPick(items, {
-        title: 'Bespoke AI',
+        title: `Bespoke AI v${version}`,
         placeHolder:
           statusBarState === 'setup-needed'
             ? 'Action needed — see issue above'
@@ -1095,7 +1102,11 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
-  logger.info(`Activated | logLevel=${config.logLevel}`);
+  const backendInfo =
+    config.backend === 'api'
+      ? `backend=api | preset=${config.api.preset}`
+      : `backend=claude-code | model=${config.claudeCode.model}`;
+  logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
 }
 
 function loadConfig(): ExtensionConfig {
@@ -1846,6 +1857,7 @@ async function activateWithPreflight(
   try {
     await poolClient.activate();
     updateStatusBar(config, 'ready');
+    logger.info(`Ready | Claude Code (${config.claudeCode.model}) | ${poolClient.getRole()}`);
   } catch (err) {
     logger.error(`Pool client activation failed: ${err}`);
     setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };

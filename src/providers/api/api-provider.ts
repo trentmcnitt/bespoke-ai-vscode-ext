@@ -234,6 +234,10 @@ export class ApiCompletionProvider implements CompletionProvider {
     }
     this.breaker.reset();
 
-    this.logger.info(`API: loaded ${preset.displayName} (${preset.modelId})`);
+    if (this.config.backend === 'api') {
+      this.logger.info(`API: adapter ready (${preset.modelId})`);
+    } else {
+      this.logger.debug(`API (standby): adapter ready (${preset.modelId})`);
+    }
   }
 }
