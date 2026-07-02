@@ -23,7 +23,7 @@ import {
   findFirstAvailablePreset,
 } from './providers/api/presets';
 import { Logger } from './utils/logger';
-import { shortenModelName } from './utils/model-name';
+import { displayModelName, shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
 import { explainSelection, fixSelection, doSelection } from './commands/context-menu';
@@ -101,6 +101,25 @@ let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
 let extensionContext: vscode.ExtensionContext;
 let autoSelectedPresetId: string | null = null;
+/** CLI model alias (e.g. `sonnet`) → full model ID the CLI reported (e.g. `claude-sonnet-4-5-20250929`).
+ *  Populated from pool status as responses are observed; used to show versions in the UI. */
+const resolvedCliModels = new Map<string, string>();
+
+/** Record what a CLI model alias resolved to, once the pool has seen a response. */
+function rememberResolvedCliModel(alias: string, resolvedModelId: string | null | undefined): void {
+  if (resolvedModelId) {
+    resolvedCliModels.set(alias, resolvedModelId);
+  }
+}
+
+/** Display label for a CLI model alias — with version when known (e.g. `Opus 4.8`), else the alias. */
+function cliModelLabel(alias: string): string {
+  const resolved = resolvedCliModels.get(alias);
+  if (!resolved) {
+    return alias;
+  }
+  return displayModelName(resolved) ?? shortenModelName(resolved);
+}
 
 export function activate(context: vscode.ExtensionContext) {
   extensionContext = context;
@@ -150,13 +169,16 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar(lastConfig, 'setup-needed');
 
         // Pick a user-facing message based on the reason
+        const isConfigCorrupted = reason.includes('config file corrupted');
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
-        const userMsg = isWarmup
-          ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
-          : isCircuitBreaker
-            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
-            : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+        const userMsg = isConfigCorrupted
+          ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
+          : isWarmup
+            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+            : isCircuitBreaker
+              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+              : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
         const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {
@@ -170,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     },
     onRoleChange: (role) => {
-      logger.info(`Pool client role changed to: ${role}`);
+      logger.debug(`Pool: role changed to ${role}`);
     },
   });
   context.subscriptions.push({ dispose: () => poolClient.dispose() });
@@ -244,19 +266,22 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar(config, apiAvailable ? 'ready' : 'setup-needed');
       if (!apiAvailable) {
         showApiSetupGuidance(config);
-      } else if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
-        extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
-        const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
-        vscode.window
-          .showInformationMessage(
-            `Bespoke AI is ready! Completions appear automatically via ${presetLabel}, or press Alt+Enter to trigger one instantly.`,
-            'Open Settings',
-          )
-          .then((action) => {
-            if (action === 'Open Settings') {
-              vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
-            }
-          });
+      } else {
+        logger.info(`Ready | API (${config.api.preset})`);
+        if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
+          extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
+          const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
+          vscode.window
+            .showInformationMessage(
+              `Bespoke AI is ready! Completions appear automatically via ${presetLabel}, or press Alt+Enter to trigger one instantly.`,
+              'Open Settings',
+            )
+            .then((action) => {
+              if (action === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+              }
+            });
+        }
       }
     });
   } else {
@@ -378,7 +403,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
           backendDesc = descParts.join(' · ');
         } else {
-          backendLabel = config.claudeCode.model;
+          backendLabel = cliModelLabel(config.claudeCode.model);
           backendDesc = 'Claude Code CLI';
         }
         const backendItem: vscode.QuickPickItem = {
@@ -507,6 +532,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (config.enabled && config.backend === 'claude-code') {
         const poolStatus = await poolClient.getPoolStatus();
         if (poolStatus) {
+          rememberResolvedCliModel(poolStatus.model, poolStatus.completionPool?.resolvedModel);
           items.push({ label: 'Pool Status', kind: vscode.QuickPickItemKind.Separator });
 
           // Role and uptime
@@ -569,8 +595,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
 
+      const version = context.extension.packageJSON.version as string;
       const picked = await vscode.window.showQuickPick(items, {
-        title: 'Bespoke AI',
+        title: `Bespoke AI v${version}`,
         placeHolder:
           statusBarState === 'setup-needed'
             ? 'Action needed — see issue above'
@@ -1095,7 +1122,11 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
-  logger.info(`Activated | logLevel=${config.logLevel}`);
+  const backendInfo =
+    config.backend === 'api'
+      ? `backend=api | preset=${config.api.preset}`
+      : `backend=claude-code | model=${config.claudeCode.model}`;
+  logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
 }
 
 function loadConfig(): ExtensionConfig {
@@ -1342,9 +1373,9 @@ function updateStatusBar(config: ExtensionConfig, state?: StatusBarState) {
       statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel} (API)`;
       statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${modelLabel} via API (click for menu)`;
     } else {
-      const modelLabel = shortenModelName(config.claudeCode.model);
+      const modelLabel = cliModelLabel(config.claudeCode.model);
       statusBarItem.text = `${presetIcon} ${displayMode} | ${modelLabel} (CC)`;
-      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${config.claudeCode.model} via Claude Code (click for menu)`;
+      statusBarItem.tooltip = `Bespoke AI: ${displayMode} mode, ${config.triggerPreset} trigger, ${modelLabel} via Claude Code (click for menu)`;
     }
   }
   statusBarItem.show();
@@ -1405,7 +1436,7 @@ function updateStatusBarSpinner(spinning: boolean) {
       const modelLabel = apiPreset?.displayName ?? config.api.preset;
       statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel} (API)`;
     } else {
-      const modelLabel = shortenModelName(config.claudeCode.model);
+      const modelLabel = cliModelLabel(config.claudeCode.model);
       statusBarItem.text = `$(loading~spin) ${displayMode} | ${modelLabel} (CC)`;
     }
   } else {
@@ -1425,9 +1456,13 @@ async function showBackendPicker(
   items.push({ label: 'Claude Code CLI', kind: vscode.QuickPickItemKind.Separator });
   for (const model of config.claudeCode.models) {
     const isCurrent = config.backend === 'claude-code' && config.claudeCode.model === model;
+    const versionLabel = cliModelLabel(model);
+    const descParts: string[] = [];
+    if (versionLabel !== model) descParts.push(versionLabel);
+    if (isCurrent) descParts.push('(current)');
     const item: vscode.QuickPickItem = {
       label: `$(terminal) ${model}`,
-      description: isCurrent ? '(current)' : '',
+      description: descParts.join(' '),
     };
     items.push(item);
     handlers.set(item, async () => {
@@ -1590,9 +1625,13 @@ async function showCodeOverridePicker(
       hasOverride &&
       config.codeOverride.backend === 'claude-code' &&
       config.codeOverride.model === model;
+    const versionLabel = cliModelLabel(model);
+    const descParts: string[] = [];
+    if (versionLabel !== model) descParts.push(versionLabel);
+    if (isCurrent) descParts.push('(current)');
     const item: vscode.QuickPickItem = {
       label: `$(terminal) ${model}`,
-      description: isCurrent ? '(current)' : '',
+      description: descParts.join(' '),
     };
     items.push(item);
     handlers.set(item, async () => {
@@ -1845,7 +1884,14 @@ async function activateWithPreflight(
   // SDK available — activate pools
   try {
     await poolClient.activate();
+    const status = await poolClient.getPoolStatus();
+    if (status) {
+      rememberResolvedCliModel(status.model, status.completionPool?.resolvedModel);
+    }
     updateStatusBar(config, 'ready');
+    logger.info(
+      `Ready | Claude Code (${cliModelLabel(config.claudeCode.model)}) | ${poolClient.getRole()}`,
+    );
   } catch (err) {
     logger.error(`Pool client activation failed: ${err}`);
     setupReason = { backend: 'cli', issue: 'activation-failed', error: String(err) };

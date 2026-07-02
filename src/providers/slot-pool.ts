@@ -1,4 +1,5 @@
-import { exec, spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import { resolveClaudeExecutable } from '../utils/claude-executable';
 import { Logger } from '../utils/logger';
 import { createMessageChannel, MessageChannel } from '../utils/message-channel';
 import { UsageLedger } from '../utils/usage-ledger';
@@ -46,6 +47,8 @@ export interface PoolStats {
   totalCacheCreationTokens: number;
   /** Cumulative cost in USD. */
   totalCostUsd: number;
+  /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
+  resolvedModel: string | null;
 }
 
 export interface ResultMetadata {
@@ -113,6 +116,10 @@ export abstract class SlotPool {
   protected _warmupResolvers: (((ok: boolean) => void) | null)[];
   private _warmupFailureCount = 0;
   private _warmupFailureHandled = false;
+  /** Set when the CLI prints a plain-text config error to stdout (see consumeStream). */
+  private _cliConfigCorrupted = false;
+  /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
+  private _resolvedModel: string | null = null;
 
   // --- Pool-level statistics ---
   private _activatedAt: number | null = null;
@@ -186,6 +193,7 @@ export abstract class SlotPool {
       totalCacheReadTokens: this._totalCacheReadTokens,
       totalCacheCreationTokens: this._totalCacheCreationTokens,
       totalCostUsd: this._totalCostUsd,
+      resolvedModel: this._resolvedModel,
     };
   }
 
@@ -228,6 +236,8 @@ export abstract class SlotPool {
     this.killAllSlots();
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
+    this._cliConfigCorrupted = false;
+    this._resolvedModel = null;
     this.sdkAvailable = null;
 
     await this.loadSdk();
@@ -268,9 +278,8 @@ export abstract class SlotPool {
 
       this.queryFn = queryFn;
       this.sdkAvailable = true;
-      this.logger.info(`${this.getPoolLabel()}: SDK loaded`);
       this.logger.debug(
-        `${this.getPoolLabel()}: using bundled Node ${process.version} (${process.execPath})`,
+        `${this.getPoolLabel()}: SDK loaded (fallback runtime: Node ${process.version} at ${process.execPath})`,
       );
     } catch (err) {
       this.sdkAvailable = false;
@@ -298,7 +307,17 @@ export abstract class SlotPool {
       // Start streaming query — it consumes messages from the channel.
       // The SDK resolves cli.js via import.meta.url, which is undefined when
       // loaded via require() in a CJS bundle. Pass the path explicitly.
-      const sdkCliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
+      //
+      // Prefer a native Claude binary when available: the bundled cli.js is a
+      // Node script the SDK runs as `node cli.js`, which fails when `node` is
+      // not on PATH (common on Windows). A native binary spawns directly.
+      const executable = resolveClaudeExecutable();
+      if (index === 0) {
+        this.logger.debug(
+          `${this.getPoolLabel()}: using ${executable.source} executable: ${executable.path}`,
+        );
+      }
+      const sdkCliPath = executable.path;
       slot.stderrChunks = [];
       const stream = this.queryFn!({
         prompt: channel.iterable,
@@ -314,24 +333,32 @@ export abstract class SlotPool {
           maxTurns: MAX_TURNS,
           persistSession: false,
           pathToClaudeCodeExecutable: sdkCliPath,
-          // Use VS Code's bundled Node.js (via Electron) instead of system PATH node.
-          // This guarantees Node 18+ regardless of the user's system Node version.
-          // Same pattern used by vscode-languageclient (ESLint, TypeScript, etc.).
+          // Own the spawn so we (a) never depend on a system `node` on PATH and
+          // (b) can capture stderr for diagnostics. The SDK hands us the command
+          // and args it would have used:
+          //   - Native binary: `opts.command` IS the binary — spawn it directly.
+          //   - Bundled cli.js: `opts.command` is a system `node` we may not have,
+          //     so substitute VS Code's own Node (Electron via process.execPath +
+          //     ELECTRON_RUN_AS_NODE=1). Guarantees Node 18+ regardless of PATH —
+          //     the same pattern vscode-languageclient uses.
           spawnClaudeCodeProcess: (opts: {
+            command: string;
             args: string[];
             cwd?: string;
             env: Record<string, string | undefined>;
             signal: AbortSignal;
           }) => {
-            const child = spawn(process.execPath, opts.args, {
+            const command = executable.native ? opts.command : process.execPath;
+            const env = executable.native ? opts.env : { ...opts.env, ELECTRON_RUN_AS_NODE: '1' };
+            const child = spawn(command, opts.args, {
               cwd: opts.cwd,
-              env: { ...opts.env, ELECTRON_RUN_AS_NODE: '1' },
+              env,
               stdio: ['pipe', 'pipe', 'pipe'],
               signal: opts.signal,
               windowsHide: true,
             });
-            // Capture stderr for diagnostics (replaces the SDK's stderr callback
-            // which only works with the default spawnLocalProcess)
+            // Capture stderr for diagnostics (replaces the SDK's stderr callback,
+            // which only fires on the SDK's own default spawn path).
             child.stderr?.on('data', (data: Buffer) => {
               if (slot.stderrChunks.length < MAX_STDERR_CHUNKS) {
                 slot.stderrChunks.push(data.toString());
@@ -514,6 +541,9 @@ export abstract class SlotPool {
         const message = iterResult.value;
         if (message.type === 'assistant') {
           slot.lastAssistantModel = message.message?.model ?? null;
+          if (slot.lastAssistantModel) {
+            this._resolvedModel = slot.lastAssistantModel;
+          }
         }
         if (message.type === 'result') {
           resultCount++;
@@ -618,6 +648,19 @@ export abstract class SlotPool {
       this.logger.error(
         `${this.getPoolLabel()}: stream error on slot ${slotIndex}: ${err instanceof Error ? (err.stack ?? err.message) : err}`,
       );
+      // The CLI prints plain-text errors to stdout when ~/.claude.json is missing
+      // or corrupted (e.g., UTF-8 BOM); the SDK then JSON.parses that line and
+      // throws SyntaxError. Retrying won't help — flag it so handleWarmupFailure
+      // skips retry and surfaces an actionable message. Only checked while this
+      // slot's warmup is pending: config corruption always surfaces at process
+      // startup, and gating avoids a mid-session parse error that happens to
+      // contain "Claude " mis-flagging the config.
+      if (this._warmupResolvers[slotIndex]) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('Unexpected token') && /\bClaude\s/.test(errMsg)) {
+          this._cliConfigCorrupted = true;
+        }
+      }
       this.drainStderr(slotIndex, 'error');
       slot.deliverResult?.(null);
       // Also resolve warmup if still pending (failure)
@@ -677,6 +720,9 @@ export abstract class SlotPool {
   private async _doRecycleAll(): Promise<void> {
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
+    this._cliConfigCorrupted = false;
+    // Recycles follow model changes — the new warmup will repopulate this.
+    this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
     this.killAllSlots();
 
@@ -769,35 +815,64 @@ export abstract class SlotPool {
     const DIAG_TIMEOUT_MS = 10_000;
     const label = this.getPoolLabel();
 
-    let sdkCliPath: string;
-    try {
-      sdkCliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
-    } catch {
-      sdkCliPath = '(not found)';
-    }
-
+    const executable = resolveClaudeExecutable();
     this.logger.info(`${label}: running CLI diagnostics...`);
-    this.logger.info(`${label}: SDK cli.js path: ${sdkCliPath}`);
-    this.logger.info(`${label}: process.execPath: ${process.execPath}`);
+    this.logger.info(`${label}: resolved ${executable.source} executable: ${executable.path}`);
 
-    const commands = ['node --version', 'claude --version', 'claude auth status'];
-    for (const cmd of commands) {
-      exec(cmd, { timeout: DIAG_TIMEOUT_MS }, (err, stdout, stderr) => {
-        const out = (stdout || '').trim();
-        const errOut = (stderr || '').trim();
-        if (err) {
-          const reason = (err as NodeJS.ErrnoException & { killed?: boolean }).killed
-            ? `timed out after ${DIAG_TIMEOUT_MS / 1000}s`
-            : err.message;
-          this.logger.error(
-            `${label}: diagnostic \`${cmd}\` failed: ${reason}${errOut ? `\n${errOut}` : ''}`,
-          );
-        } else {
-          this.logger.info(
-            `${label}: diagnostic \`${cmd}\`:\n${out}${errOut ? `\nstderr: ${errOut}` : ''}`,
-          );
-        }
-      });
+    // Probe the executable the SDK actually spawns, the same way it is spawned,
+    // so diagnostics reflect how completions are really invoked — not bare
+    // `claude`/`node` that may not be on the extension host's PATH (the failure
+    // this fixes). A native binary runs directly; the bundled cli.js runs via
+    // VS Code's own Node (Electron), matching initSlot's spawn.
+    const nodeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    const probes: {
+      label: string;
+      file: string;
+      args: string[];
+      env?: NodeJS.ProcessEnv;
+    }[] = executable.native
+      ? [
+          { label: 'claude --version', file: executable.path, args: ['--version'] },
+          { label: 'claude auth status', file: executable.path, args: ['auth', 'status'] },
+        ]
+      : [
+          { label: 'node --version', file: process.execPath, args: ['--version'], env: nodeEnv },
+          {
+            label: 'claude --version',
+            file: process.execPath,
+            args: [executable.path, '--version'],
+            env: nodeEnv,
+          },
+          {
+            label: 'claude auth status',
+            file: process.execPath,
+            args: [executable.path, 'auth', 'status'],
+            env: nodeEnv,
+          },
+        ];
+
+    for (const probe of probes) {
+      execFile(
+        probe.file,
+        probe.args,
+        { timeout: DIAG_TIMEOUT_MS, env: probe.env },
+        (err, stdout, stderr) => {
+          const out = (stdout || '').trim();
+          const errOut = (stderr || '').trim();
+          if (err) {
+            const reason = (err as NodeJS.ErrnoException & { killed?: boolean }).killed
+              ? `timed out after ${DIAG_TIMEOUT_MS / 1000}s`
+              : err.message;
+            this.logger.error(
+              `${label}: diagnostic \`${probe.label}\` failed: ${reason}${errOut ? `\n${errOut}` : ''}`,
+            );
+          } else {
+            this.logger.info(
+              `${label}: diagnostic \`${probe.label}\`:\n${out}${errOut ? `\nstderr: ${errOut}` : ''}`,
+            );
+          }
+        },
+      );
     }
   }
 
@@ -818,14 +893,22 @@ export abstract class SlotPool {
       `${this.getPoolLabel()}: warmup failed on slot ${failedSlot} (attempt ${this._warmupFailureCount}/2)`,
     );
 
+    // Drain stderr before killAllSlots resets the buffers
+    for (let i = 0; i < this.slots.length; i++) {
+      this.drainStderr(i, 'error');
+    }
+
     this.killAllSlots();
 
-    if (this._warmupFailureCount >= 2) {
+    if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted) {
       // Exhausted retries — shut down
       this.sdkAvailable = false;
-      this.logger.error(`${this.getPoolLabel()}: warmup failed after retry, autocomplete disabled`);
+      const reason = this._cliConfigCorrupted
+        ? 'cli config file corrupted'
+        : 'warmup failed after retry';
+      this.logger.error(`${this.getPoolLabel()}: ${reason}, autocomplete disabled`);
       this.logCliDiagnostics();
-      this.onPoolDegraded?.('warmup failed after retry');
+      this.onPoolDegraded?.(reason);
     } else {
       // Retry once
       this.logger.info(`${this.getPoolLabel()}: retrying all slots after warmup failure...`);

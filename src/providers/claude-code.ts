@@ -33,7 +33,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       return;
     }
 
-    this.logger.info('Claude Code: initializing pool...');
+    this.logger.debug('Claude Code: initializing pool...');
     await this.initAllSlots();
     this.logger.info(`Claude Code: pool ready (${this.poolSize} slots)`);
   }

@@ -144,6 +144,8 @@ export interface PoolStatsInfo {
   totalCacheCreationTokens: number;
   /** Cumulative cost in USD. */
   totalCostUsd: number;
+  /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
+  resolvedModel: string | null;
 }
 
 export interface StatusResponse {

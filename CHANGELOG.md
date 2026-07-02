@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.8 — Native CLI Resolution (Windows startup fix)
+
+- **Fix — completions failed to start when `node` was not on PATH (Windows):** The extension handed the SDK its bundled `cli.js`, which the SDK runs as `node cli.js` — requiring `node` on the extension host's PATH. On Windows (especially with the native Claude installer) that PATH is often missing `node`, so warmup failed. This is now fixed on two fronts: (1) the extension resolves a **native** Claude binary first (`~/.local/bin/claude(.exe)`, checked on disk, then a native binary on PATH) and spawns it directly — no `node` needed; (2) when it falls back to the bundled `cli.js`, it runs it with **VS Code's own bundled Node** (Electron via `process.execPath` + `ELECTRON_RUN_AS_NODE=1`, the pattern vscode-languageclient uses) instead of a system `node`, guaranteeing Node 18+ regardless of PATH. Either path resolves the startup failure. (#2)
+- **Corrupted CLI config detected:** A missing or corrupted `~/.claude.json` (e.g. a UTF-8 BOM) makes the CLI emit a plain-text error the SDK can't parse. The extension now recognizes this, skips the futile warmup retry, and shows an actionable message telling you to delete the file.
+- **Diagnostics accuracy:** The auto-diagnostics now probe the actual resolved executable — the native binary directly, or the bundled `cli.js` via the same VS Code Node used to spawn it — instead of bare `node`/`claude`, so the log reflects how completions are really invoked rather than reporting tools as missing due to the same PATH gap.
+- **Sonnet 5:** The `anthropic-sonnet` API preset now uses Claude Sonnet 5 (`claude-sonnet-5`), released since the last update. The Claude Code CLI backend already tracks the latest Sonnet via the `sonnet` alias.
+- **Model versions in the UI:** For the Claude Code backend, the status bar, menus, and logs now show which model version a CLI alias actually resolved to (e.g. `opus` → "Opus 4.8") instead of the bare alias. The version is read from the CLI's own responses, so it is always accurate — aliases display as-is until the first response arrives.
+
 ## 0.8.7 — Automatic CLI Diagnostics on Warmup Failure
 
 - **Auto-diagnostics:** When the CLI subprocess fails to start after both warmup attempts, the extension now automatically runs `node --version`, `claude --version`, and `claude auth status` and logs the results. A single log dump now captures everything needed to debug startup failures without asking users to run commands manually. (#2)

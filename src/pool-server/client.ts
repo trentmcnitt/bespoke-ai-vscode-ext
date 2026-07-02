@@ -97,7 +97,7 @@ export class PoolClient implements ICompletionProvider {
       if (connected) {
         this.role = 'client';
         this.onRoleChange?.('client');
-        this.logger.info(`Pool client: connected to existing server`);
+        this.logger.info(`Pool: connected to existing server`);
         return;
       }
 
@@ -114,7 +114,7 @@ export class PoolClient implements ICompletionProvider {
         if (retryConnected) {
           this.role = 'client';
           this.onRoleChange?.('client');
-          this.logger.info(`Pool client: connected to server on retry ${i + 1}`);
+          this.logger.info(`Pool: connected to server on retry ${i + 1}`);
           return;
         }
 
@@ -129,7 +129,7 @@ export class PoolClient implements ICompletionProvider {
       }
 
       // Give up waiting — attempt lock acquisition as last resort and become server
-      this.logger.error('Pool client: failed to connect after retries, forcing lock acquisition');
+      this.logger.error('Pool: failed to connect after retries, forcing lock acquisition');
       acquireLock(process.pid); // best-effort; if this fails, becomeServer's listen() will fail if another server is active
       await this.becomeServer();
     } finally {
@@ -206,7 +206,7 @@ export class PoolClient implements ICompletionProvider {
     this.socket.on('data', (data) => this.handleData(data));
     this.socket.on('close', () => this.handleDisconnect());
     this.socket.on('error', (err) => {
-      this.logger.error(`Pool client: socket error: ${err.message}`);
+      this.logger.error(`Pool: socket error: ${err.message}`);
     });
   }
 
@@ -221,7 +221,7 @@ export class PoolClient implements ICompletionProvider {
 
       const message = parseMessage(line);
       if (!message) {
-        this.logger.error(`Pool client: failed to parse message: ${line.slice(0, 100)}`);
+        this.logger.error(`Pool: failed to parse message: ${line.slice(0, 100)}`);
         continue;
       }
 
@@ -247,7 +247,7 @@ export class PoolClient implements ICompletionProvider {
   private handleServerEvent(event: ServerEvent): void {
     switch (event.type) {
       case 'server-shutting-down':
-        this.logger.info('Pool client: server shutting down, will attempt reconnect');
+        this.logger.info('Pool: server shutting down, will attempt reconnect');
         this.socket?.destroy();
         this.socket = null;
         // The 'close' event handler (handleDisconnect) will call attemptTakeOver
@@ -255,7 +255,7 @@ export class PoolClient implements ICompletionProvider {
 
       case 'pool-degraded':
         this.logger.error(
-          `Pool client: ${event.pool} pool degraded — ${event.reason ?? 'unknown reason'}`,
+          `Pool: ${event.pool} pool degraded — ${event.reason ?? 'unknown reason'}`,
         );
         this.onPoolDegraded?.(event.pool, event.reason ?? 'unknown');
         break;
@@ -268,7 +268,7 @@ export class PoolClient implements ICompletionProvider {
 
     if (this.disposed) return;
 
-    this.logger.info('Pool client: disconnected from server');
+    this.logger.info('Pool: disconnected from server');
     this.attemptTakeOver();
   }
 
@@ -298,7 +298,7 @@ export class PoolClient implements ICompletionProvider {
         this.takingOver = false; // allow re-entry for retry
         await this.attemptTakeOver();
       } else {
-        this.logger.error('Pool client: failed to reconnect or become server');
+        this.logger.error('Pool: failed to reconnect or become server');
       }
     } finally {
       this.takingOver = false;
@@ -306,7 +306,7 @@ export class PoolClient implements ICompletionProvider {
   }
 
   private async becomeServer(): Promise<void> {
-    this.logger.info('Pool client: becoming server');
+    this.logger.info('Pool: becoming server');
 
     this.server = new PoolServer({
       config: this.config,
@@ -321,7 +321,7 @@ export class PoolClient implements ICompletionProvider {
     this.role = 'server';
     this.reconnectAttempts = 0;
     this.onRoleChange?.('server');
-    this.logger.info('Pool client: now acting as server');
+    this.logger.debug('Pool: now acting as server');
   }
 
   private sendRequest(request: PoolRequest): Promise<PoolResponse> {
@@ -482,11 +482,11 @@ export class PoolClient implements ICompletionProvider {
       // Log error responses instead of silently swallowing
       if (response.type === 'error' || (response.type === 'completion' && !response.success)) {
         const errorMsg = 'error' in response ? response.error : 'unknown error';
-        this.logger.error(`Pool client: completion failed: ${errorMsg}`);
+        this.logger.error(`Pool: completion failed: ${errorMsg}`);
       }
       return null;
     } catch (err) {
-      this.logger.error(`Pool client: completion error: ${err}`);
+      this.logger.error(`Pool: completion error: ${err}`);
       return null;
     }
   }
@@ -512,7 +512,7 @@ export class PoolClient implements ICompletionProvider {
         id: generateRequestId(),
         model: config.claudeCode.model,
       }).catch((err) => {
-        this.logger.error(`Pool client: config update failed: ${err}`);
+        this.logger.error(`Pool: config update failed: ${err}`);
       });
     }
   }
@@ -527,7 +527,7 @@ export class PoolClient implements ICompletionProvider {
         pool: 'all',
       });
     } catch (err) {
-      this.logger.error(`Pool client: recycle failed: ${err}`);
+      this.logger.error(`Pool: recycle failed: ${err}`);
     }
   }
 
@@ -567,11 +567,11 @@ export class PoolClient implements ICompletionProvider {
       // Log error responses instead of silently swallowing
       if (response.type === 'error' || (response.type === 'command' && !response.success)) {
         const errorMsg = 'error' in response ? response.error : 'unknown error';
-        this.logger.error(`Pool client: command failed: ${errorMsg}`);
+        this.logger.error(`Pool: command failed: ${errorMsg}`);
       }
       return { text: null, meta: null };
     } catch (err) {
-      this.logger.error(`Pool client: command error: ${err}`);
+      this.logger.error(`Pool: command error: ${err}`);
       return { text: null, meta: null };
     }
   }
@@ -650,6 +650,6 @@ export class PoolClient implements ICompletionProvider {
       this.server = null;
     }
 
-    this.logger.info('Pool client: disposed');
+    this.logger.info('Pool: disposed');
   }
 }

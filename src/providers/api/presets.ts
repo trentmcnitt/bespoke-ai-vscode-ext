@@ -17,10 +17,10 @@ const BUILT_IN_PRESETS: Preset[] = [
   },
   {
     id: 'anthropic-sonnet',
-    displayName: 'Sonnet 4.5',
+    displayName: 'Sonnet 5',
     description: 'Best quality',
     provider: 'anthropic',
-    modelId: 'claude-sonnet-4-5-20250929',
+    modelId: 'claude-sonnet-5',
     apiKeyEnvVar: 'ANTHROPIC_API_KEY',
     maxTokens: 200,
     temperature: 0.2,

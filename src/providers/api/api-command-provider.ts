@@ -126,7 +126,5 @@ export class ApiCommandProvider {
       return;
     }
     this.breaker.reset();
-
-    this.logger.info(`API command: loaded ${preset.displayName} (${preset.modelId})`);
   }
 }

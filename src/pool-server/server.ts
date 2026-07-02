@@ -104,7 +104,7 @@ export class PoolServer {
       // Activate providers
       await Promise.all([this.completionProvider.activate(), this.commandPool.activate()]);
 
-      this.logger.info('Pool server: providers activated');
+      this.logger.debug('Pool server: providers activated');
     } catch (err) {
       // Clean up lockfile on failure so other clients can acquire it
       try {
