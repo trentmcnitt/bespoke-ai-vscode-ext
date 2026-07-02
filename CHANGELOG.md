@@ -4,6 +4,7 @@
 
 - **Fix — completions failed to start when `node` was not on PATH (Windows):** The extension handed the SDK its bundled `cli.js`, which the SDK runs as `node cli.js` — requiring `node` on the extension host's PATH. On Windows (especially with the native Claude installer) that PATH is often missing `node`, so warmup failed. The extension now resolves a **native** Claude binary first (`~/.local/bin/claude(.exe)`, checked on disk, then a native binary on PATH) and spawns it directly — no `node` required — falling back to the bundled `cli.js` when no native binary is found.
 - **Diagnostics accuracy:** The auto-diagnostics now probe the actual resolved executable path instead of bare `node`/`claude`, so the log reflects how completions are really invoked rather than reporting tools as missing due to the same PATH gap.
+- **Sonnet 5:** The `anthropic-sonnet` API preset now uses Claude Sonnet 5 (`claude-sonnet-5`), released since the last update. The Claude Code CLI backend already tracks the latest Sonnet via the `sonnet` alias.
 
 ## 0.8.7 — Automatic CLI Diagnostics on Warmup Failure
 

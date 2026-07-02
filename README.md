@@ -107,7 +107,7 @@ The API backend includes presets for popular providers. Change the active preset
 | `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1            |
 | `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                 |
 | `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5            |
-| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-4-5           |
+| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5             |
 | `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                |
 | `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                 |
 | `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash            |
@@ -307,7 +307,7 @@ These are the models the quality test suite runs against. Contributors should te
 | 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning |
 | 4   | API     | `xai-grok-code`       | grok-code-fast-1            |
 | 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   |
-| 6   | API     | `anthropic-sonnet`    | claude-sonnet-4-5-20250929  |
+| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             |
 | 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                |
 | 8   | API     | `google-gemini-flash` | gemini-2.5-flash            |
 | 9   | API     | `ollama-default`      | qwen2.5-coder:7b            |
