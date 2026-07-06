@@ -4,6 +4,20 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 07-06-26
+
+### Fix: Windows `where claude` picks the extensionless npm shim (#17)
+
+Same Windows saga, third act. After the 0.8.8 native-resolution fix, a different user reported `The CLI subprocess failed to initialize`. His 0.8.8 log resolved the executable to `C:\Programas\nodejs\claude` (`source=path`, treated as native) and every spawn failed with `spawn C:\Programas\nodejs\claude ENOENT`.
+
+**Root cause:** npm installs three shims into the global bin dir — `claude` (a **bash script**, no extension), `claude.cmd`, and `claude.ps1`. `where claude` lists the extensionless one first. Our `looksLikeNativeBinary()` only rejected _known_ non-native extensions (`.js`, `.cmd`, `.ps1`, …), so an extensionless path passed as "native". `findClaudeOnPath()` returned it, and the SDK's own `isNativeBinary()` agrees (no JS extension → native), so it spawned the bash script directly. Windows cannot execute an extensionless script → `ENOENT`. The `.exe`-native-install check didn't catch this because this user installed via npm, not the native installer.
+
+**Fix:** `looksLikeNativeBinary()` is now platform-aware — on `win32` a spawnable native binary must carry an executable extension (`.exe`/`.com`); everywhere else the old allow-by-default behavior stands. This skips the extensionless shim (and the `.cmd`/`.ps1` shims) so the resolver falls back to the bundled `cli.js`, which the SDK runs via Node — the path 0.8.8 already hardened. Two regression tests added in `claude-executable.test.ts`: extensionless Windows shim → bundled, `.exe` on PATH → native.
+
+**Why not just spawn it via a shell:** the shim only works under bash; running it through `cmd.exe` wouldn't help, and adding a shell layer is riskier than using the bundled `cli.js` we already ship and test.
+
+---
+
 ## 07-02-26
 
 ### Detect the "Credit balance is too low" billing error at warmup
