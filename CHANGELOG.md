@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.9 — Credit-Balance Error Detection
+
+- **Actionable message for API billing failures:** When the Claude Code CLI authenticates against a pay-per-token API account with no credit balance (typically a stray `ANTHROPIC_API_KEY` overriding a subscription login), warmup used to fail with a generic "autocomplete unavailable" notice. The extension now recognizes the CLI's "Credit balance is too low" reply, skips the futile retry, and shows a message explaining that Claude Code is billing an empty API account — with instructions to log in with your subscription and remove any `ANTHROPIC_API_KEY`. The status bar menu offers a one-click "Open Terminal" to run `claude`.
+
 ## 0.8.8 — Native CLI Resolution (Windows startup fix)
 
 - **Fix — completions failed to start when `node` was not on PATH (Windows):** The extension handed the SDK its bundled `cli.js`, which the SDK runs as `node cli.js` — requiring `node` on the extension host's PATH. On Windows (especially with the native Claude installer) that PATH is often missing `node`, so warmup failed. This is now fixed on two fronts: (1) the extension resolves a **native** Claude binary first (`~/.local/bin/claude(.exe)`, checked on disk, then a native binary on PATH) and spawns it directly — no `node` needed; (2) when it falls back to the bundled `cli.js`, it runs it with **VS Code's own bundled Node** (Electron via `process.execPath` + `ELECTRON_RUN_AS_NODE=1`, the pattern vscode-languageclient uses) instead of a system `node`, guaranteeing Node 18+ regardless of PATH. Either path resolves the startup failure. (#2)

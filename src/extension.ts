@@ -170,15 +170,18 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Pick a user-facing message based on the reason
         const isConfigCorrupted = reason.includes('config file corrupted');
+        const isBillingError = reason.includes('credit balance');
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
         const userMsg = isConfigCorrupted
           ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
-          : isWarmup
-            ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
-            : isCircuitBreaker
-              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
-              : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+          : isBillingError
+            ? 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
+            : isWarmup
+              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+              : isCircuitBreaker
+                ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+                : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
         const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {
@@ -1310,6 +1313,19 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
           },
         };
       case 'pool-degraded':
+        if (reason.reason.includes('credit balance')) {
+          return {
+            message: 'Autocomplete unavailable',
+            detail:
+              'Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it, and remove any ANTHROPIC_API_KEY from your environment.',
+            actionLabel: 'Open Terminal',
+            action: () => {
+              const terminal = vscode.window.createTerminal('Claude Login');
+              terminal.show();
+              terminal.sendText('claude');
+            },
+          };
+        }
         return {
           message: 'Autocomplete unavailable',
           detail: `Claude Code failed: ${reason.reason}. Check the output log for details, then try restarting.`,

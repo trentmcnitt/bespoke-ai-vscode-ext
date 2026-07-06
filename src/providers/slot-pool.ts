@@ -20,6 +20,21 @@ import { UsageLedger } from '../utils/usage-ledger';
  */
 export type SlotState = 'initializing' | 'available' | 'busy' | 'dead';
 
+/**
+ * Detect the Anthropic pay-per-token billing error in a warmup response.
+ *
+ * When the CLI authenticates against an API account with no credit balance
+ * (e.g. a stray ANTHROPIC_API_KEY overriding a subscription login), the
+ * assistant "response" is the plain-text API error "Credit balance is too low"
+ * rather than a valid warmup reply. That string is never legitimate warmup
+ * content, so matching it is safe. Retrying won't help (the balance won't
+ * change), so callers surface it as a distinct, actionable failure instead of
+ * the generic "warmup failed" path.
+ */
+export function isCreditBalanceError(text: string): boolean {
+  return /credit balance is too low/i.test(text);
+}
+
 export interface SlotStats {
   state: SlotState;
   requestCount: number;
@@ -118,6 +133,8 @@ export abstract class SlotPool {
   private _warmupFailureHandled = false;
   /** Set when the CLI prints a plain-text config error to stdout (see consumeStream). */
   private _cliConfigCorrupted = false;
+  /** Set when warmup returns the API "Credit balance is too low" error (see consumeStream). */
+  private _cliBillingError = false;
   /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
   private _resolvedModel: string | null = null;
 
@@ -237,6 +254,7 @@ export abstract class SlotPool {
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
+    this._cliBillingError = false;
     this._resolvedModel = null;
     this.sdkAvailable = null;
 
@@ -583,6 +601,13 @@ export abstract class SlotPool {
                 this.logger.error(
                   `${this.getPoolLabel()}: warmup validation failed on slot ${slotIndex}: got "${text.slice(0, 200)}"`,
                 );
+                // A "Credit balance is too low" reply means the CLI is billing an
+                // API account with no credit instead of a subscription. Retrying
+                // won't refill the balance — flag it so handleWarmupFailure skips
+                // retry and surfaces an actionable message.
+                if (isCreditBalanceError(text)) {
+                  this._cliBillingError = true;
+                }
               }
             } else {
               this.logger.error(`warmup returned null on slot ${slotIndex}, recycling`);
@@ -721,6 +746,7 @@ export abstract class SlotPool {
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
+    this._cliBillingError = false;
     // Recycles follow model changes — the new warmup will repopulate this.
     this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
@@ -900,12 +926,14 @@ export abstract class SlotPool {
 
     this.killAllSlots();
 
-    if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted) {
-      // Exhausted retries — shut down
+    if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted || this._cliBillingError) {
+      // Exhausted retries (or a retry-won't-help failure) — shut down
       this.sdkAvailable = false;
       const reason = this._cliConfigCorrupted
         ? 'cli config file corrupted'
-        : 'warmup failed after retry';
+        : this._cliBillingError
+          ? 'credit balance too low'
+          : 'warmup failed after retry';
       this.logger.error(`${this.getPoolLabel()}: ${reason}, autocomplete disabled`);
       this.logCliDiagnostics();
       this.onPoolDegraded?.(reason);
