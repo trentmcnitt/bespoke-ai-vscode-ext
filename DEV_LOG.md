@@ -6,6 +6,16 @@ Reverse chronological. Most recent entry first.
 
 ## 07-02-26
 
+### Detect the "Credit balance is too low" billing error at warmup
+
+Follow-up from the same Windows user: after the PATH fix landed (0.8.8), his CLI launched and reached Anthropic but warmup returned `Credit balance is too low`. That is the Anthropic **pay-per-token API** error — the CLI was authenticating against an API account with no credit instead of his subscription. The usual cause is a stray `ANTHROPIC_API_KEY` in the environment: Claude Code's own auth precedence prefers an API key over a stored subscription login, and the extension passes the ambient environment straight through to the spawned CLI. The extension can't (and shouldn't) override that choice — it's made inside Claude Code.
+
+**Change:** `slot-pool.ts` now recognizes the billing error in the warmup response (`isCreditBalanceError()`, exported + unit-tested). Like the corrupted-`~/.claude.json` case, retrying won't help (the balance won't change), so `handleWarmupFailure` skips the retry and degrades immediately with reason `credit balance too low`. `extension.ts` maps that reason to an actionable notification (log in with your subscription; remove `ANTHROPIC_API_KEY`) and a one-click "Open Terminal" in the status bar menu.
+
+**Why string-matching is safe here:** "Credit balance is too low" is a fixed Anthropic API error string and never legitimate warmup content, so the match can't fire on a real completion. This is failure classification, not output post-processing.
+
+---
+
 ### Fix: CLI backend fails to start when `node` is not on PATH (Windows)
 
 A user reported warmup failing on Windows with the auto-diagnostics logging `'node' is not recognized` and `claude --version` → `Access is denied`.
