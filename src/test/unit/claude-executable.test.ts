@@ -89,6 +89,38 @@ describe('resolveClaudeExecutable', () => {
     expect(result.path).toContain('cli.js');
   });
 
+  it('rejects the extensionless npm Unix shim on Windows PATH', () => {
+    // Regression: `where claude` on Windows surfaces the extensionless npm shim
+    // (a bash script) first. It must not be treated as a native binary — the
+    // SDK would spawn it directly and fail with ENOENT.
+    setPlatform('win32');
+    mockHomedir.mockReturnValue('C:\\Users\\user');
+    mockExistsSync.mockReturnValue(false);
+    mockExecFileSync.mockReturnValue(
+      'C:\\Programas\\nodejs\\claude\nC:\\Programas\\nodejs\\claude.cmd\n' as never,
+    );
+
+    const result = resolveClaudeExecutable();
+
+    expect(result.source).toBe('bundled');
+    expect(result.native).toBe(false);
+    expect(result.path).toContain('cli.js');
+  });
+
+  it('accepts a .exe binary on Windows PATH', () => {
+    setPlatform('win32');
+    mockHomedir.mockReturnValue('C:\\Users\\user');
+    // No native install on disk, but PATH resolves to a real .exe binary.
+    mockExistsSync.mockImplementation((p) => String(p) === 'C:\\tools\\claude.exe');
+    mockExecFileSync.mockReturnValue('C:\\tools\\claude.exe\n' as never);
+
+    const result = resolveClaudeExecutable();
+
+    expect(result.source).toBe('path');
+    expect(result.native).toBe(true);
+    expect(result.path).toBe('C:\\tools\\claude.exe');
+  });
+
   it('falls back to the bundled cli.js when nothing else is found', () => {
     setPlatform('linux');
     mockExistsSync.mockReturnValue(false);

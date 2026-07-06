@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.10 — Windows PATH Shim Fix
+
+- **Fix — CLI failed to start when `where claude` found the extensionless npm shim (Windows):** After the 0.8.8 native-resolution work, a Windows user still hit "The CLI subprocess failed to initialize" with the log showing the executable resolved to `C:\...\nodejs\claude` (no extension). `where claude` surfaces the npm-installed **Unix shim** — a bash script with no extension — ahead of the `claude.cmd`/`claude.ps1` shims. The extension (and the SDK) classified the extensionless file as a native binary and spawned it directly, which fails on Windows with `ENOENT` because Windows cannot execute an extensionless script. The PATH resolver now requires an executable extension (`.exe`/`.com`) on Windows, so it skips the shim and falls back to the bundled `cli.js` run via Node. (#17)
+
 ## 0.8.9 — Credit-Balance Error Detection
 
 - **Actionable message for API billing failures:** When the Claude Code CLI authenticates against a pay-per-token API account with no credit balance (typically a stray `ANTHROPIC_API_KEY` overriding a subscription login), warmup used to fail with a generic "autocomplete unavailable" notice. The extension now recognizes the CLI's "Credit balance is too low" reply, skips the futile retry, and shows a message explaining that Claude Code is billing an empty API account — with instructions to log in with your subscription and remove any `ANTHROPIC_API_KEY`. The status bar menu offers a one-click "Open Terminal" to run `claude`.

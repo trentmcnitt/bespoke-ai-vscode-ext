@@ -24,12 +24,26 @@ export interface ResolvedClaudeExecutable {
   source: 'native-install' | 'path' | 'bundled';
 }
 
-/** File extensions the SDK treats as non-native (must be run via `node`), plus
- * Windows shell shims that cannot be spawned directly without a shell. */
-const NON_NATIVE_EXTENSIONS = ['.js', '.mjs', '.cjs', '.cmd', '.bat', '.ps1'];
+/** Non-win32 only: JS-script extensions the SDK must run via `node` rather than
+ * spawn directly. Windows uses the `WINDOWS_NATIVE_EXTENSIONS` allowlist below
+ * and never consults this list. */
+const NON_NATIVE_EXTENSIONS = ['.js', '.mjs', '.cjs'];
+
+/** Extensions Windows can spawn directly as a standalone executable. */
+const WINDOWS_NATIVE_EXTENSIONS = ['.exe', '.com'];
 
 function looksLikeNativeBinary(executablePath: string): boolean {
   const lower = executablePath.toLowerCase();
+  if (process.platform === 'win32') {
+    // On Windows a directly-spawnable native binary must carry an executable
+    // extension. `where claude` also surfaces the extensionless npm Unix shim
+    // (e.g. `C:\...\nodejs\claude`, a bash script) — the SDK's own
+    // `isNativeBinary` classifies that as native by the absence of a JS
+    // extension and spawns it directly, which fails with ENOENT because Windows
+    // cannot execute an extensionless script. Requiring `.exe`/`.com` here skips
+    // that shim so we fall back to the bundled cli.js run via `node`.
+    return WINDOWS_NATIVE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+  }
   return !NON_NATIVE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
