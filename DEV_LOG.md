@@ -4,6 +4,26 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 07-09-26
+
+### Proactive API-backend health check on activation/switch (#14)
+
+The reporter from the Windows credit-balance saga (#14) suggested a follow-on: when the user selects a backend, sanity-check it and surface the result instead of failing silently. The CLI backend already does this (warmup + `isCreditBalanceError()` detection), but the **API backend** did not — `ApiCompletionProvider.isAvailable()` is a purely static check (circuit-breaker state + "is a key configured"). So switching to Direct API with an out-of-credit or invalid key showed the status bar as **"ready"** and the failure only surfaced as missing ghost text on the first completion.
+
+**Change:** a fire-and-forget `runApiHealthCheck()` in `extension.ts` sends one cheap test request (reusing the existing `ApiCompletionProvider.testConnection()`, previously only wired to the manual "Test Connection" menu item) whenever the API backend becomes active — activation, enable→api, backend switch→api, preset change, and after saving a key. New pure helpers in `src/utils/api-health.ts` classify the provider error string into `billing` / `auth` / `transient` and build user-facing message + detail.
+
+**Design choices:**
+
+- **Only fatal failures flip the UI.** `billing`/`auth` are persistent (won't self-fix) → status bar goes `setup-needed`, an error notification fires, and a new `connection-failed` `SetupReason` variant drives the status-bar diagnostic (with a "Test Connection" / "Enter API Key" recovery action). `transient` (network, rate limit, 5xx, `ECONNREFUSED`) is logged at error level but **does not** change status — real traffic and the circuit breaker own that, so a blip doesn't wedge the UI with a false positive.
+- **Separate from the circuit breaker.** `testConnection()` bypasses the breaker, so a health-check failure never opens it or corrupts real-traffic state. The health result lives in `lastApiHealthError` (tied to the preset it tested) and is cleared on preset change, backend switch, disable, key save, or a subsequent successful check.
+- **Race-guarded.** The check is async; before acting on its result it re-confirms `lastConfig.backend`/`preset` still match what it tested, so a check for a config the user has left is discarded.
+
+**Why string-matching is acceptable here:** like the CLI billing detection, this is failure _classification_ of an error response, not output post-processing — it never touches completion text. Regexes cover the Anthropic ("credit balance is too low", "invalid x-api-key"), OpenAI ("insufficient_quota", "Incorrect API key provided"), and generic 401/402/403 phrasings; unknowns fall through to `transient` (safe default — notify nothing, don't block).
+
+Helpers unit-tested in `src/test/unit/api-health.test.ts` (13 cases: classification per provider + billing-over-auth precedence + description formatting).
+
+---
+
 ## 07-06-26
 
 ### Fix: Windows `where claude` picks the extensionless npm shim (#17)

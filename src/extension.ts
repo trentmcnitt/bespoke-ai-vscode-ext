@@ -39,6 +39,11 @@ import {
 } from './utils/api-key-store';
 import { STATE_DIR } from './pool-server';
 import { detectMode } from './mode-detector';
+import {
+  ApiConnectionErrorKind,
+  classifyApiConnectionError,
+  describeApiConnectionError,
+} from './utils/api-health';
 
 const MODE_LABELS = ['auto', 'prose', 'code'] as const;
 type ModeLabel = (typeof MODE_LABELS)[number];
@@ -66,6 +71,13 @@ type SetupReason =
   | { backend: 'api'; issue: 'preset-not-found'; presetId: string }
   | { backend: 'api'; issue: 'key-missing'; envVar: string; presetName: string }
   | { backend: 'api'; issue: 'circuit-open'; presetName: string }
+  | {
+      backend: 'api';
+      issue: 'connection-failed';
+      presetName: string;
+      kind: ApiConnectionErrorKind;
+      error: string;
+    }
   | { backend: 'cli'; issue: 'sdk-not-found' }
   | { backend: 'cli'; issue: 'activation-failed'; error: string }
   | { backend: 'cli'; issue: 'pool-degraded'; reason: string }
@@ -101,6 +113,11 @@ let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
 let extensionContext: vscode.ExtensionContext;
 let autoSelectedPresetId: string | null = null;
+/** Result of the last background API health check, tied to the preset it tested.
+ *  Persists a fatal (billing/auth) failure so the status bar and diagnostics can
+ *  keep surfacing it until the preset changes or a fresh check succeeds. */
+let lastApiHealthError: { presetId: string; kind: ApiConnectionErrorKind; error: string } | null =
+  null;
 /** CLI model alias (e.g. `sonnet`) → full model ID the CLI reported (e.g. `claude-sonnet-4-5-20250929`).
  *  Populated from pool status as responses are observed; used to show versions in the UI. */
 const resolvedCliModels = new Map<string, string>();
@@ -271,6 +288,8 @@ export function activate(context: vscode.ExtensionContext) {
         showApiSetupGuidance(config);
       } else {
         logger.info(`Ready | API (${config.api.preset})`);
+        // Verify the backend actually works (funded, valid key) in the background.
+        void runApiHealthCheck(config);
         if (!extensionContext.globalState.get<boolean>(API_WELCOME_SHOWN_KEY)) {
           extensionContext.globalState.update(API_WELCOME_SHOWN_KEY, true);
           const presetLabel = getPreset(config.api.preset)?.displayName ?? config.api.preset;
@@ -732,9 +751,12 @@ export function activate(context: vscode.ExtensionContext) {
       // Re-check availability after key change
       if (lastConfig.backend === 'api') {
         backendRouter.updateConfig(lastConfig);
+        // The new key may fix a prior auth/billing failure — clear it and re-verify.
+        lastApiHealthError = null;
         const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
         if (apiAvailable) {
           updateStatusBar(lastConfig, 'ready');
+          void runApiHealthCheck(lastConfig);
         } else if (statusBarState === 'setup-needed') {
           setupReason = deriveApiSetupReason(lastConfig);
           updateStatusBar(lastConfig, 'setup-needed');
@@ -1015,12 +1037,15 @@ export function activate(context: vscode.ExtensionContext) {
               });
             } else {
               // API mode — ready immediately
+              lastApiHealthError = null;
               tryAutoSelectPreset(newConfig);
               const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
               if (!apiAvailable) setupReason = deriveApiSetupReason(newConfig);
               updateStatusBar(newConfig, apiAvailable ? 'ready' : 'setup-needed');
               if (!apiAvailable) {
                 showApiSetupGuidance(newConfig);
+              } else {
+                void runApiHealthCheck(newConfig);
               }
             }
           }
@@ -1029,6 +1054,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Handle backend switch (without enable/disable change)
         if (backendChanged && !enabledChanged && newConfig.enabled) {
           completionProvider.clearCache();
+          lastApiHealthError = null;
           if (newConfig.backend === 'claude-code') {
             logger.info(`Backend: api → claude-code`);
             vscode.window.showInformationMessage('Bespoke AI: Switched to Claude Code CLI.');
@@ -1044,6 +1070,7 @@ export function activate(context: vscode.ExtensionContext) {
             const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
             if (apiAvailable) {
               vscode.window.showInformationMessage('Bespoke AI: Switched to Direct API.');
+              void runApiHealthCheck(newConfig);
             } else {
               setupReason = deriveApiSetupReason(newConfig);
               showApiSetupGuidance(newConfig);
@@ -1074,6 +1101,8 @@ export function activate(context: vscode.ExtensionContext) {
           const presetLabel = preset?.displayName ?? newConfig.api.preset;
           logger.info(`API model → ${presetLabel} (clearing cache)`);
           completionProvider.clearCache();
+          // The health error belonged to the previous preset — clear it.
+          lastApiHealthError = null;
           if (autoSelectedPresetId === newConfig.api.preset) {
             autoSelectedPresetId = null;
           } else {
@@ -1083,6 +1112,7 @@ export function activate(context: vscode.ExtensionContext) {
           const apiAvailable = backendRouter.getApiProvider()?.isAvailable() ?? false;
           if (apiAvailable) {
             updateStatusBar(newConfig, 'ready');
+            void runApiHealthCheck(newConfig);
           } else {
             setupReason = deriveApiSetupReason(newConfig);
             updateStatusBar(newConfig, 'setup-needed');
@@ -1245,7 +1275,69 @@ function deriveApiSetupReason(config: ExtensionConfig): SetupReason {
       presetName: preset.displayName,
     };
   }
+  if (lastApiHealthError && lastApiHealthError.presetId === config.api.preset) {
+    return {
+      backend: 'api',
+      issue: 'connection-failed',
+      presetName: preset.displayName,
+      kind: lastApiHealthError.kind,
+      error: lastApiHealthError.error,
+    };
+  }
   return { backend: 'api', issue: 'circuit-open', presetName: preset.displayName };
+}
+
+/**
+ * Send one cheap test request to the active API backend to verify it actually
+ * works — key valid, account funded — instead of failing silently on the first
+ * completion (the failure mode reported in issue #14). Fire-and-forget: callers
+ * invoke it after the API backend becomes active. Only fatal failures (billing /
+ * auth) flip the status bar; transient errors (network, rate limit, 5xx) are left
+ * to real traffic and the circuit breaker so a blip doesn't wedge the UI.
+ */
+async function runApiHealthCheck(config: ExtensionConfig): Promise<void> {
+  if (!config.enabled || config.backend !== 'api') return;
+  const provider = backendRouter.getApiProvider();
+  if (!provider?.isAvailable()) return;
+
+  const presetId = config.api.preset;
+  const presetName = getPreset(presetId)?.displayName ?? presetId;
+  logger.debug(`API health check: testing ${presetName}...`);
+
+  const result = await backendRouter.testApiConnection();
+
+  // The check is async; the user may have switched backend or preset while it ran.
+  // Discard stale results so we never act on a check for a config we've left.
+  if (lastConfig.backend !== 'api' || lastConfig.api.preset !== presetId) return;
+
+  if (result.ok) {
+    logger.info(`API health check OK — ${result.model} (${result.durationMs}ms)`);
+    // Clear a prior failure for this preset and restore a healthy status.
+    if (lastApiHealthError?.presetId === presetId) {
+      lastApiHealthError = null;
+      if (setupReason?.backend === 'api' && setupReason.issue === 'connection-failed') {
+        setupReason = null;
+        updateStatusBar(lastConfig, 'ready');
+      }
+    }
+    return;
+  }
+
+  const rawError = result.error ?? 'Unknown error';
+  const kind = classifyApiConnectionError(rawError);
+  logger.error(`API health check failed (${kind}) — ${rawError}`);
+
+  // Transient failures aren't worth flipping the UI over; real requests will
+  // retry and the circuit breaker owns that state.
+  if (kind === 'transient') return;
+
+  lastApiHealthError = { presetId, kind, error: rawError };
+  // deriveApiSetupReason reads lastApiHealthError (just set) and reconstructs the
+  // same connection-failed variant — keep that construction in one place.
+  setupReason = deriveApiSetupReason(config);
+  updateStatusBar(lastConfig, 'setup-needed');
+  const { message } = describeApiConnectionError(presetName, kind, rawError);
+  vscode.window.showErrorMessage(`Bespoke AI: ${message}`);
 }
 
 /** Map the current setup reason to a user-facing diagnostic with an action. */
@@ -1287,6 +1379,24 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
           actionLabel: 'Retry',
           action: () => backendRouter.recycleAll(),
         };
+      case 'connection-failed': {
+        const { message, detail } = describeApiConnectionError(
+          reason.presetName,
+          reason.kind,
+          reason.error,
+        );
+        return {
+          message,
+          detail,
+          actionLabel: reason.kind === 'auth' ? 'Enter API Key' : 'Test Connection',
+          action:
+            reason.kind === 'auth'
+              ? () => vscode.commands.executeCommand('bespoke-ai.setApiKey')
+              : () => {
+                  void runApiHealthCheck(config);
+                },
+        };
+      }
     }
   }
 
