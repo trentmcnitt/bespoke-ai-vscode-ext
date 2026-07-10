@@ -184,10 +184,11 @@ All settings live under `bespokeAI.*` in VS Code settings.
 
 Route code completions to a different backend or model than prose. For example, use Claude Code CLI for writing and an xAI preset for code — or vice versa.
 
-| Setting                | Default | Description                                                                                                   |
-| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| `codeOverride.backend` | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                   |
-| `codeOverride.model`   | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default. |
+| Setting                | Default | Description                                                                                                                                                                               |
+| ---------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codeOverride.backend` | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                                                                                               |
+| `codeOverride.model`   | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default.                                                                             |
+| `customInstructions`   | `""`    | Standing instructions appended to the inline-completion prompt to steer output (e.g. `Follow MISRA C rules`). Both backends; completions only. Use Workspace scope for per-project rules. |
 
 </details>
 

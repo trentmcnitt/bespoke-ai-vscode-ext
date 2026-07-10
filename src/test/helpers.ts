@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   },
   codeOverride: { backend: '', model: '' },
   contextMenu: { permissionMode: 'default' },
+  customInstructions: '',
   logLevel: 'info',
 };
 

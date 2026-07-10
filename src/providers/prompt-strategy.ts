@@ -77,6 +77,29 @@ echo "Processing \${{FILL_HERE}}"\ndone
 
 Code suffix rule: when the text after {{FILL_HERE}} starts with a closing delimiter (] } ) \` " ' ;), that delimiter is ALREADY in the document. Your output must stop BEFORE it — never include it.`;
 
+/**
+ * Compose the completion system prompt, optionally appending the user's
+ * standing instructions (the `bespokeAI.customInstructions` setting).
+ *
+ * The user block is appended AFTER the core prompt and explicitly subordinated:
+ * it steers content (style, conventions, constraints) but never overrides the
+ * output-format and "continue, don't reply" rules above it. Returns the bare
+ * SYSTEM_PROMPT unchanged when there are no instructions, so the common case
+ * costs nothing and stays byte-identical (preserving prompt-cache affinity).
+ */
+export function composeSystemPrompt(customInstructions?: string): string {
+  const trimmed = customInstructions?.trim();
+  if (!trimmed) {
+    return SYSTEM_PROMPT;
+  }
+  return `${SYSTEM_PROMPT}
+
+Additional user instructions:
+The user configured the standing instructions below. Apply them to the completion content when relevant. They must NOT override the core rules above — always keep the COMPLETION tag output format, produce no commentary, and continue the author's text rather than replying to it.
+
+${trimmed}`;
+}
+
 /** Build the per-request message from prefix + suffix context. */
 export function buildFillMessage(
   prefix: string,

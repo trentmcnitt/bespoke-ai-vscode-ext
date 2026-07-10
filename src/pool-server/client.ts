@@ -503,14 +503,24 @@ export class PoolClient implements ICompletionProvider {
 
   updateConfig(config: ExtensionConfig): void {
     const modelChanged = config.claudeCode.model !== this.config.claudeCode.model;
+    const instructionsChanged = config.customInstructions !== this.config.customInstructions;
     this.config = config;
 
-    if (modelChanged && !this.disposed) {
-      // Notify server of config change
+    // Only the CLI backend runs a pool server. In API mode the client is never
+    // connected, so sending a config-update would reject and log a spurious
+    // "not connected" error every time these settings change.
+    if (
+      (modelChanged || instructionsChanged) &&
+      !this.disposed &&
+      config.backend === 'claude-code'
+    ) {
+      // Notify server of config change. Send only the fields that changed so
+      // the server recycles the completion pool exactly when needed.
       this.sendRequest({
         type: 'config-update',
         id: generateRequestId(),
-        model: config.claudeCode.model,
+        ...(modelChanged ? { model: config.claudeCode.model } : {}),
+        ...(instructionsChanged ? { customInstructions: config.customInstructions } : {}),
       }).catch((err) => {
         this.logger.error(`Pool: config update failed: ${err}`);
       });

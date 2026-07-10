@@ -502,6 +502,26 @@ export function activate(context: vscode.ExtensionContext) {
         completionProvider.clearCache();
       });
 
+      const trimmedInstructions = config.customInstructions?.trim() ?? '';
+      const instructionsPreview = trimmedInstructions
+        ? (() => {
+            const oneLine = trimmedInstructions.replace(/\s+/g, ' ');
+            return oneLine.length > 40 ? `${oneLine.slice(0, 40)}…` : oneLine;
+          })()
+        : 'none set';
+      const customInstructionsItem: vscode.QuickPickItem = {
+        label: '$(note) Custom Instructions',
+        description: instructionsPreview,
+        detail: 'Standing rules that steer completions — opens Settings to edit',
+      };
+      items.push(customInstructionsItem);
+      handlers.set(customInstructionsItem, () => {
+        vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          '@id:bespokeAI.customInstructions',
+        );
+      });
+
       const openSettingsItem: vscode.QuickPickItem = {
         label: '$(settings-gear) Open Settings',
       };
@@ -1131,6 +1151,15 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
 
+        // Custom instructions changed — clear the cache so the next completion
+        // reflects the new steer (cache keys are prefix/suffix only, so old
+        // entries would otherwise linger until the 5-min TTL). Applies to both
+        // backends; the CLI pool recycle is handled by backendRouter.updateConfig.
+        if (newConfig.enabled && newConfig.customInstructions !== prevConfig.customInstructions) {
+          completionProvider.clearCache();
+          logger.info('Custom instructions changed (clearing cache)');
+        }
+
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
       }
@@ -1217,6 +1246,7 @@ function loadConfig(): ExtensionConfig {
         'default',
       )!,
     },
+    customInstructions: ws.get<string>('customInstructions', '')!,
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
 }

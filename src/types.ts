@@ -111,5 +111,7 @@ export interface ExtensionConfig {
   contextMenu: {
     permissionMode: PermissionMode;
   };
+  /** Standing user instructions appended to the inline-completion system prompt. Empty string = none. */
+  customInstructions: string;
   logLevel: 'info' | 'debug' | 'trace';
 }

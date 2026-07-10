@@ -155,19 +155,41 @@ export class PoolServer {
 
   /** Direct config update for local fast path (bypasses IPC serialization). */
   async handleConfigUpdateDirect(request: ConfigUpdateRequest): Promise<void> {
-    if (request.model && request.model !== this.config.claudeCode.model) {
+    const modelChanged =
+      request.model !== undefined && request.model !== this.config.claudeCode.model;
+    // Compare against undefined, not truthiness — an empty string clears the
+    // instructions and is a real change from a previously-set value.
+    const instructionsChanged =
+      request.customInstructions !== undefined &&
+      request.customInstructions !== this.config.customInstructions;
+
+    if (!modelChanged && !instructionsChanged) {
+      return;
+    }
+
+    if (modelChanged) {
       const oldModel = this.config.claudeCode.model;
-      this.config.claudeCode.model = request.model;
+      this.config.claudeCode.model = request.model!;
       this.logger.info(`Pool server: model changed ${oldModel} → ${request.model}, recycling`);
-      this.completionProvider.updateConfig(this.config);
-      this.commandPool.updateModel(request.model);
-      // Only recycle completionProvider — commandPool.updateModel() already handles its own recycle.
-      // Use restart() if degraded, since recycleAll() early-returns on unavailable pools.
-      if (this.completionProvider.isAvailable()) {
-        await this.completionProvider.recycleAll();
-      } else {
-        await this.completionProvider.restart();
-      }
+      // commandPool.updateModel() handles its own recycle. Custom instructions
+      // apply to completions only (commands use COMMAND_SYSTEM_PROMPT), so the
+      // command pool is left untouched when only instructions change.
+      this.commandPool.updateModel(request.model!);
+    }
+
+    if (instructionsChanged) {
+      this.config.customInstructions = request.customInstructions!;
+      this.logger.info('Pool server: custom instructions changed, recycling completion pool');
+    }
+
+    // Push the merged config, then recycle the completion pool so its slots
+    // respawn with the new model / system prompt. Use restart() if degraded,
+    // since recycleAll() early-returns on unavailable pools.
+    this.completionProvider.updateConfig(this.config);
+    if (this.completionProvider.isAvailable()) {
+      await this.completionProvider.recycleAll();
+    } else {
+      await this.completionProvider.restart();
     }
   }
 

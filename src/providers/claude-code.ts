@@ -2,7 +2,7 @@ import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types
 import { Logger } from '../utils/logger';
 import { postProcessCompletion } from '../utils/post-process';
 import { SlotPool } from './slot-pool';
-import { SYSTEM_PROMPT, buildFillMessage, extractCompletion } from './prompt-strategy';
+import { composeSystemPrompt, buildFillMessage, extractCompletion } from './prompt-strategy';
 
 /** Maximum completions per slot before recycling. */
 const MAX_COMPLETION_REUSES = 8;
@@ -116,7 +116,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   // --- SlotPool abstract method implementations ---
 
   protected getSystemPrompt(): string {
-    return SYSTEM_PROMPT;
+    return composeSystemPrompt(this.config.customInstructions);
   }
 
   protected getModel(): string {

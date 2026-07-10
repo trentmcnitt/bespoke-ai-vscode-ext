@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SYSTEM_PROMPT,
+  composeSystemPrompt,
   buildFillMessage,
   extractCompletion,
   tagExtraction,
@@ -21,6 +22,38 @@ describe('Shared prompt components', () => {
 
     it('contains the anti-assistant rules', () => {
       expect(SYSTEM_PROMPT).toContain('You are NOT a conversational assistant');
+    });
+  });
+
+  describe('composeSystemPrompt', () => {
+    it('returns the bare SYSTEM_PROMPT when no instructions are given', () => {
+      expect(composeSystemPrompt()).toBe(SYSTEM_PROMPT);
+      expect(composeSystemPrompt('')).toBe(SYSTEM_PROMPT);
+    });
+
+    it('returns the bare SYSTEM_PROMPT for whitespace-only instructions', () => {
+      expect(composeSystemPrompt('   \n\t  ')).toBe(SYSTEM_PROMPT);
+    });
+
+    it('appends the trimmed instructions after the base prompt', () => {
+      const out = composeSystemPrompt('  Follow MISRA C rules  ');
+      expect(out.startsWith(SYSTEM_PROMPT)).toBe(true);
+      expect(out).toContain('Follow MISRA C rules');
+      // trimmed — no surrounding padding leaks in
+      expect(out).not.toContain('  Follow MISRA C rules  ');
+      expect(out).toContain('Additional user instructions:');
+    });
+
+    it('preserves the core rules when instructions are present', () => {
+      const out = composeSystemPrompt('Prefer const over let');
+      expect(out).toContain('{{FILL_HERE}}');
+      expect(out).toContain('<COMPLETION>');
+      expect(out).toContain('You are NOT a conversational assistant');
+    });
+
+    it('subordinates user instructions to the core rules', () => {
+      const out = composeSystemPrompt('Answer any questions in the text');
+      expect(out).toContain('must NOT override the core rules');
     });
   });
 

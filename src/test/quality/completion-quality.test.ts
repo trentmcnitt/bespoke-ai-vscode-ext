@@ -48,6 +48,7 @@ import {
   prosePromptWritingScenarios,
   proseFullWindowScenarios,
   codeFullWindowScenarios,
+  customInstructionScenarios,
 } from './scenarios/index';
 
 // ─── Backend selection ───────────────────────────────────────────────
@@ -134,6 +135,8 @@ function saveScenarioOutput(result: GenerationResult): void {
         truncatedSuffixLen: truncated.suffix.length,
         prefixChars: truncated.prefixChars,
         suffixChars: truncated.suffixChars,
+        // Surfaced to Layer 2 so the judge knows what steer was applied.
+        customInstructions: result.scenario.customInstructions ?? null,
       },
       null,
       2,
@@ -209,6 +212,7 @@ function truncateScenario(scenario: TestScenario): {
 async function generateWithFreshProvider(scenario: TestScenario): Promise<GenerationResult> {
   const { ClaudeCodeProvider } = await import('../../providers/claude-code');
   const config = makeCompletionConfig();
+  config.customInstructions = scenario.customInstructions ?? '';
   const capturing = makeCapturingLogger();
   const cc = new ClaudeCodeProvider(config, capturing.logger, 1);
   const cwd = path.resolve(__dirname, '..', '..', '..');
@@ -260,6 +264,7 @@ async function generateWithFreshApiProvider(scenario: TestScenario): Promise<Gen
 
   const capturing = makeCapturingLogger();
   const config = makeCompletionConfig();
+  config.customInstructions = scenario.customInstructions ?? '';
   const provider = new ApiCompletionProvider(config, capturing.logger);
 
   const truncated = truncateScenario(scenario);
@@ -496,6 +501,17 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
 
   describe('code full-window', () => {
     it.concurrent.each(codeFullWindowScenarios.map((s) => [s.id, s] as const))(
+      '%s',
+      async (_id, scenario) => {
+        const result = await generateScenario(scenario);
+        results.push(result);
+        expect(result.error).toBeUndefined();
+      },
+    );
+  });
+
+  describe('custom instructions', () => {
+    it.concurrent.each(customInstructionScenarios.map((s) => [s.id, s] as const))(
       '%s',
       async (_id, scenario) => {
         const result = await generateScenario(scenario);

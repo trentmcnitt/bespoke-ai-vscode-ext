@@ -23,6 +23,14 @@ export interface TestScenario {
   };
 
   /**
+   * Value of the `bespokeAI.customInstructions` setting to apply when
+   * generating this scenario's completion. Undefined = feature disabled
+   * (the default path). Used by the custom-instructions eval scenarios to
+   * verify the steer is honored without degrading completion quality.
+   */
+  customInstructions?: string;
+
+  /**
    * Declares whether this scenario's raw text exceeds the production context
    * window. Validated by unit tests against DEFAULT_CONFIG values.
    * When config values change, tests automatically flag mismatched scenarios.

@@ -4,6 +4,34 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 07-10-26
+
+### Custom instructions setting for completions (#20)
+
+The reporter asked for a settings text box to steer completions with standing rules (their examples: "avoid dynamic memory allocation", "follow MISRA rules"), and asked whether the extension reads `CLAUDE.md` at the project root. It does not — completion prompts are built purely from document context — and reading a whole `CLAUDE.md` on every ~2s completion call would be too expensive, which the reporter correctly anticipated. A short standing-instruction string is the efficient version of that ask.
+
+**Change:** new `bespokeAI.customInstructions` string setting (multiline). A new `composeSystemPrompt(customInstructions?)` in `prompt-strategy.ts` appends the trimmed instructions to `SYSTEM_PROMPT` inside an "Additional user instructions" block that is explicitly subordinated to the core rules (COMPLETION output format, "continue, don't reply"). Empty/whitespace → returns the bare `SYSTEM_PROMPT` byte-for-byte, so the common case costs nothing and keeps prompt-cache affinity.
+
+The status-bar menu gets a "Custom Instructions" item that shows the current value (truncated) and opens Settings focused on the setting (`@id:bespokeAI.customInstructions`) rather than an inline input box — instructions are multi-line and set-once, and routing to Settings lets the user pick User vs Workspace scope explicitly instead of the menu guessing a default.
+
+**Design choices:**
+
+- **Completions only.** Applies to inline completions on both backends. Commit-message and Suggest Edits commands keep their own task prompts (`COMMAND_SYSTEM_PROMPT`, suggest-edit prompt) untouched — "follow MISRA rules" has no place in a commit message.
+- **API backend reads it per-request.** `ApiCompletionProvider.getCompletion()` composes the system prompt from `this.config.customInstructions` on each call, so changes apply with no recycle. `testConnection()` stays on the bare `SYSTEM_PROMPT` (a connectivity probe shouldn't be perturbed by user steering).
+- **CLI backend recycles on change.** The CLI sets `systemPrompt` once per slot at spawn, so a change must respawn slots. `ConfigUpdateRequest` gained a `customInstructions?` field; `PoolClient.updateConfig()` sends it only when changed, and `PoolServer.handleConfigUpdateDirect()` recycles the **completion** pool only (the command pool is unaffected). Compared against `undefined`, not truthiness, so clearing the box (empty string) is treated as a real change.
+- **Warmup runs with the composed prompt (CLI).** Since `systemPrompt` is set once per spawn, the "Two plus two equals → four" warmup validation also sees the user's instructions. Realistic coding-style instructions don't affect that arithmetic fill; a pathological instruction that broke warmup would show "setup needed" and is recoverable by clearing the setting.
+
+`composeSystemPrompt()` unit-tested in `prompt-strategy.test.ts` (empty/whitespace → bare prompt; non-empty → trimmed + appended, core rules intact, instructions subordinated).
+
+**Evaluation.** Added a `customInstructions` field to `TestScenario` (threaded through the quality runner, saved into each scenario's `input.json`) and a new `custom-instructions.ts` scenario category. Each is judged on two axes — the steer is honored AND the completion isn't degraded / the instruction text never leaks. Ran Layer 1 + Layer 2 across the reference model set (CLI sonnet, `openai-gpt-4.1-nano`, `xai-grok`).
+
+- **Content steers (5 scenarios):** const-only, MISRA no-dynamic-allocation (the reporter's exact example — all three models produced bounded `snprintf` into the caller's buffer with zero `malloc`/`free`), British spellings, and a hard one-sentence length cap were all honored on every backend/extraction strategy; the deliberately-irrelevant instruction (`ci-noop-irrelevant-js`) was ignored gracefully with no leakage.
+- **Adversarial subordination (2 scenarios, added after a Fable 5 review):** `package.json` advertises that custom instructions "never override the core completion rules" — previously only unit-tested for wording, never for model obedience. `ci-adversarial-answer-question` (instruction says "answer questions / act as an assistant" over a prompt-writing prefix) and `ci-adversarial-break-format` (instruction says "wrap in ```fences and add an explanation") test it directly. **Subordination held on all 6 (3 models × 2):** every model continued the user's prompt instead of answering, and produced plain output with no fences/explanations. Two accept=false marks were model-intrinsic quirks unrelated to the feature (nano indentation slip on`ci-code-const-only`; a grok array-wrapping logic bug on `ci-adversarial-break-format` — format still honored).
+
+**Pre-commit review (Fable 5).** Flagged and fixed two real issues: (1) the completion cache was not cleared on a `customInstructions` change (parity with model/preset changes — otherwise stale entries linger up to the 5-min TTL and undercut the CLI recycle); (2) a spurious "Pool: config update failed — not connected" error was logged whenever an API-backend user edited the setting, because `PoolClient.updateConfig` sent a config-update even with no pool server running — now guarded on `backend === 'claude-code'`.
+
+---
+
 ## 07-09-26
 
 ### Proactive API-backend health check on activation/switch (#14)

@@ -20,6 +20,7 @@ import {
   prosePromptWritingScenarios,
   proseFullWindowScenarios,
   codeFullWindowScenarios,
+  customInstructionScenarios,
 } from '../quality/scenarios/index';
 
 const config = makeConfig();
@@ -37,6 +38,7 @@ const allScenarios: TestScenario[] = [
   ...prosePromptWritingScenarios,
   ...proseFullWindowScenarios,
   ...codeFullWindowScenarios,
+  ...customInstructionScenarios,
 ];
 
 describe('scenario saturation validation', () => {
