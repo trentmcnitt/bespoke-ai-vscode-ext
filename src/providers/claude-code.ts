@@ -44,9 +44,18 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     }
 
     // Acquire an available slot (marks it busy before returning)
+    const acquireStart = Date.now();
     const slotIndex = await this.acquireSlot();
     if (slotIndex === null) {
       return null;
+    }
+    // Time spent waiting for the pool (busy slot or recycle-in-progress), as
+    // distinct from inference time — keeps speed reports diagnosable (#22).
+    const waitMs = Date.now() - acquireStart;
+    if (waitMs > 100) {
+      this.logger.debug(
+        `Claude Code: waited ${waitMs}ms for a slot (pool busy or recycling) before sending request`,
+      );
     }
 
     const slot = this.slots[slotIndex];
@@ -80,6 +89,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       model: meta?.model || this.config.claudeCode.model,
       durationMs: meta?.durationMs ?? wallDuration,
       durationApiMs: meta?.durationApiMs,
+      waitMs: waitMs > 0 ? waitMs : undefined,
       inputTokens: meta?.inputTokens,
       outputTokens: meta?.outputTokens,
       cacheReadTokens: meta?.cacheReadTokens,
