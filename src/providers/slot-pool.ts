@@ -35,6 +35,26 @@ export function isCreditBalanceError(text: string): boolean {
   return /credit balance is too low/i.test(text);
 }
 
+/**
+ * Env vars the Claude CLI treats as auth sources that take precedence over a
+ * claude.ai subscription login.
+ */
+const CLI_AUTH_ENV_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+
+/**
+ * Report which CLI auth env vars are present in the given environment.
+ *
+ * The CLI subprocess inherits the extension host's environment, which can
+ * contain an auth var the user's system environment (and terminal) does not —
+ * e.g. another extension in the shared extension host process setting
+ * `process.env.ANTHROPIC_API_KEY` at runtime (observed in #14: system env
+ * clean, terminal clean, but the spawned CLI still billed a creditless API
+ * key until VS Code was restarted). Returns names only — never values.
+ */
+export function detectCliAuthEnvVars(env: NodeJS.ProcessEnv = process.env): string[] {
+  return CLI_AUTH_ENV_VARS.filter((name) => !!env[name]);
+}
+
 export interface SlotStats {
   state: SlotState;
   requestCount: number;
@@ -845,6 +865,17 @@ export abstract class SlotPool {
     this.logger.info(`${label}: running CLI diagnostics...`);
     this.logger.info(`${label}: resolved ${executable.source} executable: ${executable.path}`);
 
+    // The spawned CLI inherits *this* process's environment, which can differ
+    // from the system environment the user checks in a terminal (another
+    // extension can set auth vars in the shared extension host at runtime).
+    // Log names only, never values.
+    const authVars = detectCliAuthEnvVars();
+    this.logger.info(
+      `${label}: CLI auth env vars in extension host process: ${
+        authVars.length > 0 ? authVars.join(', ') : 'none'
+      }`,
+    );
+
     // Probe the executable the SDK actually spawns, the same way it is spawned,
     // so diagnostics reflect how completions are really invoked — not bare
     // `claude`/`node` that may not be on the extension host's PATH (the failure
@@ -929,10 +960,13 @@ export abstract class SlotPool {
     if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted || this._cliBillingError) {
       // Exhausted retries (or a retry-won't-help failure) — shut down
       this.sdkAvailable = false;
+      const authVars = detectCliAuthEnvVars();
       const reason = this._cliConfigCorrupted
         ? 'cli config file corrupted'
         : this._cliBillingError
-          ? 'credit balance too low'
+          ? authVars.length > 0
+            ? `credit balance too low (${authVars.join(', ')} set in the extension host process)`
+            : 'credit balance too low'
           : 'warmup failed after retry';
       this.logger.error(`${this.getPoolLabel()}: ${reason}, autocomplete disabled`);
       this.logCliDiagnostics();
