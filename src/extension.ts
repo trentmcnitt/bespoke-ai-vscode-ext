@@ -5,6 +5,8 @@ import {
   ExtensionConfig,
   CustomPreset,
   TriggerPreset,
+  PermissionMode,
+  PERMISSION_MODES,
   resolvePreset,
 } from './types';
 import { CompletionProvider } from './completion-provider';
@@ -1199,6 +1201,20 @@ export function activate(context: vscode.ExtensionContext) {
   logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
 }
 
+/**
+ * Read `contextMenu.permissionMode`, rejecting anything outside the declared union.
+ *
+ * VS Code validates a setting's `enum` in the Settings editor only — `get()` hands
+ * back whatever string is in settings.json, including one written by hand. This value
+ * ends up on a CLI command line, so it is validated here as well as at the use site.
+ */
+function readPermissionMode(ws: vscode.WorkspaceConfiguration): PermissionMode {
+  const raw = ws.get<string>('contextMenu.permissionMode', 'default');
+  return (PERMISSION_MODES as readonly string[]).includes(raw ?? '')
+    ? (raw as PermissionMode)
+    : 'default';
+}
+
 function loadConfig(): ExtensionConfig {
   const ws = vscode.workspace.getConfiguration('bespokeAI');
 
@@ -1249,10 +1265,7 @@ function loadConfig(): ExtensionConfig {
       model: ws.get<string>('codeOverride.model', '')!,
     },
     contextMenu: {
-      permissionMode: ws.get<'default' | 'acceptEdits' | 'bypassPermissions'>(
-        'contextMenu.permissionMode',
-        'default',
-      )!,
+      permissionMode: readPermissionMode(ws),
     },
     customInstructions: ws.get<string>('customInstructions', '')!,
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
@@ -1283,18 +1296,11 @@ function tryAutoSelectPreset(config: ExtensionConfig): boolean {
 
   autoSelectedPresetId = fallback.id;
 
-  // Only persist the auto-selection when the user hasn't explicitly set a preset.
-  // If they explicitly chose a preset (but its key is missing), preserve their setting
-  // so it takes effect once they add the key.
-  const ws = vscode.workspace.getConfiguration('bespokeAI');
-  const inspected = ws.inspect('api.preset');
-  const isExplicit =
-    inspected?.globalValue !== undefined ||
-    inspected?.workspaceValue !== undefined ||
-    inspected?.workspaceFolderValue !== undefined;
-  if (!isExplicit) {
-    ws.update('api.preset', fallback.id, vscode.ConfigurationTarget.Global);
-  }
+  // The auto-selection is deliberately NOT written back to settings. It applies for
+  // this session only (config.api.preset above, plus autoSelectedPresetId for the UI)
+  // and is re-derived on next activation. Persisting it would record a preset the user
+  // never chose — and if the fallback ever came from an untrusted source, that choice
+  // would outlive the session that introduced it.
 
   return true;
 }

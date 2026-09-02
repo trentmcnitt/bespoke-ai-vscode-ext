@@ -178,13 +178,25 @@ Adding or modifying a VS Code setting requires coordinated changes. Steps 1–5 
 
 | #   | File                        | What to change                                                                        |
 | --- | --------------------------- | ------------------------------------------------------------------------------------- |
-| 1   | `package.json`              | Add to `contributes.configuration`                                                    |
+| 1   | `package.json`              | Add to `contributes.configuration` — see the scope rule below                         |
 | 2   | `src/types.ts`              | Add field to `ExtensionConfig`                                                        |
 | 3   | `src/extension.ts`          | Read it in `loadConfig()`                                                             |
 | 4   | `src/test/helpers.ts`       | Add default value in `DEFAULT_CONFIG`                                                 |
 | 5   | (varies)                    | Use the new field in the relevant component(s)                                        |
 | 6   | (varies)                    | If it should apply without restart: propagate via the orchestrator's `updateConfig()` |
 | 7   | `src/pool-server/client.ts` | If the setting affects pool behavior: propagate via `PoolClient.updateConfig()`       |
+
+**Scope rule (security):** a setting that selects a backend or endpoint, chooses a model, names an
+environment variable, or affects how the CLI subprocess is invoked MUST declare `"scope": "application"`
+(or `"machine"` if it legitimately needs to differ per remote host). Without a scope key the default is
+`window`, which means any repository's `.vscode/settings.json` can set it just by being opened. Settings
+that only affect local editing behavior (trigger timing, context size, log level, prose file types) can
+stay window-scoped.
+
+**Never interpolate a setting value into a shell command string.** VS Code enforces a declared `enum`
+in the Settings editor only — `getConfiguration().get()` returns whatever text is in `settings.json`.
+Select from a fixed lookup table keyed by the union type, as `buildClaudeCommand()` does in
+`commands/context-menu-utils.ts`, and validate the value when config is loaded.
 
 ### Adding a Regression Scenario
 

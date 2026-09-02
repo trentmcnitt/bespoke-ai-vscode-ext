@@ -204,6 +204,7 @@
         },
         "bespokeAI.backend": {
           "type": "string",
+          "scope": "application",
           "enum": [
             "claude-code",
             "api"
@@ -239,6 +240,7 @@
         },
         "bespokeAI.api.customPresets": {
           "type": "array",
+          "scope": "machine",
           "default": [],
           "markdownDescription": "Custom API model presets. Each entry needs `name`, `provider`, and `modelId`. Optional: `baseUrl`, `apiKeyEnvVar`, `maxTokens`, `temperature`, `extraBody`, `extraHeaders`. Example:\n```json\n[{\"name\": \"My Llama\", \"provider\": \"openai-compat\", \"modelId\": \"llama3.2\", \"baseUrl\": \"http://localhost:1234/v1\"}]\n```",
           "items": {
@@ -306,6 +308,7 @@
         },
         "bespokeAI.claudeCode.models": {
           "type": "array",
+          "scope": "application",
           "items": {
             "type": "string"
           },
@@ -346,6 +349,7 @@
         },
         "bespokeAI.contextMenu.permissionMode": {
           "type": "string",
+          "scope": "application",
           "enum": [
             "default",
             "acceptEdits",
@@ -361,6 +365,7 @@
         },
         "bespokeAI.codeOverride.backend": {
           "type": "string",
+          "scope": "application",
           "enum": [
             "",
             "claude-code",
@@ -376,6 +381,7 @@
         },
         "bespokeAI.codeOverride.model": {
           "type": "string",
+          "scope": "application",
           "default": "",
           "description": "Model for code files. For Claude Code CLI, a model name (e.g. haiku). For Direct API, a preset ID (e.g. xai-grok-code). Leave empty to use the global default."
         },
