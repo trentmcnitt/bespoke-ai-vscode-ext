@@ -9,9 +9,10 @@ import { CustomPreset } from '../types';
  * outlives the repository that introduced it. The scope fix stops new ones; this audit
  * surfaces any that already landed.
  *
- * This is deliberately a heuristic, not a verdict. A remote Ollama box and an attacker's
- * collector look identical here (a non-loopback `baseUrl`), so the caller must present the
- * result as information and default to keeping everything.
+ * This is deliberately a heuristic, not a verdict. Loopback and built-in provider hosts are
+ * never flagged; anything else is. A self-hosted gateway and an attacker's collector look
+ * identical here, so the caller must present the result as information and default to
+ * keeping everything.
  */
 
 /** API-key env vars the built-in providers use by default. Anything else is worth a look. */
@@ -24,6 +25,25 @@ export const WELL_KNOWN_KEY_VARS: ReadonlySet<string> = new Set([
 ]);
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
+
+/** Hosts of the providers this extension ships adapters for. A custom preset pointing at one
+ *  of these (e.g. a specific OpenRouter model) is the normal case, not a finding. */
+export const KNOWN_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
+  'api.anthropic.com',
+  'api.openai.com',
+  'api.x.ai',
+  'generativelanguage.googleapis.com',
+  'openrouter.ai',
+]);
+
+/** True if the URL's host is one of the built-in providers. Unparseable URLs are NOT known. */
+export function isKnownProviderHost(url: string): boolean {
+  try {
+    return KNOWN_PROVIDER_HOSTS.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 /** True if the URL points at this machine. Unparseable URLs are treated as NOT loopback. */
 export function isLoopbackUrl(url: string): boolean {
@@ -47,7 +67,7 @@ export function auditCustomPresets(presets: readonly CustomPreset[]): PresetAudi
   const findings: PresetAuditFinding[] = [];
   presets.forEach((p, index) => {
     const reasons: string[] = [];
-    if (p.baseUrl && !isLoopbackUrl(p.baseUrl)) {
+    if (p.baseUrl && !isLoopbackUrl(p.baseUrl) && !isKnownProviderHost(p.baseUrl)) {
       let host = p.baseUrl;
       try {
         host = new URL(p.baseUrl).host;

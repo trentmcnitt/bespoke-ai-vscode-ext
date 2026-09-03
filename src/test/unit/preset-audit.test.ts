@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   auditCustomPresets,
   describeFindings,
+  isKnownProviderHost,
   isLoopbackUrl,
+  KNOWN_PROVIDER_HOSTS,
   WELL_KNOWN_KEY_VARS,
 } from '../../utils/preset-audit';
 import { CustomPreset } from '../../types';
@@ -35,7 +37,46 @@ describe('isLoopbackUrl', () => {
   });
 });
 
+describe('isKnownProviderHost', () => {
+  it('recognises every built-in provider host, any path, any port', () => {
+    expect(isKnownProviderHost('https://openrouter.ai/api/v1')).toBe(true);
+    expect(isKnownProviderHost('https://api.openai.com/v1')).toBe(true);
+    expect(isKnownProviderHost('https://API.ANTHROPIC.COM')).toBe(true);
+    expect(isKnownProviderHost('https://api.x.ai:443/v1')).toBe(true);
+    expect(isKnownProviderHost('https://generativelanguage.googleapis.com/v1beta/openai/')).toBe(
+      true,
+    );
+  });
+
+  it('is exact-host, so lookalikes are not known', () => {
+    expect(isKnownProviderHost('https://openrouter.ai.evil.example/api/v1')).toBe(false);
+    expect(isKnownProviderHost('https://evil.example/openrouter.ai')).toBe(false);
+    expect(isKnownProviderHost('https://notopenrouter.ai')).toBe(false);
+    expect(isKnownProviderHost('garbage')).toBe(false);
+  });
+});
+
 describe('auditCustomPresets', () => {
+  it('does not flag a custom preset on a built-in provider host (the common OpenRouter case)', () => {
+    expect(
+      auditCustomPresets([
+        base({
+          name: 'anthropic/claude-haiku',
+          provider: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKeyEnvVar: 'OPENROUTER_API_KEY',
+        }),
+      ]),
+    ).toEqual([]);
+    expect(KNOWN_PROVIDER_HOSTS.has('openrouter.ai')).toBe(true);
+  });
+
+  it('still flags a lookalike of a provider host', () => {
+    const f = auditCustomPresets([base({ baseUrl: 'https://openrouter.ai.evil.example/api/v1' })]);
+    expect(f).toHaveLength(1);
+    expect(f[0].reasons[0]).toBe('sends requests to openrouter.ai.evil.example');
+  });
+
   it('does not flag the default seeded Ollama preset', () => {
     expect(auditCustomPresets([base({ name: 'Ollama (local)', provider: 'ollama' })])).toEqual([]);
   });

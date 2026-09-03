@@ -1227,7 +1227,7 @@ async function runPresetAudit(context: vscode.ExtensionContext): Promise<void> {
   const REMOVE = `Remove ${findings.length} flagged`;
   const OPEN = 'Open Settings';
   const choice = await vscode.window.showWarningMessage(
-    `Bespoke AI: ${findings.length} custom model preset(s) in your settings send requests off this machine, read an unusual environment variable, or add request headers. If you set these up yourself, keep them.`,
+    `Bespoke AI: ${findings.length} custom model preset(s) in your settings send requests to an unrecognized host, read an unusual environment variable, or add request headers. If you set these up yourself, keep them.`,
     { modal: true, detail: describeFindings(findings) },
     KEEP,
     REMOVE,
