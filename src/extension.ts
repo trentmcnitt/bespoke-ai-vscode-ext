@@ -10,6 +10,7 @@ import {
   resolvePreset,
 } from './types';
 import { CompletionProvider } from './completion-provider';
+import { auditCustomPresets, describeFindings } from './utils/preset-audit';
 import { PoolClient } from './pool-server/client';
 import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
@@ -101,6 +102,7 @@ const WELCOME_SHOWN_KEY = 'bespokeAI.welcomeShown';
 const API_WELCOME_SHOWN_KEY = 'bespokeAI.apiWelcomeShown';
 const ONBOARDING_SHOWN_KEY = 'bespokeAI.onboardingShown';
 const CUSTOM_PRESETS_SEEDED_KEY = 'bespokeAI.customPresetsSeeded';
+const PRESET_AUDIT_DONE_KEY = 'bespokeAI.presetAuditDone';
 
 let statusBarItem: vscode.StatusBarItem;
 let statusBarState: StatusBarState = 'initializing';
@@ -169,6 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   for (const w of registerCustomPresets(config.api.customPresets)) logger.info(w);
+  void runPresetAudit(context);
 
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
@@ -1199,6 +1202,60 @@ export function activate(context: vscode.ExtensionContext) {
       ? `backend=api | preset=${config.api.preset}`
       : `backend=claude-code | model=${config.claudeCode.model}`;
   logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
+}
+
+/**
+ * One-time review of custom presets already persisted in User settings.
+ *
+ * Before 0.8.12 a repository could inject a custom preset through workspace settings, and
+ * two code paths copied it into the user's Global settings, where the scope fix does not
+ * reach. This surfaces any such preset once. It is a heuristic — a legitimate remote Ollama
+ * looks the same as an attacker endpoint — so it informs and defaults to keeping everything.
+ * Never blocks activation.
+ */
+async function runPresetAudit(context: vscode.ExtensionContext): Promise<void> {
+  if (context.globalState.get<boolean>(PRESET_AUDIT_DONE_KEY)) return;
+  await context.globalState.update(PRESET_AUDIT_DONE_KEY, true);
+
+  const ws = vscode.workspace.getConfiguration('bespokeAI');
+  const persisted = ws.inspect<CustomPreset[]>('api.customPresets')?.globalValue ?? [];
+  const findings = auditCustomPresets(persisted);
+  if (findings.length === 0) return;
+  logger.info(`Preset audit: ${findings.length} custom preset(s) flagged for review`);
+
+  const KEEP = 'Keep all';
+  const REMOVE = `Remove ${findings.length} flagged`;
+  const OPEN = 'Open Settings';
+  const choice = await vscode.window.showWarningMessage(
+    `Bespoke AI: ${findings.length} custom model preset(s) in your settings send requests off this machine, read an unusual environment variable, or add request headers. If you set these up yourself, keep them.`,
+    { modal: true, detail: describeFindings(findings) },
+    KEEP,
+    REMOVE,
+    OPEN,
+  );
+
+  if (choice === OPEN) {
+    await vscode.commands.executeCommand(
+      'workbench.action.openSettings',
+      '@id:bespokeAI.api.customPresets',
+    );
+    return;
+  }
+  if (choice !== REMOVE) return;
+
+  const flagged = new Set(findings.map((f) => f.index));
+  const removedIds = new Set(findings.map((f) => slugify(persisted[f.index].name)));
+  const kept = persisted.filter((_, i) => !flagged.has(i));
+  await ws.update('api.customPresets', kept, vscode.ConfigurationTarget.Global);
+  // Do not leave a selection pointing at a preset that no longer exists.
+  for (const key of ['api.preset', 'codeOverride.model'] as const) {
+    const current = ws.inspect<string>(key)?.globalValue;
+    if (current && removedIds.has(current)) {
+      await ws.update(key, undefined, vscode.ConfigurationTarget.Global);
+    }
+  }
+  logger.info(`Preset audit: removed ${findings.length} preset(s) at user request`);
+  vscode.window.showInformationMessage(`Bespoke AI: removed ${findings.length} custom preset(s).`);
 }
 
 /**

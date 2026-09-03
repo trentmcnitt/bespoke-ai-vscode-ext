@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI — Autocomplete and One-Click Commit Messages",
   "description": "AI autocomplete for prose and code — use your Claude subscription or bring your own API key (xAI, OpenAI, Anthropic, Gemini, Ollama)",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -389,7 +389,7 @@
           "type": "string",
           "default": "",
           "editPresentation": "multilineText",
-          "markdownDescription": "Standing instructions appended to the inline-completion prompt to steer output (e.g. `Prefer const over let`, `Follow MISRA C rules`, `Avoid dynamic memory allocation`). Applies to both backends. Keep it short — it is sent on every completion request, so long text adds latency and token cost. Does not affect commit-message or Suggest Edits commands, and never overrides the core completion rules (output format, continuing rather than replying)."
+          "markdownDescription": "Standing instructions appended to the inline-completion prompt to steer output (e.g. `Prefer const over let`, `Follow MISRA C rules`, `Avoid dynamic memory allocation`). Applies to both backends. Keep it short (maximum 2000 characters; longer values are truncated) — it is sent on every completion request, so long text adds latency and token cost. Does not affect commit-message or Suggest Edits commands, and never overrides the core completion rules (output format, continuing rather than replying)."
         }
       }
     }

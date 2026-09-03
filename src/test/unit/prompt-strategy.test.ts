@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   SYSTEM_PROMPT,
   composeSystemPrompt,
+  sanitizeCustomInstructions,
+  MAX_CUSTOM_INSTRUCTIONS_CHARS,
   buildFillMessage,
   extractCompletion,
   tagExtraction,
@@ -192,5 +194,46 @@ describe('getPromptStrategy', () => {
 
   it('returns instruction-extraction strategy', () => {
     expect(getPromptStrategy('instruction-extraction')).toBe(instructionExtraction);
+  });
+});
+
+describe('sanitizeCustomInstructions', () => {
+  it('returns empty for undefined, empty, and whitespace', () => {
+    expect(sanitizeCustomInstructions(undefined)).toBe('');
+    expect(sanitizeCustomInstructions('')).toBe('');
+    expect(sanitizeCustomInstructions('  \n\t ')).toBe('');
+  });
+
+  it('leaves ordinary multi-line rules untouched', () => {
+    const rules = 'Follow MISRA C rules.\nAvoid dynamic memory allocation.\n\tPrefer const.';
+    expect(sanitizeCustomInstructions(rules)).toBe(rules);
+  });
+
+  it('normalizes CRLF and lone CR to LF', () => {
+    expect(sanitizeCustomInstructions('a\r\nb\rc')).toBe('a\nb\nc');
+  });
+
+  it('strips C0 control characters and DEL but keeps tab and newline', () => {
+    expect(sanitizeCustomInstructions('a\u0000b\u0007c\u001bd\u007fe\tf\ng')).toBe('abcde\tf\ng');
+  });
+
+  it('strips Unicode bidi overrides and isolates', () => {
+    expect(sanitizeCustomInstructions('safe\u202Etxet\u202C \u2066x\u2069')).toBe('safetxet x');
+  });
+
+  it('caps at MAX_CUSTOM_INSTRUCTIONS_CHARS', () => {
+    const long = 'x'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS + 500);
+    expect(sanitizeCustomInstructions(long)).toHaveLength(MAX_CUSTOM_INSTRUCTIONS_CHARS);
+    const exact = 'y'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS);
+    expect(sanitizeCustomInstructions(exact)).toBe(exact);
+  });
+
+  it('composeSystemPrompt applies the same sanitization', () => {
+    const out = composeSystemPrompt('Prefer const\u0000 over let\u202E');
+    expect(out).toContain('Prefer const over let');
+    expect(out).not.toContain('\u0000');
+    expect(out).not.toContain('\u202E');
+    const capped = composeSystemPrompt('z'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS * 2));
+    expect(capped.length).toBeLessThan(SYSTEM_PROMPT.length + MAX_CUSTOM_INSTRUCTIONS_CHARS + 400);
   });
 });

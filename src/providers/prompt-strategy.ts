@@ -87,8 +87,39 @@ Code suffix rule: when the text after {{FILL_HERE}} starts with a closing delimi
  * SYSTEM_PROMPT unchanged when there are no instructions, so the common case
  * costs nothing and stays byte-identical (preserving prompt-cache affinity).
  */
+/** Upper bound on custom instructions, in characters. Mirrored in the setting's description. */
+export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2000;
+
+// C0 controls other than \t and \n, plus DEL. Newlines and tabs are legitimate in a
+// multi-line list of rules; nothing else in this range is.
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+// Unicode bidirectional overrides and isolates. They have no place in an instruction
+// string and can make displayed text differ from what the model actually receives.
+const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Normalize a custom-instructions value before it enters a prompt.
+ *
+ * The setting is workspace-settable by design (per-project rules), so the value may
+ * come from a repository rather than the user. This does not try to judge the content —
+ * it removes what is never legitimate (control and bidi characters), normalizes line
+ * endings, and bounds the length so a stray value cannot dominate the prompt. On the
+ * CLI backend the result is baked into every slot's system prompt, pool-wide.
+ */
+export function sanitizeCustomInstructions(raw: string | undefined): string {
+  if (!raw) return '';
+  const cleaned = raw
+    .replace(/\r\n?/g, '\n')
+    .replace(CONTROL_CHARS, '')
+    .replace(BIDI_CONTROLS, '')
+    .trim();
+  return cleaned.length > MAX_CUSTOM_INSTRUCTIONS_CHARS
+    ? cleaned.slice(0, MAX_CUSTOM_INSTRUCTIONS_CHARS).trimEnd()
+    : cleaned;
+}
+
 export function composeSystemPrompt(customInstructions?: string): string {
-  const trimmed = customInstructions?.trim();
+  const trimmed = sanitizeCustomInstructions(customInstructions);
   if (!trimmed) {
     return SYSTEM_PROMPT;
   }
