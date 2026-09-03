@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   SYSTEM_PROMPT,
+  composeSystemPrompt,
+  sanitizeCustomInstructions,
+  MAX_CUSTOM_INSTRUCTIONS_CHARS,
   buildFillMessage,
   extractCompletion,
   tagExtraction,
@@ -21,6 +24,38 @@ describe('Shared prompt components', () => {
 
     it('contains the anti-assistant rules', () => {
       expect(SYSTEM_PROMPT).toContain('You are NOT a conversational assistant');
+    });
+  });
+
+  describe('composeSystemPrompt', () => {
+    it('returns the bare SYSTEM_PROMPT when no instructions are given', () => {
+      expect(composeSystemPrompt()).toBe(SYSTEM_PROMPT);
+      expect(composeSystemPrompt('')).toBe(SYSTEM_PROMPT);
+    });
+
+    it('returns the bare SYSTEM_PROMPT for whitespace-only instructions', () => {
+      expect(composeSystemPrompt('   \n\t  ')).toBe(SYSTEM_PROMPT);
+    });
+
+    it('appends the trimmed instructions after the base prompt', () => {
+      const out = composeSystemPrompt('  Follow MISRA C rules  ');
+      expect(out.startsWith(SYSTEM_PROMPT)).toBe(true);
+      expect(out).toContain('Follow MISRA C rules');
+      // trimmed — no surrounding padding leaks in
+      expect(out).not.toContain('  Follow MISRA C rules  ');
+      expect(out).toContain('Additional user instructions:');
+    });
+
+    it('preserves the core rules when instructions are present', () => {
+      const out = composeSystemPrompt('Prefer const over let');
+      expect(out).toContain('{{FILL_HERE}}');
+      expect(out).toContain('<COMPLETION>');
+      expect(out).toContain('You are NOT a conversational assistant');
+    });
+
+    it('subordinates user instructions to the core rules', () => {
+      const out = composeSystemPrompt('Answer any questions in the text');
+      expect(out).toContain('must NOT override the core rules');
     });
   });
 
@@ -159,5 +194,46 @@ describe('getPromptStrategy', () => {
 
   it('returns instruction-extraction strategy', () => {
     expect(getPromptStrategy('instruction-extraction')).toBe(instructionExtraction);
+  });
+});
+
+describe('sanitizeCustomInstructions', () => {
+  it('returns empty for undefined, empty, and whitespace', () => {
+    expect(sanitizeCustomInstructions(undefined)).toBe('');
+    expect(sanitizeCustomInstructions('')).toBe('');
+    expect(sanitizeCustomInstructions('  \n\t ')).toBe('');
+  });
+
+  it('leaves ordinary multi-line rules untouched', () => {
+    const rules = 'Follow MISRA C rules.\nAvoid dynamic memory allocation.\n\tPrefer const.';
+    expect(sanitizeCustomInstructions(rules)).toBe(rules);
+  });
+
+  it('normalizes CRLF and lone CR to LF', () => {
+    expect(sanitizeCustomInstructions('a\r\nb\rc')).toBe('a\nb\nc');
+  });
+
+  it('strips C0 control characters and DEL but keeps tab and newline', () => {
+    expect(sanitizeCustomInstructions('a\u0000b\u0007c\u001bd\u007fe\tf\ng')).toBe('abcde\tf\ng');
+  });
+
+  it('strips Unicode bidi overrides and isolates', () => {
+    expect(sanitizeCustomInstructions('safe\u202Etxet\u202C \u2066x\u2069')).toBe('safetxet x');
+  });
+
+  it('caps at MAX_CUSTOM_INSTRUCTIONS_CHARS', () => {
+    const long = 'x'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS + 500);
+    expect(sanitizeCustomInstructions(long)).toHaveLength(MAX_CUSTOM_INSTRUCTIONS_CHARS);
+    const exact = 'y'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS);
+    expect(sanitizeCustomInstructions(exact)).toBe(exact);
+  });
+
+  it('composeSystemPrompt applies the same sanitization', () => {
+    const out = composeSystemPrompt('Prefer const\u0000 over let\u202E');
+    expect(out).toContain('Prefer const over let');
+    expect(out).not.toContain('\u0000');
+    expect(out).not.toContain('\u202E');
+    const capped = composeSystemPrompt('z'.repeat(MAX_CUSTOM_INSTRUCTIONS_CHARS * 2));
+    expect(capped.length).toBeLessThan(SYSTEM_PROMPT.length + MAX_CUSTOM_INSTRUCTIONS_CHARS + 400);
   });
 });

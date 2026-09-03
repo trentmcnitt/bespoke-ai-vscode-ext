@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 import { PermissionMode } from '../types';
-import { escapeForDoubleQuotes, PromptContext, PROMPT_TEMPLATES } from './context-menu-utils';
+import {
+  buildClaudeCommand,
+  escapeForDoubleQuotes,
+  PromptContext,
+  PROMPT_TEMPLATES,
+} from './context-menu-utils';
 
 /**
  * Opens a terminal in ViewColumn.Two and sends a Claude CLI command.
@@ -94,17 +99,6 @@ async function getUserInput(options: {
       ? (value) => (value.trim() ? null : 'Please enter a message')
       : undefined,
   });
-}
-
-/** Builds a Claude CLI command from a prompt. */
-function buildClaudeCommand(prompt: string, permissionMode: PermissionMode): string {
-  let flags = '';
-  if (permissionMode === 'bypassPermissions') {
-    flags = ' --dangerously-skip-permissions';
-  } else if (permissionMode !== 'default') {
-    flags = ` --permission-mode ${permissionMode}`;
-  }
-  return `claude${flags} "${prompt}"`;
 }
 
 // --- Handlers ---

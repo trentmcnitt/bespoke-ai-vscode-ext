@@ -7,6 +7,7 @@ import {
   getPromptStrategy,
   PromptStrategy,
   SYSTEM_PROMPT,
+  composeSystemPrompt,
   buildFillMessage,
 } from '../prompt-strategy';
 import { ApiAdapter, Preset } from './types';
@@ -60,6 +61,11 @@ export class ApiCompletionProvider implements CompletionProvider {
       context.languageId,
     );
 
+    // Append the user's standing instructions (if any) to the strategy's
+    // base system prompt. Read per-request from config, so changes apply
+    // without recycling anything.
+    const system = composeSystemPrompt(this.config.customInstructions);
+
     // Build adapter messages array
     const adapterMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
       { role: 'user', content: messages.user },
@@ -68,7 +74,7 @@ export class ApiCompletionProvider implements CompletionProvider {
       adapterMessages.push({ role: 'assistant', content: messages.assistantPrefill });
     }
 
-    this.logger.traceBlock('api → system', messages.system);
+    this.logger.traceBlock('api → system', system);
     this.logger.traceBlock('api → user', messages.user);
     if (messages.assistantPrefill) {
       this.logger.traceBlock('api → prefill', messages.assistantPrefill);
@@ -76,7 +82,7 @@ export class ApiCompletionProvider implements CompletionProvider {
 
     let result;
     try {
-      result = await this.adapter.complete(messages.system, adapterMessages, {
+      result = await this.adapter.complete(system, adapterMessages, {
         signal,
         maxTokens: preset.maxTokens,
         temperature: preset.temperature,

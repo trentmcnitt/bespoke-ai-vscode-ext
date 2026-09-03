@@ -1,3 +1,5 @@
+import { PermissionMode } from '../types';
+
 /**
  * Escapes characters that are special inside double-quoted shell strings: \ " $ ` !
  *
@@ -73,3 +75,25 @@ export const PROMPT_TEMPLATES = {
     return `${instruction}\n\nHere is the text${hint}:${readFile}\n\n${ctx.selectedText}`;
   },
 } as const;
+
+/**
+ * CLI flags for each permission mode.
+ *
+ * This is a lookup table rather than string interpolation on purpose. The value
+ * originates in configuration, and VS Code does not enforce a setting's declared
+ * `enum` at read time — `getConfiguration().get()` returns whatever string is in
+ * settings.json. Interpolating it into the command line let a crafted value break
+ * out of the command and execute arbitrary shell. Only these three fixed strings
+ * can ever reach the terminal now.
+ */
+export const PERMISSION_MODE_FLAGS: Record<PermissionMode, string> = {
+  default: '',
+  acceptEdits: ' --permission-mode acceptEdits',
+  bypassPermissions: ' --dangerously-skip-permissions',
+};
+
+/** Builds a Claude CLI command from a prompt. */
+export function buildClaudeCommand(prompt: string, permissionMode: PermissionMode): string {
+  const flags = PERMISSION_MODE_FLAGS[permissionMode] ?? '';
+  return `claude${flags} "${prompt}"`;
+}

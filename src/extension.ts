@@ -5,9 +5,12 @@ import {
   ExtensionConfig,
   CustomPreset,
   TriggerPreset,
+  PermissionMode,
+  PERMISSION_MODES,
   resolvePreset,
 } from './types';
 import { CompletionProvider } from './completion-provider';
+import { auditCustomPresets, describeFindings } from './utils/preset-audit';
 import { PoolClient } from './pool-server/client';
 import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
@@ -99,6 +102,7 @@ const WELCOME_SHOWN_KEY = 'bespokeAI.welcomeShown';
 const API_WELCOME_SHOWN_KEY = 'bespokeAI.apiWelcomeShown';
 const ONBOARDING_SHOWN_KEY = 'bespokeAI.onboardingShown';
 const CUSTOM_PRESETS_SEEDED_KEY = 'bespokeAI.customPresetsSeeded';
+const PRESET_AUDIT_DONE_KEY = 'bespokeAI.presetAuditDone';
 
 let statusBarItem: vscode.StatusBarItem;
 let statusBarState: StatusBarState = 'initializing';
@@ -167,6 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   for (const w of registerCustomPresets(config.api.customPresets)) logger.info(w);
+  void runPresetAudit(context);
 
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
@@ -188,12 +193,20 @@ export function activate(context: vscode.ExtensionContext) {
         // Pick a user-facing message based on the reason
         const isConfigCorrupted = reason.includes('config file corrupted');
         const isBillingError = reason.includes('credit balance');
+        // Set when the pool server found CLI auth env vars in its own process
+        // env at degrade time — e.g. "credit balance too low (ANTHROPIC_API_KEY
+        // set in the extension host process)".
+        const envOverrideVars = /\(([A-Z_, ]+) set in the extension host process\)/.exec(
+          reason,
+        )?.[1];
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
         const userMsg = isConfigCorrupted
           ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
           : isBillingError
-            ? 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
+            ? envOverrideVars
+              ? `Bespoke AI: Autocomplete unavailable. ${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
+              : 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
             : isWarmup
               ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
               : isCircuitBreaker
@@ -500,6 +513,26 @@ export function activate(context: vscode.ExtensionContext) {
       items.push(clearCacheItem);
       handlers.set(clearCacheItem, () => {
         completionProvider.clearCache();
+      });
+
+      const trimmedInstructions = config.customInstructions?.trim() ?? '';
+      const instructionsPreview = trimmedInstructions
+        ? (() => {
+            const oneLine = trimmedInstructions.replace(/\s+/g, ' ');
+            return oneLine.length > 40 ? `${oneLine.slice(0, 40)}…` : oneLine;
+          })()
+        : 'none set';
+      const customInstructionsItem: vscode.QuickPickItem = {
+        label: '$(note) Custom Instructions',
+        description: instructionsPreview,
+        detail: 'Standing rules that steer completions — opens Settings to edit',
+      };
+      items.push(customInstructionsItem);
+      handlers.set(customInstructionsItem, () => {
+        vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          '@id:bespokeAI.customInstructions',
+        );
       });
 
       const openSettingsItem: vscode.QuickPickItem = {
@@ -1131,6 +1164,15 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
 
+        // Custom instructions changed — clear the cache so the next completion
+        // reflects the new steer (cache keys are prefix/suffix only, so old
+        // entries would otherwise linger until the 5-min TTL). Applies to both
+        // backends; the CLI pool recycle is handled by backendRouter.updateConfig.
+        if (newConfig.enabled && newConfig.customInstructions !== prevConfig.customInstructions) {
+          completionProvider.clearCache();
+          logger.info('Custom instructions changed (clearing cache)');
+        }
+
         updateStatusBar(newConfig);
         logger.info('Configuration updated');
       }
@@ -1160,6 +1202,74 @@ export function activate(context: vscode.ExtensionContext) {
       ? `backend=api | preset=${config.api.preset}`
       : `backend=claude-code | model=${config.claudeCode.model}`;
   logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
+}
+
+/**
+ * One-time review of custom presets already persisted in User settings.
+ *
+ * Before 0.8.12 a repository could inject a custom preset through workspace settings, and
+ * two code paths copied it into the user's Global settings, where the scope fix does not
+ * reach. This surfaces any such preset once. It is a heuristic — a legitimate remote Ollama
+ * looks the same as an attacker endpoint — so it informs and defaults to keeping everything.
+ * Never blocks activation.
+ */
+async function runPresetAudit(context: vscode.ExtensionContext): Promise<void> {
+  if (context.globalState.get<boolean>(PRESET_AUDIT_DONE_KEY)) return;
+  await context.globalState.update(PRESET_AUDIT_DONE_KEY, true);
+
+  const ws = vscode.workspace.getConfiguration('bespokeAI');
+  const persisted = ws.inspect<CustomPreset[]>('api.customPresets')?.globalValue ?? [];
+  const findings = auditCustomPresets(persisted);
+  if (findings.length === 0) return;
+  logger.info(`Preset audit: ${findings.length} custom preset(s) flagged for review`);
+
+  const KEEP = 'Keep all';
+  const REMOVE = `Remove ${findings.length} flagged`;
+  const OPEN = 'Open Settings';
+  const choice = await vscode.window.showWarningMessage(
+    `Bespoke AI: ${findings.length} custom model preset(s) in your settings send requests to an unrecognized host, read an unusual environment variable, or add request headers. If you set these up yourself, keep them.`,
+    { modal: true, detail: describeFindings(findings) },
+    KEEP,
+    REMOVE,
+    OPEN,
+  );
+
+  if (choice === OPEN) {
+    await vscode.commands.executeCommand(
+      'workbench.action.openSettings',
+      '@id:bespokeAI.api.customPresets',
+    );
+    return;
+  }
+  if (choice !== REMOVE) return;
+
+  const flagged = new Set(findings.map((f) => f.index));
+  const removedIds = new Set(findings.map((f) => slugify(persisted[f.index].name)));
+  const kept = persisted.filter((_, i) => !flagged.has(i));
+  await ws.update('api.customPresets', kept, vscode.ConfigurationTarget.Global);
+  // Do not leave a selection pointing at a preset that no longer exists.
+  for (const key of ['api.preset', 'codeOverride.model'] as const) {
+    const current = ws.inspect<string>(key)?.globalValue;
+    if (current && removedIds.has(current)) {
+      await ws.update(key, undefined, vscode.ConfigurationTarget.Global);
+    }
+  }
+  logger.info(`Preset audit: removed ${findings.length} preset(s) at user request`);
+  vscode.window.showInformationMessage(`Bespoke AI: removed ${findings.length} custom preset(s).`);
+}
+
+/**
+ * Read `contextMenu.permissionMode`, rejecting anything outside the declared union.
+ *
+ * VS Code validates a setting's `enum` in the Settings editor only — `get()` hands
+ * back whatever string is in settings.json, including one written by hand. This value
+ * ends up on a CLI command line, so it is validated here as well as at the use site.
+ */
+function readPermissionMode(ws: vscode.WorkspaceConfiguration): PermissionMode {
+  const raw = ws.get<string>('contextMenu.permissionMode', 'default');
+  return (PERMISSION_MODES as readonly string[]).includes(raw ?? '')
+    ? (raw as PermissionMode)
+    : 'default';
 }
 
 function loadConfig(): ExtensionConfig {
@@ -1212,11 +1322,9 @@ function loadConfig(): ExtensionConfig {
       model: ws.get<string>('codeOverride.model', '')!,
     },
     contextMenu: {
-      permissionMode: ws.get<'default' | 'acceptEdits' | 'bypassPermissions'>(
-        'contextMenu.permissionMode',
-        'default',
-      )!,
+      permissionMode: readPermissionMode(ws),
     },
+    customInstructions: ws.get<string>('customInstructions', '')!,
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
 }
@@ -1245,18 +1353,11 @@ function tryAutoSelectPreset(config: ExtensionConfig): boolean {
 
   autoSelectedPresetId = fallback.id;
 
-  // Only persist the auto-selection when the user hasn't explicitly set a preset.
-  // If they explicitly chose a preset (but its key is missing), preserve their setting
-  // so it takes effect once they add the key.
-  const ws = vscode.workspace.getConfiguration('bespokeAI');
-  const inspected = ws.inspect('api.preset');
-  const isExplicit =
-    inspected?.globalValue !== undefined ||
-    inspected?.workspaceValue !== undefined ||
-    inspected?.workspaceFolderValue !== undefined;
-  if (!isExplicit) {
-    ws.update('api.preset', fallback.id, vscode.ConfigurationTarget.Global);
-  }
+  // The auto-selection is deliberately NOT written back to settings. It applies for
+  // this session only (config.api.preset above, plus autoSelectedPresetId for the UI)
+  // and is re-derived on next activation. Persisting it would record a preset the user
+  // never chose — and if the fallback ever came from an untrusted source, that choice
+  // would outlive the session that introduced it.
 
   return true;
 }
@@ -1424,10 +1525,14 @@ function diagnoseSetupIssue(config: ExtensionConfig): {
         };
       case 'pool-degraded':
         if (reason.reason.includes('credit balance')) {
+          const envOverrideVars = /\(([A-Z_, ]+) set in the extension host process\)/.exec(
+            reason.reason,
+          )?.[1];
           return {
             message: 'Autocomplete unavailable',
-            detail:
-              'Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it, and remove any ANTHROPIC_API_KEY from your environment.',
+            detail: envOverrideVars
+              ? `${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
+              : 'Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it, and remove any ANTHROPIC_API_KEY from your environment.',
             actionLabel: 'Open Terminal',
             action: () => {
               const terminal = vscode.window.createTerminal('Claude Login');

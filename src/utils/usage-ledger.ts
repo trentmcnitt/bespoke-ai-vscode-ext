@@ -18,6 +18,8 @@ export interface LedgerEntry {
   project?: string;
   durationMs: number;
   durationApiMs?: number;
+  /** Time spent waiting for a pool slot before the request was sent (CLI backend). */
+  waitMs?: number;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;

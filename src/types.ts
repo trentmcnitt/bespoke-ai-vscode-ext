@@ -66,7 +66,8 @@ export interface CompletionProvider {
   recycleAll?(): Promise<void>;
 }
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+export const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions'] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 export interface CustomPreset {
   name: string;
@@ -111,5 +112,7 @@ export interface ExtensionConfig {
   contextMenu: {
     permissionMode: PermissionMode;
   };
+  /** Standing user instructions appended to the inline-completion system prompt. Empty string = none. */
+  customInstructions: string;
   logLevel: 'info' | 'debug' | 'trace';
 }

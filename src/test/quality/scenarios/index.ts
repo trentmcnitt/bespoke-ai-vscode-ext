@@ -11,3 +11,4 @@ export { codeMidFileScenarios } from './code-mid-file';
 export { prosePromptWritingScenarios } from './prose-prompt-writing';
 export { proseFullWindowScenarios } from './prose-full-window';
 export { codeFullWindowScenarios } from './code-full-window';
+export { customInstructionScenarios } from './custom-instructions';

@@ -5,6 +5,7 @@ You are evaluating the quality of an AI inline completion suggestion — the kin
 ## Inputs
 
 You will receive:
+
 - **Mode**: `prose` or `code`
 - **Language**: The file's language ID (e.g., `markdown`, `typescript`, `python`)
 - **File name**: The document's filename
@@ -17,7 +18,7 @@ You will receive:
 
 ### For ALL completions:
 
-**Fabricated content is expected.** Inline completions are predictions of the most likely next text. The model will invent names, dates, events, code logic, etc. This is correct behavior. Evaluate whether the fabricated content is *plausible and contextually appropriate*, not whether it's factually true. A journal completion that invents a plausible entry is good; one that inserts unrelated nonsense is bad.
+**Fabricated content is expected.** Inline completions are predictions of the most likely next text. The model will invent names, dates, events, code logic, etc. This is correct behavior. Evaluate whether the fabricated content is _plausible and contextually appropriate_, not whether it's factually true. A journal completion that invents a plausible entry is good; one that inserts unrelated nonsense is bad.
 
 1. **Seamless continuation** — The completion must read as a natural continuation of the prefix. No awkward transitions, no repeating what the prefix already says, no meta-commentary ("Here is a completion...").
 
@@ -48,9 +49,24 @@ You will receive:
 ### Test-specific requirements
 
 The requirements field may specify:
+
 - `must_include`: Concepts or patterns the completion must contain
 - `must_not_include`: Things that should NOT appear
 - `quality_notes`: Additional context about what makes a good completion for this case
+
+### Custom instructions (when present)
+
+The input may include a **Custom instructions** field — the value of the user's
+`bespokeAI.customInstructions` setting, appended to the completion prompt to steer
+output. When it is non-null, judge on BOTH axes, and fail the case if either is violated:
+
+1. **Honored** — the completion actually follows the standing instruction (e.g. `const`
+   only, no dynamic allocation, British spellings, a length cap). An instruction that is
+   irrelevant to the text at the cursor should simply be ignored — that counts as honored.
+2. **Not degraded** — the instruction must not break the completion. It must still be a
+   correct, seamless continuation, and the instruction text itself must never leak into the
+   output (no restating the rule, no meta-commentary about it). Instruction text appearing in
+   the completion is an automatic failure.
 
 ## Output Format
 
@@ -59,6 +75,7 @@ Respond with ONLY a JSON object. No markdown fences, no extra text before or aft
 {"pass": true, "score": 8, "accept": true, "reasoning": "...", "criteria_results": {"seamless_continuation": true, "no_repetition": true, "appropriate_length": true, "context_awareness": true, "mode_specific": true, "test_requirements": true}}
 
 **Scoring guide:**
+
 - 9-10: Excellent. Would genuinely help the user.
 - 7-8: Good. Minor imperfections but usable.
 - 5-6: Mediocre. Technically valid but not helpful or slightly off.

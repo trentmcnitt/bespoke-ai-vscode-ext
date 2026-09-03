@@ -169,8 +169,12 @@ async function doSuggestEdit(
   contentStore.set(`original:${key}`, originalText);
   contentStore.set(`corrected:${key}`, corrected);
 
-  const originalUri = vscode.Uri.parse(`bespoke-edit-original:${key}`);
-  const correctedUri = vscode.Uri.parse(`bespoke-edit-corrected:${key}`);
+  // Uri.from() sets the path verbatim. Uri.parse() would treat '?' and '#' in a file name
+  // as query/fragment and percent-decode '%xx', so uri.path would no longer match the
+  // store key and the preview would show an empty "corrected" pane while Apply wrote the
+  // real text.
+  const originalUri = vscode.Uri.from({ scheme: 'bespoke-edit-original', path: key });
+  const correctedUri = vscode.Uri.from({ scheme: 'bespoke-edit-corrected', path: key });
 
   let choice: string | undefined;
   try {

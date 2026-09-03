@@ -48,6 +48,12 @@ export interface ConfigUpdateRequest {
   type: 'config-update';
   id: string;
   model?: string;
+  /**
+   * Standing user instructions for the completion system prompt. Present only
+   * when the value changed. Empty string clears them. A change recycles the
+   * completion pool so slots respawn with the new system prompt.
+   */
+  customInstructions?: string;
 }
 
 export interface DisposeRequest {

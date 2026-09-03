@@ -3,7 +3,12 @@ import * as vscode from 'vscode';
 import { Logger } from './utils/logger';
 import { UsageLedger } from './utils/usage-ledger';
 import { BackendRouter } from './providers/backend-router';
-import { buildFullCommitPrompt, parseCommitMessage } from './utils/commit-message-utils';
+import {
+  buildFullCommitPrompt,
+  parseCommitMessage,
+  truncateDiff,
+  MAX_COMMIT_DIFF_CHARS,
+} from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
 import type { GitExtension, Repository } from './types/git';
 
@@ -122,7 +127,13 @@ async function doGenerateCommitMessage(
   }
 
   // 5. Build full prompt (instructions + diff in one message)
-  const fullMessage = buildFullCommitPrompt(diff);
+  const boundedDiff = truncateDiff(diff);
+  if (boundedDiff.length < diff.length) {
+    logger.info(
+      `Commit message: diff truncated from ${diff.length} to ~${MAX_COMMIT_DIFF_CHARS} chars`,
+    );
+  }
+  const fullMessage = buildFullCommitPrompt(boundedDiff);
 
   logger.debug(
     `Commit message: diff source=${hasStaged && hasUnstaged ? 'user choice' : hasStaged ? 'staged' : 'unstaged'}, diff chars=${diff.length}`,
