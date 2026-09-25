@@ -4,6 +4,18 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 09-25-26
+
+### Context menu: launch Claude with argv, not `sendText` (security)
+
+Red-teaming the opencode work (#23) found a pre-existing command injection in Explain/Fix/Do. `openClaudeTerminal()` typed `claude "<prompt>"` into a shell with `terminal.sendText()`. `escapeForDoubleQuotes()` handled `\ " $ \` !`but`sendText`delivers keystrokes, so a`\x03`(Ctrl-C) in the prompt made the interactive shell discard the half-typed line and run whatever followed at a fresh prompt. The file path is always in the prompt, and APFS/ext4 allow control characters in file names, so right-clicking a file named`a\x03touch X\n.js`in a cloned repo ran`touch X`. Reproduced in zsh and bash (red-team agent), and end-to-end in VSCodium via `--extensionTestsPath`against the released code (canary created). A leading`^` on a selection line (zsh history substitution) showed the same abort-and-continue pattern.
+
+**Fix:** `createTerminal({ shellPath, shellArgs })` — the prompt is one argv entry after `--`, so no shell ever parses it. The executable comes from `resolveClaudeExecutable()` (native → `node <bundled cli.js>`; bare `claude` only as a non-Windows last resort, since on Windows it resolves to `claude.cmd` and cmd.exe re-parses arguments). `stripControlChars()` additionally removes C0/C1 and bidi controls so a crafted name can't put terminal escape sequences into the displayed prompt. Same VSCodium harness after the fix: argv intact (`ps` shows the full prompt as one argument), no canary.
+
+**Trade-off:** the terminal is the Claude process, so it closes when the session exits (previously it dropped back to a shell).
+
+---
+
 ## 07-10-26
 
 ### Custom instructions setting for completions (#20)
