@@ -5,6 +5,8 @@ import {
   ExtensionConfig,
   CustomPreset,
   TriggerPreset,
+  ContextMenuAgent,
+  CONTEXT_MENU_AGENTS,
   PermissionMode,
   PERMISSION_MODES,
   resolvePreset,
@@ -271,12 +273,8 @@ export function activate(context: vscode.ExtensionContext) {
   backendRouter = new BackendRouter(poolClient, apiCompletion, apiCommand, config);
   context.subscriptions.push({ dispose: () => backendRouter.dispose() });
 
-  // Set context for context menu visibility (CLI-only commands)
-  vscode.commands.executeCommand(
-    'setContext',
-    'bespokeAI.cliAvailable',
-    config.backend === 'claude-code',
-  );
+  // Set context for context menu visibility (commands that launch an agent CLI)
+  vscode.commands.executeCommand('setContext', 'bespokeAI.cliAvailable', agentCliExpected(config));
 
   // Status bar — must be created before any code path calls updateStatusBar()
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -699,16 +697,16 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // Context menu commands (open Claude CLI in terminal)
+  // Context menu commands (open the configured agent CLI in a terminal)
   context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.explainSelection', () =>
-      explainSelection(lastConfig.contextMenu.permissionMode),
+      explainSelection(lastConfig.contextMenu),
     ),
     vscode.commands.registerCommand('bespoke-ai.fixSelection', () =>
-      fixSelection(lastConfig.contextMenu.permissionMode),
+      fixSelection(lastConfig.contextMenu),
     ),
     vscode.commands.registerCommand('bespoke-ai.doSelection', () =>
-      doSelection(lastConfig.contextMenu.permissionMode),
+      doSelection(lastConfig.contextMenu),
     ),
   );
 
@@ -1041,12 +1039,15 @@ export function activate(context: vscode.ExtensionContext) {
         backendRouter.updateConfig(newConfig);
         completionProvider.updateConfig(newConfig);
 
-        // Update context menu visibility when backend changes
-        if (newConfig.backend !== prevConfig.backend) {
+        // Update context menu visibility when backend or context menu agent changes
+        if (
+          newConfig.backend !== prevConfig.backend ||
+          newConfig.contextMenu.agent !== prevConfig.contextMenu.agent
+        ) {
           vscode.commands.executeCommand(
             'setContext',
             'bespokeAI.cliAvailable',
-            newConfig.backend === 'claude-code',
+            agentCliExpected(newConfig),
           );
         }
 
@@ -1272,6 +1273,26 @@ function readPermissionMode(ws: vscode.WorkspaceConfiguration): PermissionMode {
     : 'default';
 }
 
+/**
+ * Read `contextMenu.agent`, rejecting anything outside the declared union.
+ * Same reasoning as `readPermissionMode()`: the value selects what runs in the terminal.
+ */
+function readContextMenuAgent(ws: vscode.WorkspaceConfiguration): ContextMenuAgent {
+  const raw = ws.get<string>('contextMenu.agent', 'claude-code');
+  return (CONTEXT_MENU_AGENTS as readonly string[]).includes(raw ?? '')
+    ? (raw as ContextMenuAgent)
+    : 'claude-code';
+}
+
+/**
+ * Whether the context menu commands should be shown (`bespokeAI.cliAvailable`).
+ * Claude Code is assumed installed only when it is also the completion backend;
+ * choosing opencode is itself the signal that the user has it installed.
+ */
+function agentCliExpected(config: ExtensionConfig): boolean {
+  return config.contextMenu.agent === 'opencode' || config.backend === 'claude-code';
+}
+
 function loadConfig(): ExtensionConfig {
   const ws = vscode.workspace.getConfiguration('bespokeAI');
 
@@ -1322,6 +1343,7 @@ function loadConfig(): ExtensionConfig {
       model: ws.get<string>('codeOverride.model', '')!,
     },
     contextMenu: {
+      agent: readContextMenuAgent(ws),
       permissionMode: readPermissionMode(ws),
     },
     customInstructions: ws.get<string>('customInstructions', '')!,

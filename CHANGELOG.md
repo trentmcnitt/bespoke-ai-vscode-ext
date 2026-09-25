@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.15 — Explain / Fix / Do with opencode
+
+- **Explain / Fix / Do can use opencode, including with local models:** a new `bespokeAI.contextMenu.agent` setting picks which agent CLI the right-click commands open — `claude-code` (default, unchanged) or `opencode`. With opencode the menu is available on any backend, and the model and permissions come from your own opencode config, so the commands work with LM Studio, Ollama, or any provider opencode supports. The prompt is passed as `--prompt=` (opencode's positional argument is a project folder, not a message). (#23)
+- **opencode only starts in trusted workspaces:** opencode has no trust prompt of its own — it loads a project's `opencode.json`, `.opencode/` plugins, and MCP servers at startup. In a VS Code Restricted Mode window the commands refuse to launch it and offer to open workspace trust settings.
+- **`contextMenu.permissionMode` stays Claude-only:** opencode's permission override replaces your own per-tool rules and could loosen them, so opencode's `permission` config governs. Note that opencode's default allows edits and shell commands without asking.
+- **Local model tips:** opencode's system prompt is ~13k tokens; set the model's context length to 16k or more (LM Studio and Ollama default lower and truncate silently), and prefer a 7B+ model with tool calling.
+
 ## 0.8.14 — Context menu security fix
 
 - **Security — Explain/Fix/Do no longer type a command into a shell:** the commands used to build a `claude "<prompt>"` line and type it into a terminal. The prompt contains the file path (and, for unsaved buffers, the selected text), and escaping covered shell quoting but not control characters. A file whose **name** contained a Ctrl-C character followed by a command — possible on macOS and Linux — cancelled the typed line, and the rest ran as a shell command when you chose Explain, Fix, or Do on that file. Opening a malicious repository and right-clicking a file in it was enough. The terminal now starts Claude Code directly with the prompt as a single argument, so no shell parses it; control characters and bidi overrides are also stripped from the path, selection, and Do instruction. Verified in a real editor: the same file name ran the injected command before this change and does not after.

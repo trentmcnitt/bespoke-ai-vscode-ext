@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI — Autocomplete and One-Click Commit Messages",
   "description": "AI autocomplete for prose and code — use your Claude subscription or bring your own API key (xAI, OpenAI, Anthropic, Gemini, Ollama)",
-  "version": "0.8.14",
+  "version": "0.8.15",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -347,6 +347,20 @@
           "default": 2000,
           "description": "Number of suffix characters (after cursor) to include for code context"
         },
+        "bespokeAI.contextMenu.agent": {
+          "type": "string",
+          "scope": "application",
+          "enum": [
+            "claude-code",
+            "opencode"
+          ],
+          "default": "claude-code",
+          "enumDescriptions": [
+            "Claude Code CLI (`claude`). Menu shown only when the backend is Claude Code",
+            "opencode CLI (`opencode`). Uses your opencode config for model and permissions, so it works with local models. Menu shown with any backend. Trusted workspaces only (opencode runs project config and plugins without asking); opencode's default permissions allow edits and shell commands"
+          ],
+          "description": "Agent CLI that the context menu commands (Explain, Fix, Do) open in a terminal"
+        },
         "bespokeAI.contextMenu.permissionMode": {
           "type": "string",
           "scope": "application",
@@ -361,7 +375,7 @@
             "Auto-approve file reads and edits, ask for everything else",
             "Skip all permission checks (use with caution)"
           ],
-          "description": "Permission mode for context menu commands (Explain, Fix, Do)"
+          "description": "Permission mode for context menu commands (Explain, Fix, Do). Claude Code only — opencode uses the `permission` block in your opencode config"
         },
         "bespokeAI.codeOverride.backend": {
           "type": "string",
