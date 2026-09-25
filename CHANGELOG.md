@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.14 — Context menu security fix
+
+- **Security — Explain/Fix/Do no longer type a command into a shell:** the commands used to build a `claude "<prompt>"` line and type it into a terminal. The prompt contains the file path (and, for unsaved buffers, the selected text), and escaping covered shell quoting but not control characters. A file whose **name** contained a Ctrl-C character followed by a command — possible on macOS and Linux — cancelled the typed line, and the rest ran as a shell command when you chose Explain, Fix, or Do on that file. Opening a malicious repository and right-clicking a file in it was enough. The terminal now starts Claude Code directly with the prompt as a single argument, so no shell parses it; control characters and bidi overrides are also stripped from the path, selection, and Do instruction. Verified in a real editor: the same file name ran the injected command before this change and does not after.
+- **Side effects of launching directly:** shell quoting quirks are gone (including the old Windows PowerShell/cmd escaping limitation), and a prompt starting with `-` can no longer be read as a flag. The terminal now closes when the Claude session ends. On Windows the commands need the native `claude.exe` or the bundled CLI with `node` on PATH; the npm `claude.cmd` shim is not used, because cmd.exe would re-parse the arguments.
+
 ## 0.8.13 — Security follow-ups
 
 - **Custom instructions are sanitized before use:** `bespokeAI.customInstructions` is workspace-settable by design (per-project rules), so the value may come from a repository. It is now normalized at the point it enters the prompt — line endings unified, control characters and Unicode bidirectional overrides removed, and the text capped at 2000 characters (the setting description says so). Real-world instructions are a sentence or two, so this changes nothing for normal use; it bounds what a stray value can do to the prompt.

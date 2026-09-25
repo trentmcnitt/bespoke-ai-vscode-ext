@@ -270,10 +270,9 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 - Run `claude` in your terminal and follow the login prompts.
 - Ensure you have an active Claude subscription (Pro, Team, or Enterprise).
 
-**Windows: Explain/Fix/Do commands garbled?**
+**Explain/Fix/Do says the Claude Code executable was not found (Windows)?**
 
-- Context menu commands use bash-style shell escaping. On Windows with PowerShell or cmd.exe, text containing `$`, backticks, or special characters may not pass through correctly.
-- Workaround: set your VS Code terminal to Git Bash or WSL.
+- The commands start Claude Code directly, not through a shell. On Windows this needs the native `claude.exe` (native installer, `~/.local/bin/claude.exe`) or the bundled CLI with `node` on PATH — the npm `claude.cmd` shim is not used.
 
 **Still not working?**
 

@@ -196,8 +196,10 @@ stay window-scoped.
 
 **Never interpolate a setting value into a shell command string.** VS Code enforces a declared `enum`
 in the Settings editor only — `getConfiguration().get()` returns whatever text is in `settings.json`.
-Select from a fixed lookup table keyed by the union type, as `buildClaudeCommand()` does in
-`commands/context-menu-utils.ts`, and validate the value when config is loaded.
+Select from a fixed lookup table keyed by the union type, as `PERMISSION_MODE_ARGS` does in
+`commands/context-menu-utils.ts`, and validate the value when config is loaded. Never type
+command text into a terminal with `sendText()` — launch the program with `shellPath`/`shellArgs`
+so arguments are argv entries (see `openClaudeTerminal()` in `commands/context-menu.ts`).
 
 ### Adding a Regression Scenario
 
@@ -457,7 +459,6 @@ These are deliberate trade-offs. Do not attempt to fix them unless explicitly as
 - The extension does not validate config values. Invalid settings pass through to the backend as-is.
 - Tests use top-level `await`, which is incompatible with the `commonjs` module setting in `tsconfig.json`. To avoid build errors, `tsconfig.json` excludes `src/test/`. Vitest uses its own TypeScript transformer, so this does not affect test execution.
 - **Context menu commands (Explain, Fix, Do) are CLI-only.** They launch standalone Claude CLI processes, not the pool server. Hidden via `bespokeAI.cliAvailable` when backend is API. They do not check `bespokeAI.enabled` — they work even when inline completions are disabled.
-- **Context menu shell escaping (Windows):** `escapeForDoubleQuotes()` in `context-menu-utils.ts` uses bash/zsh escaping rules. On Windows with PowerShell or cmd.exe, context menu commands (Explain, Fix, Do) may produce incorrect escaping unless the VS Code terminal uses a bash-compatible shell (Git Bash, WSL).
 - **Subprocess cleanup:** The extension relies on `channel.close()` and SDK behavior to terminate Claude Code subprocesses. It does not track subprocess PIDs and cannot force-kill orphaned processes. If someone force-kills VS Code (e.g., `kill -9`), subprocesses may survive until they timeout or are manually cleaned. On macOS/Linux: `pkill -f "claude.*dangerously-skip-permissions"`. On Windows: use Task Manager to end `node.exe` processes running Claude.
 - **Code override cross-backend:** `bespokeAI.codeOverride.backend` set to `claude-code` only works when the primary backend is also `claude-code`. The pool server only starts when the primary backend is `claude-code`, so code completions routed via the override will silently fail. The reverse (primary `claude-code`, code override to `api`) works because the API provider initializes regardless.
 - **Custom instructions on the CLI backend are shared across windows.** `bespokeAI.customInstructions` is workspace-settable (good for per-project rules like "follow MISRA for this repo"), but the Claude Code pool server is shared by all VS Code windows and spawns slots with a single system prompt. So on the CLI backend the value is effectively last-writer-wins across windows, and a newly-opened window that connects to an existing server does not push its own value (only a _change_ triggers a pool recycle). The API backend has no shared pool, so it honors each window's value per-request. This mirrors the existing behavior of `bespokeAI.claudeCode.model`. Because the value may originate in a repository, it is sanitized at the sink (`sanitizeCustomInstructions()`): control and bidi characters are stripped and it is capped at 2000 characters. Its effect is bounded regardless — completion slots run with `tools: []`.
