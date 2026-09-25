@@ -95,3 +95,39 @@ export const PERMISSION_MODE_ARGS: Record<PermissionMode, readonly string[]> = {
 export function buildClaudeArgs(prompt: string, permissionMode: PermissionMode): string[] {
   return [...(PERMISSION_MODE_ARGS[permissionMode] ?? []), '--', prompt];
 }
+
+/**
+ * Builds the opencode argument list for a prompt.
+ *
+ * `--prompt=` opens the TUI with the prompt already submitted. opencode's positional
+ * argument is a project directory, not a message, so the prompt must never go there.
+ * The `=` form keeps the whole prompt one value even when it starts with `-`.
+ *
+ * `permissionMode` is deliberately not mapped. opencode's `OPENCODE_PERMISSION`
+ * override replaces the user's own per-tool rules key by key, so pushing e.g.
+ * `bash: ask` would loosen a user who configured `bash: deny`. The user's opencode
+ * config governs instead.
+ */
+export function buildOpencodeArgs(prompt: string): string[] {
+  return [`--prompt=${prompt}`];
+}
+
+/**
+ * Picks the first `where`/`which opencode` result the terminal can start directly.
+ *
+ * On Windows only `.exe`/`.com` qualify: npm installs an `opencode.cmd` shim, and
+ * running a `.cmd` goes through cmd.exe, which re-parses the arguments — the prompt
+ * would be exposed to shell parsing again.
+ */
+export function pickDirectExecutable(
+  candidates: string[],
+  platform: NodeJS.Platform,
+): string | null {
+  for (const candidate of candidates) {
+    const lower = candidate.toLowerCase();
+    if (platform !== 'win32' || lower.endsWith('.exe') || lower.endsWith('.com')) {
+      return candidate;
+    }
+  }
+  return null;
+}

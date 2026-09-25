@@ -31,7 +31,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     customPresets: [],
   },
   codeOverride: { backend: '', model: '' },
-  contextMenu: { permissionMode: 'default' },
+  contextMenu: { agent: 'claude-code', permissionMode: 'default' },
   customInstructions: '',
   logLevel: 'info',
 };

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildClaudeArgs,
+  buildOpencodeArgs,
+  pickDirectExecutable,
   PromptContext,
   PROMPT_TEMPLATES,
   stripControlChars,
@@ -191,5 +193,46 @@ describe('buildClaudeArgs', () => {
     expect(args).toHaveLength(2);
     expect(args[1]).toContain('`/repo/atouch /tmp/canary\n.txt`');
     expect(args[1]).not.toContain('\x03');
+  });
+});
+
+describe('buildOpencodeArgs', () => {
+  it('passes the prompt via --prompt=, never as the positional project path', () => {
+    expect(buildOpencodeArgs('Explain this')).toEqual(['--prompt=Explain this']);
+  });
+
+  it('keeps a dash-leading prompt, metacharacters, and newlines in one argument', () => {
+    const prompt = '-- rename "x" $HOME `id` $(touch /tmp/x)\nline two';
+    expect(buildOpencodeArgs(prompt)).toEqual([`--prompt=${prompt}`]);
+  });
+});
+
+describe('pickDirectExecutable', () => {
+  it('takes the first candidate on macOS/Linux', () => {
+    expect(pickDirectExecutable(['/usr/local/bin/opencode', '/x/opencode'], 'darwin')).toBe(
+      '/usr/local/bin/opencode',
+    );
+  });
+
+  it('skips .cmd/.ps1 and extensionless shims on Windows (cmd.exe would re-parse argv)', () => {
+    expect(
+      pickDirectExecutable(
+        [
+          'C:\\npm\\opencode',
+          'C:\\npm\\opencode.cmd',
+          'C:\\npm\\opencode.ps1',
+          'C:\\scoop\\opencode.EXE',
+        ],
+        'win32',
+      ),
+    ).toBe('C:\\scoop\\opencode.EXE');
+  });
+
+  it('returns null on Windows when only shims exist', () => {
+    expect(pickDirectExecutable(['C:\\npm\\opencode.cmd'], 'win32')).toBeNull();
+  });
+
+  it('returns null for no candidates', () => {
+    expect(pickDirectExecutable([], 'linux')).toBeNull();
   });
 });

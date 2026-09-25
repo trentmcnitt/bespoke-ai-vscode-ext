@@ -6,6 +6,22 @@ Reverse chronological. Most recent entry first.
 
 ## 09-25-26
 
+### Explain / Fix / Do can launch opencode (#23)
+
+A user running local models (LM Studio) asked for the context menu commands without the Claude Code backend. Those commands never used the backend — they start an agent CLI in a terminal — so the fix is choosing the agent, not routing through the API. New `bespokeAI.contextMenu.agent` (`claude-code` | `opencode`, application scope, validated on load like `permissionMode`). Built on the argv launch from 0.8.14: opencode starts via `shellPath`/`shellArgs` with `--prompt=<prompt>` as one argv entry.
+
+**opencode facts that shaped it (verified against opencode 1.18.32):**
+
+- The positional argument is a **project path**, not a message. `--prompt=` opens the TUI with the prompt auto-submitted and the session stays interactive.
+- **No workspace trust.** A red-team pass reproduced, with canaries and no prompt: a repo's `opencode.json` local MCP `command` spawns at startup, `.opencode/plugin/*.js` top-level code runs, a `provider.baseURL` redirect received the full prompt plus the `Authorization` header, and a repo `AGENTS.md` instruction got a shell command run under the default allow-all permissions. `--pure` and `OPENCODE_DISABLE_PROJECT_CONFIG` each leave the plugin path open; only a neutral cwd blocks everything, which breaks Fix/Do. So `resolveAgentLaunch()` refuses opencode unless `vscode.workspace.isTrusted` — the same bar as the user running `opencode` in that folder themselves.
+- `OPENCODE_PERMISSION` (env JSON) **replaces** `opencode.json` permission rules key by key — a configured `bash: deny` became `bash: ask`. Mapping our `permissionMode` onto it could loosen a locked-down user, so it is not mapped.
+- Executable lookup: PATH, then `~/.opencode/bin`. On Windows only `.exe`/`.com` (`pickDirectExecutable()`), never the npm `opencode.cmd` shim, since cmd.exe re-parses argv.
+- Local models: opencode's system prompt is ~13k tokens, so Ollama/LM Studio's 4k default context truncates it silently. A 1.7B model could not drive the read tool reliably; 16k+ context and a 7B+ tool-calling model.
+
+**Verification:** VSCodium e2e via `--extensionTestsPath` with `contextMenu.agent: opencode` and a free opencode model — Explain on a file named `a\x03touch CANARY\n.js` launched opencode with the prompt as one argv entry and no canary; Fix on `a - b` produced `a + b` in the file; in an untrusted workspace no terminal or opencode process started.
+
+**Generalizing:** Codex (`codex "p"`), Gemini (`gemini -i "p"`), Qwen Code, and Cursor's `agent` fit the same one-row pattern; Aider, Crush, and Amp have no "interactive with initial prompt" form. Each new agent also needs its trust-boundary behaviour checked, as opencode's was — add on request.
+
 ### Context menu: launch Claude with argv, not `sendText` (security)
 
 Red-teaming the opencode work (#23) found a pre-existing command injection in Explain/Fix/Do. `openClaudeTerminal()` typed `claude "<prompt>"` into a shell with `terminal.sendText()`. `escapeForDoubleQuotes()` handled `\ " $ \` !`but`sendText`delivers keystrokes, so a`\x03`(Ctrl-C) in the prompt made the interactive shell discard the half-typed line and run whatever followed at a fresh prompt. The file path is always in the prompt, and APFS/ext4 allow control characters in file names, so right-clicking a file named`a\x03touch X\n.js`in a cloned repo ran`touch X`. Reproduced in zsh and bash (red-team agent), and end-to-end in VSCodium via `--extensionTestsPath`against the released code (canary created). A leading`^` on a selection line (zsh history substitution) showed the same abort-and-continue pattern.

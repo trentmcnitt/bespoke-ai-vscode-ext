@@ -69,6 +69,10 @@ export interface CompletionProvider {
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
+/** Agent CLIs the context menu commands (Explain, Fix, Do) can launch. */
+export const CONTEXT_MENU_AGENTS = ['claude-code', 'opencode'] as const;
+export type ContextMenuAgent = (typeof CONTEXT_MENU_AGENTS)[number];
+
 export interface CustomPreset {
   name: string;
   provider: 'anthropic' | 'openai-compat' | 'google' | 'openrouter' | 'ollama';
@@ -110,6 +114,7 @@ export interface ExtensionConfig {
     model: string;
   };
   contextMenu: {
+    agent: ContextMenuAgent;
     permissionMode: PermissionMode;
   };
   /** Standing user instructions appended to the inline-completion system prompt. Empty string = none. */

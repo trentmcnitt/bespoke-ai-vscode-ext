@@ -26,7 +26,7 @@
 
 **✏️ Suggest edits** — One-command typo, grammar, and bug fixes for visible text.
 
-**🔧 Context menu** — Right-click to Explain, Fix, or Do custom actions on selected text. _(Requires Claude Code backend.)_
+**🔧 Context menu** — Right-click to Explain, Fix, or Do custom actions on selected text. Opens an agent session in a terminal — Claude Code by default, or [opencode](https://opencode.ai) (works with local models, any backend).
 
 ### Screenshots
 
@@ -193,13 +193,21 @@ Route code completions to a different backend or model than prose. For example, 
 </details>
 
 <details>
-<summary><strong>Context Menu Permissions</strong></summary>
+<summary><strong>Context Menu Agent and Permissions</strong></summary>
 
-| Setting                      | Default     | Description                          |
-| ---------------------------- | ----------- | ------------------------------------ |
-| `contextMenu.permissionMode` | `"default"` | Permission mode for Explain, Fix, Do |
+| Setting                      | Default         | Description                                        |
+| ---------------------------- | --------------- | -------------------------------------------------- |
+| `contextMenu.agent`          | `"claude-code"` | Agent CLI that Explain, Fix, Do open in a terminal |
+| `contextMenu.permissionMode` | `"default"`     | Permission mode for Explain, Fix, Do (Claude Code) |
 
-Options:
+**Agent:** `claude-code` shows the menu only when the backend is Claude Code. `opencode` shows it with any backend and runs `opencode --prompt=...` — the model and permissions come from your own opencode config (`opencode.json`), so point opencode at LM Studio, Ollama, or any provider it supports.
+
+- **opencode only runs in trusted workspaces.** opencode loads a project's own `opencode.json`, `.opencode/` plugins, and MCP servers without asking, so in a VS Code Restricted Mode window the commands refuse to start it.
+- **`permissionMode` does not apply to opencode.** Set the `permission` block in your opencode config instead — opencode's default allows file edits and shell commands without asking.
+- **Local models:** opencode's system prompt is ~13k tokens. Set your model's context length to 16k or more (LM Studio and Ollama default lower and truncate silently), and prefer a 7B+ model with tool calling.
+- **Windows:** needs `opencode.exe` on PATH (scoop, choco, or the install script). The npm `opencode.cmd` shim is not used.
+
+Permission mode options (Claude Code):
 
 - **`default`** — Ask before every action (safest)
 - **`acceptEdits`** — Auto-approve file reads and edits
