@@ -3,6 +3,7 @@ dist/
 *.vsix
 .vscode-test/
 test-results/
+coverage/
 prompt-dump*.txt
 .tmp/
 .env*
