@@ -137,6 +137,15 @@ export interface ExtensionConfig {
     captureContent: boolean;
     /** Append records to `~/.bespokeai/traces.jsonl`. */
     file: boolean;
+    /** Opt-in OTLP/HTTP JSON exporter. */
+    otlp: {
+      /** Collector base URL; empty = exporter off. */
+      endpoint: string;
+      /** Env var (resolved like API keys) holding `key=value,...` request headers. */
+      headersEnvVar: string;
+      /** Export prompt/response text (also requires `trace.captureContent`). */
+      captureContent: boolean;
+    };
   };
   logLevel: 'info' | 'debug' | 'trace';
 }

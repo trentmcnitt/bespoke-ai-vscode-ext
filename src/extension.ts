@@ -12,7 +12,7 @@ import {
   resolvePreset,
 } from './types';
 import { CompletionProvider } from './completion-provider';
-import { auditCustomPresets, describeFindings } from './utils/preset-audit';
+import { auditCustomPresets, describeFindings, isLoopbackUrl } from './utils/preset-audit';
 import { PoolClient } from './pool-server/client';
 import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
@@ -37,10 +37,18 @@ import { UsageLedger } from './utils/usage-ledger';
 import { TraceFileSink, TraceRecorder } from './utils/trace';
 import { TraceViewPanel } from './trace-view';
 import {
+  OtlpExporter,
+  isValidEnvVarName,
+  isValidOtlpEndpoint,
+  otlpTracesUrl,
+  parseOtlpHeaders,
+} from './utils/otlp-exporter';
+import {
   initSecretStorage,
   loadSecretKey,
   storeSecretKey,
   removeSecretKey,
+  resolveApiKey,
   resolveApiKeySource,
   type ApiKeySource,
 } from './utils/api-key-store';
@@ -120,6 +128,9 @@ let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
 let traceRecorder: TraceRecorder;
+/** Env var the current OTLP exporter reads headers from (to detect changes). */
+let otlpHeadersEnvVar = '';
+const OTLP_WARNED_HOSTS_KEY = 'bespokeAI.trace.otlpWarnedHosts';
 let extensionContext: vscode.ExtensionContext;
 let autoSelectedPresetId: string | null = null;
 /** Result of the last background API health check, tied to the preset it tested.
@@ -1243,6 +1254,76 @@ function applyTraceConfig(config: ExtensionConfig): void {
   } else if (!config.trace.file && hasFileSink) {
     traceRecorder.setSink('file', null);
   }
+  applyOtlpConfig(config);
+}
+
+/** Create, replace, or remove the OTLP exporter to match settings. */
+function applyOtlpConfig(config: ExtensionConfig): void {
+  const { endpoint, headersEnvVar } = config.trace.otlp;
+  const includeContent = config.trace.captureContent && config.trace.otlp.captureContent;
+  const current = traceRecorder.getSink('otlp') as OtlpExporter | undefined;
+
+  if (!endpoint) {
+    if (current) {
+      traceRecorder.setSink('otlp', null);
+      logger.info('Trace: OTLP export off');
+    }
+    return;
+  }
+  if (!isValidOtlpEndpoint(endpoint)) {
+    traceRecorder.setSink('otlp', null);
+    logger.error(`Trace: ignoring bespokeAI.trace.otlp.endpoint — not an http(s) URL`);
+    return;
+  }
+  const envVar = isValidEnvVarName(headersEnvVar) ? headersEnvVar : '';
+  if (headersEnvVar && !envVar) {
+    logger.error(
+      'Trace: ignoring bespokeAI.trace.otlp.headersEnvVar — not an environment variable name',
+    );
+  }
+  if (envVar) loadSecretKey(envVar).catch(() => {});
+  if (
+    current &&
+    current.endpoint === endpoint &&
+    current.includeContent === includeContent &&
+    otlpHeadersEnvVar === envVar
+  ) {
+    return;
+  }
+  otlpHeadersEnvVar = envVar;
+  traceRecorder.setSink(
+    'otlp',
+    new OtlpExporter({
+      endpoint,
+      getHeaders: () => (envVar ? parseOtlpHeaders(resolveApiKey(envVar)) : {}),
+      serviceVersion: String(extensionContext.extension.packageJSON?.version ?? '0.0.0'),
+      includeContent,
+      logger,
+    }),
+  );
+  logger.info(
+    `Trace: exporting spans to ${otlpTracesUrl(endpoint)}${includeContent ? ' (with prompt content)' : ''}`,
+  );
+  void warnRemoteOtlpEndpoint(endpoint, includeContent);
+}
+
+/** Tell the user once per host that trace data is leaving the machine. */
+async function warnRemoteOtlpEndpoint(endpoint: string, includeContent: boolean): Promise<void> {
+  if (isLoopbackUrl(endpoint)) return;
+  const host = new URL(endpoint).host;
+  const warned = extensionContext.globalState.get<string[]>(OTLP_WARNED_HOSTS_KEY) ?? [];
+  if (warned.includes(host)) return;
+  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, host]);
+  const what = includeContent
+    ? 'request metadata and prompt/response text'
+    : 'request metadata (models, tokens, timing, outcomes — no prompt text)';
+  const choice = await vscode.window.showInformationMessage(
+    `Bespoke AI: trace export is on. ${what[0].toUpperCase()}${what.slice(1)} will be sent to ${host}.`,
+    'Open Settings',
+  );
+  if (choice === 'Open Settings') {
+    vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI.trace');
+  }
 }
 
 /**
@@ -1390,6 +1471,11 @@ function loadConfig(): ExtensionConfig {
     trace: {
       captureContent: ws.get<boolean>('trace.captureContent', true) !== false,
       file: ws.get<boolean>('trace.file', false) === true,
+      otlp: {
+        endpoint: (ws.get<string>('trace.otlp.endpoint', '') ?? '').trim(),
+        headersEnvVar: ws.get<string>('trace.otlp.headersEnvVar', 'BESPOKE_OTLP_HEADERS') ?? '',
+        captureContent: ws.get<boolean>('trace.otlp.captureContent', false) === true,
+      },
     },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
@@ -2215,10 +2301,17 @@ async function activateWithPreflight(
   }
 }
 
-export function deactivate() {
+export function deactivate(): Promise<void> | undefined {
   // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
   // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
   backendRouter?.dispose();
-  logger?.dispose();
+  // Returned so VS Code waits for the final trace flush (file + OTLP exporter, 5 s timeout).
+  // The logger outlives the flush so sink failures during shutdown can still be logged.
+  const traceFlush = traceRecorder?.dispose();
+  if (!traceFlush) {
+    logger?.dispose();
+    return undefined;
+  }
+  return traceFlush.finally(() => logger?.dispose());
 }

@@ -420,6 +420,24 @@
           "default": false,
           "scope": "application",
           "markdownDescription": "Append every trace record to `~/.bespokeai/traces.jsonl` (one OpenTelemetry-shaped span per line; rotated at 5 MB, archives kept 7 days). Includes prompt text when `#bespokeAI.trace.captureContent#` is on."
+        },
+        "bespokeAI.trace.otlp.endpoint": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Send trace records as OpenTelemetry spans (OTLP/HTTP, JSON encoding) to this endpoint; `/v1/traces` is appended unless already present. Empty = off. Examples: `http://localhost:4318` (OpenTelemetry Collector), `https://cloud.langfuse.com/api/public/otel` (Langfuse). Collectors that accept only protobuf (e.g. Arize Phoenix) need an OpenTelemetry Collector in front. Prompt text is sent only if both `#bespokeAI.trace.captureContent#` and `#bespokeAI.trace.otlp.captureContent#` are on."
+        },
+        "bespokeAI.trace.otlp.headersEnvVar": {
+          "type": "string",
+          "default": "BESPOKE_OTLP_HEADERS",
+          "scope": "application",
+          "markdownDescription": "Name of the environment variable holding exporter request headers as `key=value,key2=value2` (same format as `OTEL_EXPORTER_OTLP_HEADERS`), e.g. `Authorization=Basic <base64 pk:sk>,x-langfuse-ingestion-version=4`. Resolved like API keys: VS Code secret storage, then the process environment, then `~/.creds/api-keys.env`. Header values never go in settings.json."
+        },
+        "bespokeAI.trace.otlp.captureContent": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Include prompt and response text (system instructions, input/output messages, ghost text) in exported spans. Content leaves this machine only when this AND `#bespokeAI.trace.captureContent#` are on."
         }
       }
     }

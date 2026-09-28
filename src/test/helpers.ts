@@ -33,7 +33,11 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   codeOverride: { backend: '', model: '' },
   contextMenu: { agent: 'claude-code', permissionMode: 'default' },
   customInstructions: '',
-  trace: { captureContent: true, file: false },
+  trace: {
+    captureContent: true,
+    file: false,
+    otlp: { endpoint: '', headersEnvVar: 'BESPOKE_OTLP_HEADERS', captureContent: false },
+  },
   logLevel: 'info',
 };
 
@@ -47,7 +51,11 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
     contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },
-    trace: { ...DEFAULT_CONFIG.trace, ...overrides.trace },
+    trace: {
+      ...DEFAULT_CONFIG.trace,
+      ...overrides.trace,
+      otlp: { ...DEFAULT_CONFIG.trace.otlp, ...overrides.trace?.otlp },
+    },
   };
 }
 
