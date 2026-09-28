@@ -51,7 +51,9 @@ export class OpenAICompatAdapter implements ApiAdapter {
           model: this.preset.modelId,
           messages: openaiMessages,
           max_tokens: options.maxTokens,
-          temperature: options.temperature,
+          // Left out when the model rejects sampling parameters (e.g. OpenRouter
+          // `anthropic/claude-sonnet-5`). See model-capabilities.ts.
+          ...(this.preset.features?.sampling === false ? {} : { temperature: options.temperature }),
           stop: options.stopSequences,
           ...this.preset.extraBody,
         },
@@ -178,7 +180,7 @@ interface OpenAIClient {
           model: string;
           messages: OpenAIMessage[];
           max_tokens: number;
-          temperature: number;
+          temperature?: number;
           stop?: string[];
           [key: string]: unknown;
         },

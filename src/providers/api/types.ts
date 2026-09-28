@@ -18,7 +18,14 @@ export interface Preset {
 
   features?: {
     promptCaching?: boolean;
+    /** Anthropic models: the request ends with an assistant prefill (`prefill-extraction`). */
     prefill?: boolean;
+    /**
+     * `false` when the model rejects sampling parameters (HTTP 400 on
+     * `temperature`): adapters then leave `temperature` out of the request.
+     * Absent means sampling parameters are sent. See `model-capabilities.ts`.
+     */
+    sampling?: boolean;
   };
 
   /** Extra parameters merged into the API request body. */
