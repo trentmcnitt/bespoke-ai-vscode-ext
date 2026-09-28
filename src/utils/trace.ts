@@ -178,6 +178,23 @@ export function errorTypeOf(err: unknown): string {
   return '_OTHER';
 }
 
+/**
+ * Outcome of a request that produced no ghost text. A null result is not
+ * necessarily "the model had nothing to say": adapters swallow some failures
+ * (HTTP 429/529, connection refused, open circuit breaker) and report them as
+ * `detail.errorType`, and a cancelled request sets `detail.aborted`.
+ * Shared by the orchestrator and the quality runner so both attribute empties
+ * the same way.
+ */
+export function nullResultOutcome(
+  detail: GenerationDetail | undefined,
+  cancelled = false,
+): 'aborted' | 'error' | 'empty' {
+  if (cancelled || detail?.aborted) return 'aborted';
+  if (detail?.errorType) return 'error';
+  return 'empty';
+}
+
 // Providers that throw can still describe what they sent. They attach the detail to the error
 // object here; the orchestrator reads it back when it records the failure.
 const errorDetails = new WeakMap<object, GenerationDetail>();
@@ -228,9 +245,18 @@ export const SPAN_KIND_CLIENT = 3;
 /** OTLP `Span.SpanKind` — INTERNAL (no model call: cache hit, backend unavailable). */
 export const SPAN_KIND_INTERNAL = 1;
 
-/** False for records that never reached a model (cache hits, unavailable backend). */
+/** Error types for requests that were never sent to a model. */
+const NOT_SENT_ERROR_TYPES = new Set(['backend_unavailable', 'circuit_open']);
+
+/**
+ * False for records that never reached a model (cache hits, unavailable backend, open
+ * breaker). The orchestrator sets `errorType` on the record for its own unavailable check;
+ * a provider that declines to send reports it in `detail.errorType`.
+ */
 export function isModelCall(record: TraceRecord): boolean {
-  return record.outcome !== 'cache_hit' && record.errorType !== 'backend_unavailable';
+  if (record.outcome === 'cache_hit') return false;
+  const type = record.errorType ?? record.detail?.errorType;
+  return !(type && NOT_SENT_ERROR_TYPES.has(type));
 }
 
 export function spanKind(record: TraceRecord): number {

@@ -86,10 +86,37 @@ export class ApiCompletionProvider implements CompletionProvider {
     signal: AbortSignal,
     options?: GenerationOptions,
   ): Promise<CompletionWithDetail> {
-    if (!this.adapter || !this.activePreset || !this.strategy) return { text: null };
-    if (this.breaker.isOpen()) return { text: null };
-
+    if (!this.adapter || !this.activePreset || !this.strategy) {
+      // No usable preset/adapter (unknown preset id, adapter construction failed).
+      // Nothing was sent; report it so the null is not recorded as an empty reply.
+      // The orchestrator's isAvailable() check catches this for the primary preset,
+      // but not for a code-override preset.
+      return {
+        text: null,
+        detail: {
+          providerName: this.activePreset
+            ? genAiProviderName(this.activePreset.provider)
+            : '_OTHER',
+          requestModel: this.activePreset?.modelId ?? '',
+          errorType: 'backend_unavailable',
+        },
+      };
+    }
     const preset = this.activePreset;
+    if (this.breaker.isOpen()) {
+      // Nothing was sent. Say why, so the null is not recorded as the model
+      // having returned nothing (the code-override path reaches here without
+      // the orchestrator's isAvailable() check).
+      return {
+        text: null,
+        detail: {
+          providerName: genAiProviderName(preset.provider),
+          requestModel: preset.modelId,
+          errorType: 'circuit_open',
+        },
+      };
+    }
+
     const messages = this.strategy.buildMessages(
       context.prefix,
       context.suffix,

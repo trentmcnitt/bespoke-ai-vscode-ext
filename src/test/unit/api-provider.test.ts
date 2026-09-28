@@ -338,6 +338,15 @@ describe('ApiCompletionProvider', () => {
       expect(adapter.complete).toHaveBeenCalledTimes(6);
     });
 
+    it('a call blocked by the open breaker reports circuit_open, not an empty result', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockRejectedValue(new Error('500'));
+      await failN(provider, 5);
+      const res = await provider.getCompletionWithDetail(makeProseContext(), signal());
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('circuit_open');
+    });
+
     it('stays open until the cooldown has fully elapsed', async () => {
       const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
       lastAdapter().complete.mockRejectedValue(new Error('500'));
@@ -456,6 +465,18 @@ describe('ApiCompletionProvider', () => {
       expect(provider.getActivePreset()?.id).toBe('xai-grok');
       await provider.getCompletion(makeProseContext(), signal());
       expect(primary.complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports backend_unavailable (not an empty reply) for an unknown override preset', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const res = await provider.getCompletionWithPresetDetail(
+        'no-such-preset',
+        makeCodeContext(),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('backend_unavailable');
+      expect(provider.getActivePreset()?.id).toBe('xai-grok');
     });
 
     it('restores the primary adapter even when the override request throws', async () => {

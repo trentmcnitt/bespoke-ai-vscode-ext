@@ -17,6 +17,7 @@ import {
   attachDetailToError,
   detailFromError,
   msToUnixNano,
+  nullResultOutcome,
   newTraceId,
   newSpanId,
   spanName,
@@ -202,6 +203,18 @@ describe('trace — helpers', () => {
     expect(serverAddressFor('anthropic')).toBe('api.anthropic.com');
     expect(serverAddressFor('openai')).toBe('api.openai.com');
     expect(serverAddressFor('ollama', 'not a url')).toBeUndefined();
+  });
+
+  it('nullResultOutcome attributes a null result: aborted, swallowed error, or empty', () => {
+    const d: GenerationDetail = { providerName: 'anthropic', requestModel: 'm' };
+    expect(nullResultOutcome(undefined)).toBe('empty');
+    expect(nullResultOutcome({ ...d, outputTokens: 3, finishReason: 'end_turn' })).toBe('empty');
+    expect(nullResultOutcome({ ...d, errorType: '429' })).toBe('error');
+    expect(nullResultOutcome({ ...d, errorType: '529' })).toBe('error');
+    expect(nullResultOutcome({ ...d, errorType: 'circuit_open' })).toBe('error');
+    expect(nullResultOutcome({ ...d, aborted: true })).toBe('aborted');
+    expect(nullResultOutcome({ ...d, errorType: '429' }, true)).toBe('aborted');
+    expect(nullResultOutcome(undefined, true)).toBe('aborted');
   });
 
   it('errorTypeOf prefers HTTP status, then error name', () => {
@@ -444,6 +457,18 @@ describe('trace — review fixes', () => {
       expect(span.attributes['gen_ai.response.model']).toBeUndefined();
     }
     expect(toSpanJson(makeRecord(), false).kind).toBe(3);
+  });
+
+  it('a provider that declined to send (detail.errorType) is INTERNAL too; a swallowed 429 is not', () => {
+    for (const errorType of ['backend_unavailable', 'circuit_open']) {
+      const r = makeRecord({
+        outcome: 'error',
+        detail: { providerName: 'anthropic', requestModel: 'm', errorType },
+      });
+      expect(toSpanJson(r, false).kind).toBe(SPAN_KIND_INTERNAL);
+    }
+    const rateLimited = makeRecord({ outcome: 'error', detail: makeDetail({ errorType: '429' }) });
+    expect(toSpanJson(rateLimited, false).kind).toBe(3);
   });
 
   it('omits gen_ai.usage.* for requests that did not complete (error / aborted)', () => {

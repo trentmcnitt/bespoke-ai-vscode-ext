@@ -140,6 +140,7 @@ interface Row {
 }
 
 const TAG_RE = /<\/?COMPLETION>|\{\{FILL_HERE\}\}/;
+const TAG_RE_G = /<\/?COMPLETION>|\{\{FILL_HERE\}\}/g;
 const PREAMBLE_RE = /^(?:Here(?:'s| is)|Sure\b|Got it\b|Understood\b|Of course\b)/i;
 
 function readIf(p: string): string | undefined {
@@ -262,6 +263,13 @@ function classifyDrift(r: Row): string | null {
       `bracket (${JSON.stringify(cur.slice(rec.length))}).`
     );
   }
+  if (r.prefill && cur && /^\s*\{\{FILL_HERE\}\}\s*<\/COMPLETION>/.test(r.raw)) {
+    return (
+      'prefill-scaffold-retry: the thinking-leak retry now also applies when the first ' +
+      '<COMPLETION> block is only prompt scaffolding ({{FILL_HERE}}); that block used to ' +
+      "count as substantive, post-processing stripped the marker, and the retry's text was lost."
+    );
+  }
   if (r.prefill && rec.includes('</COMPLETION>')) {
     return (
       'prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST ' +
@@ -333,8 +341,13 @@ function tagRow(r: Row): string[] {
   const hasClose = raw.includes('</COMPLETION>');
   if (!r.prefill && !hasOpen && !hasClose && raw.trim()) tags.push('raw-no-tags');
   if (r.prefill && !hasClose && raw.trim()) tags.push('prefill-no-close');
-  if (r.prefill && hasClose && !raw.slice(0, raw.indexOf('</COMPLETION>')).trim()) {
-    // Immediate close; extraction then retries a second <COMPLETION> pair.
+  if (
+    r.prefill &&
+    hasClose &&
+    !raw.slice(0, raw.indexOf('</COMPLETION>')).replace(TAG_RE_G, '').trim()
+  ) {
+    // Immediate close (or only scaffolding before it); extraction then
+    // retries a second <COMPLETION> pair.
     tags.push(r.extracted ? 'prefill-retry-used' : 'prefill-immediate-close');
   }
   if (hasClose && raw.slice(raw.lastIndexOf('</COMPLETION>') + 13).trim()) {

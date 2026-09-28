@@ -14,6 +14,13 @@ import {
   renderJoin,
   runDeterministicChecks,
 } from './deterministic-checks';
+import {
+  CompletionWithDetail,
+  GenerationDetail,
+  detailFromError,
+  errorTypeOf,
+  nullResultOutcome,
+} from '../../utils/trace';
 
 export const RUBRIC_PATH = path.join(__dirname, 'validator-prompt.md');
 
@@ -96,5 +103,53 @@ export function collectProvenance(opts: {
     model: opts.model,
     preset: opts.preset,
     rubricSha256: fileHash12(opts.rubricPath ?? RUBRIC_PATH),
+  };
+}
+
+export type RunOutcome = 'ok' | 'empty' | 'error' | 'aborted';
+
+export interface RunAttribution {
+  outcome: RunOutcome;
+  errorType?: string;
+  /** Set for thrown AND swallowed failures, so the scenario is not scored as an empty completion. */
+  error?: string;
+}
+
+/**
+ * Fill outcome / errorType / error from a provider result, the same way the
+ * orchestrator attributes a null (see nullResultOutcome). Before this, the
+ * runner called getCompletion() and a swallowed 429 was saved as an ordinary
+ * empty completion with `error: null`.
+ */
+export function attributeResult(res: CompletionWithDetail): RunAttribution {
+  if (res.text !== null) return { outcome: 'ok' };
+  const outcome = nullResultOutcome(res.detail);
+  if (outcome === 'empty') return { outcome };
+  const errorType = res.detail?.errorType ?? 'aborted';
+  return {
+    outcome,
+    errorType,
+    error: `no completion: ${outcome} (${errorType}) swallowed by the provider`,
+  };
+}
+
+export function attributeThrown(err: unknown): RunAttribution {
+  return {
+    outcome: 'error',
+    errorType: detailFromError(err)?.errorType ?? errorTypeOf(err),
+    error: err instanceof Error ? err.message : String(err),
+  };
+}
+
+/** The provider fields worth keeping per scenario (no content). */
+export function detailSummary(d: GenerationDetail | undefined) {
+  if (!d) return null;
+  return {
+    responseModel: d.responseModel ?? null,
+    finishReason: d.finishReason ?? null,
+    inputTokens: d.inputTokens ?? null,
+    outputTokens: d.outputTokens ?? null,
+    cacheReadTokens: d.cacheReadTokens ?? null,
+    durationApiMs: d.durationApiMs ?? null,
   };
 }

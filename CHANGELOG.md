@@ -7,6 +7,8 @@
 - **Fix — words glued together:** completions that start a new word right after the cursor often left out the leading space (`behind` + `inadequate` → `behindinadequate`). The prompt now tells the model when the cursor sits flush against a word. Fixed for Claude and Grok; GPT-4.1 Nano still does it.
 - **Fix — doubled spaces and blank lines with the Anthropic API presets:** completions after a space or line break repeated that whitespace.
 - **Fix — code completions losing their own closing bracket:** when the text after the cursor started with `)`, `]`, or `}`, the de-duplication step could remove a bracket that closed something the completion itself opened (e.g. `user.isActive()` became `user.isActive(`), leaving invalid code. It now only removes closers that really repeat the text after the cursor.
+- **Fix — lost completion with the Anthropic API presets:** when the model echoed the `{{FILL_HERE}}` placeholder, closed its answer, and then answered properly in a second block, the real answer was dropped and no ghost text appeared. The second block is now used.
+- **Fix — failed requests recorded as empty:** with the API backend, a code-override request that was never sent — blocked by the open circuit breaker, or naming a preset that does not exist — showed up in Show Recent Completions as `empty` instead of `error` (`circuit_open` / `backend_unavailable`).
 - **Fix — pool robustness:** a corrupt lockfile is reclaimed instead of blocking every window; a pool server that fails to start no longer stays bound or hangs; a window disabled during startup no longer ends up running the shared Claude Code pool.
 
 ## 0.8.15 — Explain / Fix / Do with opencode
