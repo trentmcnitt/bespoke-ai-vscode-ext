@@ -96,6 +96,14 @@ vi.mock('../../providers/claude-code', () => ({
       _s: unknown,
       opts?: { captureContent?: boolean },
     ) {
+      // A pool kill / a superseded request, as ClaudeCodeProvider reports them.
+      if (ctx.prefix === 'RECYCLED' || ctx.prefix === 'SUPERSEDED') {
+        const why = ctx.prefix === 'RECYCLED' ? { errorType: 'pool_recycled' } : { aborted: true };
+        return {
+          text: null,
+          detail: { providerName: 'anthropic', requestModel: this.config.claudeCode.model, ...why },
+        };
+      }
       const text = await this.getCompletion(ctx);
       return {
         text,
@@ -152,6 +160,8 @@ vi.mock('../../providers/command-pool', () => ({
     }
     async sendPrompt(message: string) {
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
+      if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
+      if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
       return {
         text: `cmd:${this.model}:${message}`,
         meta: {
@@ -353,6 +363,30 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       }
     });
 
+    it('a pool kill reaches the requester as an error type, a superseded request as aborted, on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const h of [a, b]) {
+        const killed = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'RECYCLED' }),
+          signal(),
+        );
+        expect(killed.text).toBeNull();
+        expect(killed.detail?.errorType).toBe('pool_recycled');
+        expect(killed.detail?.aborted).toBeUndefined();
+
+        const superseded = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'SUPERSEDED' }),
+          signal(),
+        );
+        expect(superseded.detail?.aborted).toBe(true);
+        expect(superseded.detail?.errorType).toBeUndefined();
+      }
+    });
+
     it('omits content on both paths when capture is off', async () => {
       const a = makeClient('A');
       const b = makeClient('B');
@@ -421,6 +455,26 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
         expect(res.meta).toMatchObject({ model: 'opus', durationMs: 12, sessionId: 'sess-1' });
       }
       expect((await b.client.sendCommand('NO_META')).meta).toBeNull();
+    });
+
+    it('a command the pool ended reaches the requester with its reason on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const c of [a.client, b.client]) {
+        expect(await c.sendCommand('RECYCLED')).toEqual({
+          text: null,
+          meta: null,
+          errorType: 'pool_recycled',
+        });
+        expect(await c.sendCommand('SUPERSEDED')).toEqual({
+          text: null,
+          meta: null,
+          aborted: true,
+        });
+      }
     });
 
     it('follower returns null and logs when the leader reports the completion pool unavailable', async () => {
@@ -539,7 +593,11 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
 
       // Every public request method honors the null-on-error contract
       expect(await a.client.getCompletion(makeProseContext(), signal())).toBeNull();
-      expect(await a.client.sendCommand('x')).toEqual({ text: null, meta: null });
+      expect(await a.client.sendCommand('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_error',
+      });
       expect(await a.client.getPoolStatus()).toBeNull();
       await expect(a.client.recycleAll()).resolves.toBeUndefined();
       await expect(a.client.restart()).resolves.toBeUndefined();

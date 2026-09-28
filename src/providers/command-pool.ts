@@ -1,5 +1,5 @@
 import { Logger } from '../utils/logger';
-import { SlotPool, ResultMetadata } from './slot-pool';
+import { SlotPool, ResultMetadata, SlotDenial } from './slot-pool';
 import type { GenerationDetail } from '../utils/trace';
 
 export const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely. Output only what is requested — no commentary, preamble, or meta-text.`;
@@ -22,8 +22,19 @@ export interface SendPromptOptions {
 export interface SendPromptResult {
   text: string | null;
   meta: ResultMetadata | null;
+  /** CLI: why the pool returned no text (a `SlotFailure`, e.g. `pool_recycled`). */
+  errorType?: string;
+  /** CLI: the request was superseded or the pool shut down before it was answered. */
+  aborted?: boolean;
   /** Generation detail (API backend). The CLI path's detail is rebuilt from `meta`. */
   detail?: GenerationDetail;
+}
+
+/** `superseded` / `disposed` are cancellations; anything else is a pool failure. */
+function denialFields(denial: SlotDenial): Pick<SendPromptResult, 'errorType' | 'aborted'> {
+  return denial === 'superseded' || denial === 'disposed'
+    ? { aborted: true }
+    : { errorType: denial };
 }
 
 export class CommandPool extends SlotPool {
@@ -88,20 +99,20 @@ export class CommandPool extends SlotPool {
     options?: SendPromptOptions,
   ): Promise<SendPromptResult> {
     if (!this.queryFn || !this.isAvailable()) {
-      return { text: null, meta: null };
+      return { text: null, meta: null, errorType: 'slot_unavailable' };
     }
 
     // Acquire an available slot (marks it busy before returning)
-    const slotIndex = await this.acquireSlot();
-    if (slotIndex === null) {
-      return { text: null, meta: null };
+    const slotIndex = await this.acquireSlotOrDenial();
+    if (typeof slotIndex !== 'number') {
+      return { text: null, meta: null, ...denialFields(slotIndex) };
     }
 
     const slot = this.slots[slotIndex];
 
-    // Guard: slot may have been disposed between acquireSlot and here
+    // Guard: slot may have lost its session between acquireSlot and here
     if (!slot.channel || !slot.resultPromise) {
-      return { text: null, meta: null };
+      return { text: null, meta: null, errorType: 'slot_unavailable' };
     }
 
     this.logger.traceBlock('→ command sent', message);
@@ -114,9 +125,11 @@ export class CommandPool extends SlotPool {
     let resolved = false;
 
     // Wrap slot.resultPromise to set resolved atomically on win
+    let failure: SlotDenial | undefined;
     const resultWithFlag = slot.resultPromise.then((result) => {
       resolved = true;
-      return result;
+      failure = result.failure;
+      return result.text;
     });
 
     // Build race promises
@@ -131,7 +144,7 @@ export class CommandPool extends SlotPool {
           resolved = true;
           this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
           // Timeout: deliver null to unblock, close channel to force recycle
-          slot.deliverResult?.(null);
+          slot.deliverResult?.({ text: null });
           slot.channel?.close();
           resolve(null);
         }, options.timeoutMs);
@@ -147,7 +160,7 @@ export class CommandPool extends SlotPool {
         if (timeoutId !== undefined) {
           clearTimeout(timeoutId);
         }
-        slot.deliverResult?.(null);
+        slot.deliverResult?.({ text: null });
         slot.channel?.close();
         return { text: null, meta: null };
       }
@@ -157,7 +170,7 @@ export class CommandPool extends SlotPool {
           resolved = true;
           this.logger.debug('CommandPool: request cancelled');
           // Clean up slot to prevent "busy forever" leak — matches timeout behavior
-          slot.deliverResult?.(null);
+          slot.deliverResult?.({ text: null });
           slot.channel?.close();
           resolve(null);
         };
@@ -180,9 +193,14 @@ export class CommandPool extends SlotPool {
     const meta = slot.lastResultMeta;
     slot.lastResultMeta = null;
 
-    this.logger.traceBlock('← command response', raw ?? '(null)');
+    this.logger.traceBlock(
+      '← command response',
+      raw ?? (failure ? `(null: ${failure})` : '(null)'),
+    );
 
-    return { text: raw, meta };
+    return raw === null && failure
+      ? { text: null, meta, ...denialFields(failure) }
+      : { text: raw, meta };
   }
 
   // --- SlotPool abstract method implementations ---

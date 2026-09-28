@@ -428,7 +428,7 @@ export class PoolClient implements ICompletionProvider {
           id: request.id,
           success: true,
           text: result.text,
-          meta: commandMetaToWire(result.meta),
+          meta: commandMetaToWire(result.meta, result),
         };
       }
 
@@ -637,32 +637,41 @@ export class PoolClient implements ICompletionProvider {
       if (response.type === 'command' && response.success) {
         // Map protocol metadata to slot-pool format (fill defaults for optional fields)
         const protocolMeta = response.meta;
-        const meta = protocolMeta
-          ? {
-              model: protocolMeta.model,
-              durationMs: protocolMeta.durationMs ?? 0,
-              durationApiMs: protocolMeta.durationApiMs ?? 0,
-              costUsd: protocolMeta.costUsd ?? 0,
-              inputTokens: protocolMeta.inputTokens ?? 0,
-              outputTokens: protocolMeta.outputTokens ?? 0,
-              cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,
-              cacheCreationTokens: protocolMeta.cacheCreationTokens ?? 0,
-              sessionId: protocolMeta.sessionId ?? '',
-              stopReason: protocolMeta.finishReason,
-              turnCostUsd: protocolMeta.turnCostUsd,
-            }
-          : null;
-        return { text: response.text, meta };
+        // A failure-only meta (no usage) carries just errorType / aborted.
+        const meta =
+          protocolMeta && protocolMeta.outputTokens !== undefined
+            ? {
+                model: protocolMeta.model,
+                durationMs: protocolMeta.durationMs ?? 0,
+                durationApiMs: protocolMeta.durationApiMs ?? 0,
+                costUsd: protocolMeta.costUsd ?? 0,
+                inputTokens: protocolMeta.inputTokens ?? 0,
+                outputTokens: protocolMeta.outputTokens ?? 0,
+                cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,
+                cacheCreationTokens: protocolMeta.cacheCreationTokens ?? 0,
+                sessionId: protocolMeta.sessionId ?? '',
+                stopReason: protocolMeta.finishReason,
+                turnCostUsd: protocolMeta.turnCostUsd,
+              }
+            : null;
+        return {
+          text: response.text,
+          meta,
+          ...(protocolMeta?.errorType ? { errorType: protocolMeta.errorType } : {}),
+          ...(protocolMeta?.aborted ? { aborted: true } : {}),
+        };
       }
       // Log error responses instead of silently swallowing
       if (response.type === 'error' || (response.type === 'command' && !response.success)) {
         const errorMsg = 'error' in response ? response.error : 'unknown error';
         this.logger.error(`Pool: command failed: ${errorMsg}`);
       }
-      return { text: null, meta: null };
+      return { text: null, meta: null, errorType: 'pool_error' };
     } catch (err) {
+      // Disposed mid-request (pending requests are rejected): cancelled, not a pool failure.
+      if (this.disposed) return { text: null, meta: null, aborted: true };
       this.logger.error(`Pool: command error: ${err}`);
-      return { text: null, meta: null };
+      return { text: null, meta: null, errorType: 'pool_error' };
     }
   }
 

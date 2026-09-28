@@ -5,7 +5,7 @@ import { CircuitBreaker } from '../../utils/circuit-breaker';
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
-import { applyAdapterResult } from './api-provider';
+import { applyAdapterResult, emptyResultIsBackendFailure } from './api-provider';
 import {
   CompletionWithDetail,
   GenerationDetail,
@@ -115,7 +115,8 @@ export class ApiCommandProvider {
     });
 
     if (!result.text) {
-      if (!result.aborted) this.breaker.recordFailure();
+      if (emptyResultIsBackendFailure(result)) this.breaker.recordFailure();
+      else if (!result.aborted) this.breaker.recordSuccess(); // the backend answered
       return { text: null, detail };
     }
 

@@ -687,3 +687,25 @@ export async function assertValidSyntax(
     );
   }
 }
+
+/**
+ * Assert that SDK query options isolate a slot from the host's Claude Code
+ * configuration (settings files, CLAUDE.md, auto-memory, MCP servers and
+ * claude.ai connectors), while keeping the host environment (PATH, auth vars).
+ */
+export function expectIsolatedQueryOptions(options: any): void {
+  expect(options.settingSources).toEqual([]);
+  expect(options.strictMcpConfig).toBe(true);
+  expect(options.tools).toEqual([]);
+  expect(options.allowedTools).toEqual([]);
+  expect(options.mcpServers ?? {}).toEqual({});
+  expect(options.persistSession).toBe(false);
+  expect(options.env).toMatchObject({
+    CLAUDE_CODE_SAFE_MODE: '1',
+    CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+  });
+  // `env` replaces the SDK's default (process.env), so the host env must survive.
+  expect(options.env.PATH).toBe(process.env.PATH);
+}

@@ -41,6 +41,27 @@ export function applyAdapterResult(detail: GenerationDetail, result: ApiAdapterR
   if (result.errorType) detail.errorType = result.errorType;
 }
 
+/**
+ * Whether an adapter result with no text should count toward the circuit breaker.
+ *
+ * The breaker exists to stop hammering a backend that is failing. An empty reply
+ * the backend delivered normally (an immediate `</COMPLETION>`, a stop-sequence
+ * cut, a `max_tokens` finish) is the model deciding, not the backend failing,
+ * and five of those in a row used to block completions for 30 s.
+ *
+ * Empties were counted originally (420b060) because adapters then swallowed
+ * 429/529 and connection errors as a bare null, so "no text" was the only
+ * failure signal. Adapters now report those as `errorType`, which is what
+ * counts here. A reply with no text, no output tokens, and no finish reason
+ * also counts: nothing was generated and nothing explains why, which is the
+ * shape of a broken endpoint or proxy rather than a model decision.
+ */
+export function emptyResultIsBackendFailure(result: ApiAdapterResult): boolean {
+  if (result.aborted) return false;
+  if (result.errorType) return true;
+  return result.usage.outputTokens === 0 && !result.finishReason;
+}
+
 export class ApiCompletionProvider implements CompletionProvider {
   private config: ExtensionConfig;
   private logger: Logger;
@@ -188,7 +209,8 @@ export class ApiCompletionProvider implements CompletionProvider {
     if (content) content.rawOutput = result.text;
 
     if (!result.text) {
-      if (!result.aborted) this.breaker.recordFailure();
+      if (emptyResultIsBackendFailure(result)) this.breaker.recordFailure();
+      else if (!result.aborted) this.breaker.recordSuccess(); // the backend answered
       return { text: null, detail };
     }
 
