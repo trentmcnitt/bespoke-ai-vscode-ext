@@ -276,17 +276,18 @@ describe('PrefillExtraction strategy', () => {
           '{{FILL_HERE}}\n</document>\n\n' +
           fillInstructionSentences(midWordPrefix).join(' ') +
           '\n\n<COMPLETION>ent to production.</COMPLETION>';
-        expect(extract(raw, midWordPrefix)).toBeNull();
+        // The answer after the reopened tag is recovered (recoverFromEchoBlock).
+        expect(extract(raw, midWordPrefix)).toBe('ent to production.');
         // Same, without the inner <COMPLETION> (the model just kept writing).
         const raw2 = raw.replace('<COMPLETION>', '');
         expect(extract(raw2, midWordPrefix)).toBeNull();
       });
 
-      it('href: echoed suffix and </document>, reasoning, then the answer, one close', () => {
+      it('href: echoed suffix and </document>, reasoning, then an untagged answer, one close', () => {
         const raw =
           '{{FILL_HERE}}</a></li>\n  </ul>\n</nav>\n</document>\n\n' +
           'I need to see the actual content after the marker. A typical third link would be:\n\n' +
-          '<COMPLETION>/contact">Contact</COMPLETION>';
+          '/contact">Contact</COMPLETION>';
         expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
       });
 
@@ -366,6 +367,120 @@ describe('PrefillExtraction strategy', () => {
       it('keeps reasoning that quotes nothing from the prompt (deliberate residual risk)', () => {
         const raw = ' Wait, let me reconsider the plan.</COMPLETION>';
         expect(extract(raw, 'We shipped it.')).toBe(' Wait, let me reconsider the plan.');
+      });
+    });
+  });
+
+  // The answer to an echo detour usually sits inside the rejected block, after a
+  // <COMPLETION> the model reopened. Shapes reduced from claude-haiku-4-5 raw
+  // outputs, evals/2026-09-28-echo-recovery-prototype.md.
+  describe('recovers the answer from inside a rejected echo block', () => {
+    const extract = (raw: string, prefix: string, suffix = '') =>
+      prefillExtraction.extractCompletion(raw, prefix, suffix);
+    const midWordPrefix = 'Friday was rough. We pushed the deploym';
+    const hrefPrefix = '<nav>\n  <ul>\n    <li><a href="/about">About</a></li>\n    <li><a href="';
+    const hrefSuffix = '</a></li>\n  </ul>\n</nav>';
+    const hrefEcho = '{{FILL_HERE}}</a></li>\n  </ul>\n</nav>\n</document>\n\n';
+    const proseListPrefix =
+      '- Data consistency matters more than availability\n\nGiven these constraints,';
+
+    describe('activation', () => {
+      it('mid-word: echoed cue, then a reopened block finishing the word', () => {
+        const raw =
+          '{{FILL_HERE}}\n</document>\n\n' +
+          fillInstructionSentences(midWordPrefix).join(' ') +
+          '\n\n<COMPLETION>ent to production and it broke checkout.</COMPLETION>';
+        expect(extract(raw, midWordPrefix)).toBe('ent to production and it broke checkout.');
+      });
+
+      it('href: echoed suffix and reasoning, then a reopened path and link text', () => {
+        const raw =
+          hrefEcho +
+          'I need to see the actual content. A typical third link would be:\n\n' +
+          '<COMPLETION>/contact">Contact</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBe('/contact">Contact');
+      });
+
+      it('prose: keeps the leading space of the reopened block', () => {
+        const raw =
+          '{{FILL_HERE}}\n</document>\n\n' +
+          fillInstructionSentences(proseListPrefix).join(' ') +
+          '\n\n---\n\n<COMPLETION> we should favor a single-leader database.</COMPLETION>';
+        expect(extract(raw, proseListPrefix)).toBe(' we should favor a single-leader database.');
+      });
+
+      it('takes the last reopened block when there are several', () => {
+        const raw =
+          hrefEcho +
+          'A typical link would be:\n\n<COMPLETION>/contact">Contact</a></li>\n\n' +
+          'Actually, let me reconsider:\n\n<COMPLETION>/services">Services</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBe('/services">Services');
+      });
+
+      it('is reached only after a usable closed retry block is ruled out', () => {
+        const raw =
+          hrefEcho +
+          '<COMPLETION>/contact">Contact</COMPLETION>\nWait.\n<COMPLETION>/blog">Blog</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBe('/blog">Blog');
+      });
+    });
+
+    describe('no-op', () => {
+      it('an echo block without a reopened tag still shows nothing', () => {
+        const raw = hrefEcho + 'Could you clarify what the third link should be?</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('a reopened block that itself contains </document> is not used', () => {
+        const raw =
+          '{{FILL_HERE}}\n</document>\n\nFill the {{FILL_HERE}} marker.\n\n' +
+          '<COMPLETION>{{FILL_HERE}}</a></li>\n</document></COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+        const raw2 = hrefEcho + '<COMPLETION>/contact">Contact</a>\n</document></COMPLETION>';
+        expect(extract(raw2, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('a reopened block that contains an appended sentence is not used', () => {
+        const raw =
+          '{{FILL_HERE}}\n</document>\n\n<COMPLETION>ent. ' +
+          fillInstructionSentences(midWordPrefix)[1] +
+          '</COMPLETION>';
+        expect(extract(raw, midWordPrefix)).toBeNull();
+      });
+
+      it('an unclosed echo block (max_tokens) with a reopened tag is not recovered', () => {
+        const raw = hrefEcho + 'A typical third link would be:\n\n<COMPLETION>/contact">';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('a reopened block that restarts the prefix is not used', () => {
+        const echo = '{{FILL_HERE}}\n</document>\n\n' + FILL_INSTRUCTION + '\n\n';
+        // Re-types the partly typed word ("deploymdeployment" if shown).
+        expect(
+          extract(echo + '<COMPLETION>deployment to production.</COMPLETION>', midWordPrefix),
+        ).toBeNull();
+        // Re-types the prefill anchor.
+        expect(
+          extract(
+            echo + '<COMPLETION>' + midWordPrefix + 'ent to production.</COMPLETION>',
+            midWordPrefix,
+          ),
+        ).toBeNull();
+      });
+
+      it('a blank reopened block is not used', () => {
+        expect(
+          extract(hrefEcho + '<COMPLETION>  </COMPLETION>', hrefPrefix, hrefSuffix),
+        ).toBeNull();
+      });
+
+      it('a first block that is not an echo is unchanged, reopened tag and all', () => {
+        const raw = ' ship it.<COMPLETION> Or not.</COMPLETION>';
+        expect(extract(raw, 'We should')).toBe(' ship it.<COMPLETION> Or not.');
+      });
+
+      it('a scaffold-only first block with no retry still shows nothing', () => {
+        expect(extract('{{FILL_HERE}}<COMPLETION></COMPLETION>', midWordPrefix)).toBeNull();
       });
     });
   });

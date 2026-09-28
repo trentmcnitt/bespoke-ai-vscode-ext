@@ -324,6 +324,11 @@ function extractPrefillContent(raw: string, prefix?: string, suffix?: string): s
         }
       }
     }
+    // Last resort: the answer may sit inside the rejected echo block, after a
+    // <COMPLETION> the model reopened (see recoverFromEchoBlock).
+    if (echoesUserMessage(content, prefix, suffix)) {
+      return recoverFromEchoBlock(content, prefix, suffix);
+    }
     // No usable content found
     return null;
   }
@@ -373,6 +378,58 @@ function echoesUserMessage(block: string, prefix?: string, suffix?: string): boo
   }
   const sentences = prefix === undefined ? [FILL_INSTRUCTION] : fillInstructionSentences(prefix);
   return sentences.some(fromPrompt);
+}
+
+/**
+ * Recover the answer from a closed first block that was rejected as an echo of
+ * the user message, when the model reopened `<COMPLETION>` inside it.
+ *
+ * Problem: haiku's echo detour usually ends with the real answer inside a tag it
+ * reopened without closing the first one:
+ * `{{FILL_HERE}}</a></li>\n</document>\n\nI need to see… <COMPLETION>/contact">Contact</COMPLETION>`.
+ * The first `</COMPLETION>` closes that inner tag, so the whole thing is one
+ * block. echoesUserMessage() rejects it, and with no retry block after it the
+ * result is nothing (24 of the 36 recorded echo rejections; see
+ * evals/2026-09-28-echo-recovery-prototype.md).
+ *
+ * Rule: take the text after the LAST `<COMPLETION>` in the block, up to the
+ * block's end (the first `</COMPLETION>`), and use it only if it passes every
+ * check below; otherwise return null (the behavior without this step).
+ *
+ * Why it is safe:
+ *  - It only runs when the first block is closed, was rejected as an echo, and
+ *    no closed retry block was usable — i.e. when the result would otherwise be
+ *    null. It never changes a completion that is shown today.
+ *  - The recovered text must contain none of the prompt's scaffolding:
+ *    `{{FILL_HERE}}`, `</document>`, or an appended instruction sentence (each
+ *    ignored when it is in the prefix/suffix sent, as in echoesUserMessage).
+ *    Since the block was rejected for one of these and the recovered text has
+ *    none, the echo lies wholly before the reopened tag.
+ *  - The recovered text must not restart the prefix: it may not begin with the
+ *    prefill anchor, or with the partly typed word before the cursor (re-typing
+ *    `deploym` would show `deploymdeployment`).
+ *  - It is not blank or scaffolding only.
+ *  - Unclosed blocks (a `max_tokens` cut) are not recovered: a reopened tag
+ *    with no close has no evidence that the answer is complete.
+ *
+ * Nothing is rewritten: the recovered text is used verbatim or not at all.
+ */
+function recoverFromEchoBlock(block: string, prefix?: string, suffix?: string): string | null {
+  const open = block.lastIndexOf('<COMPLETION>');
+  if (open === -1) return null;
+  const text = block.slice(open + '<COMPLETION>'.length);
+  if (isScaffoldOnly(text)) return null;
+  const docText = (prefix ?? '') + (suffix ?? '');
+  const fromPrompt = (s: string) => text.includes(s) && !docText.includes(s);
+  const sentences = prefix === undefined ? [FILL_INSTRUCTION] : fillInstructionSentences(prefix);
+  if (['{{FILL_HERE}}', '</document>', ...sentences].some(fromPrompt)) return null;
+  if (prefix !== undefined) {
+    const anchor = prefillAnchor(prefix);
+    if (anchor && text.startsWith(anchor)) return null;
+    const partialWord = /[\p{L}\p{N}_]{2,}$/u.exec(prefix)?.[0];
+    if (partialWord && text.startsWith(partialWord)) return null;
+  }
+  return text;
 }
 
 /** True when `text` is blank once prompt scaffolding tags / the fill marker are removed. */
