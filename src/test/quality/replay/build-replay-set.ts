@@ -147,8 +147,24 @@ function readIf(p: string): string | undefined {
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : undefined;
 }
 
+/**
+ * Drift notes already curated in the committed fixture, keyed by case id. A rebuild keeps
+ * a case's note while the pipeline still produces the same expected output, so hand-written
+ * explanations (including chains of fixes) survive regeneration.
+ */
+function loadPriorDrift(file: string): Map<string, { drift: string; expected: string | null }> {
+  const prior = new Map<string, { drift: string; expected: string | null }>();
+  const text = readIf(file);
+  if (!text) return prior;
+  for (const c of (JSON.parse(text) as ReplaySet).cases) {
+    if (c.drift) prior.set(c.id, { drift: c.drift, expected: c.expected_final });
+  }
+  return prior;
+}
+
 function loadRows(root: string): Row[] {
   const rows: Row[] = [];
+  const priorDrift = loadPriorDrift(DEFAULT_OUT);
   const runs = fs
     .readdirSync(root)
     .filter((d) => d.startsWith('quality-') && (d >= CURRENT_ERA_FROM || DRIFT_RUNS.test(d)))
@@ -211,14 +227,13 @@ function loadRows(root: string): Row[] {
         tags: [],
       };
       if (recorded !== final) {
-        if (run >= CURRENT_ERA_FROM) {
-          // Should not happen: these runs reproduced exactly when the set was built.
-          console.warn(`UNEXPECTED DRIFT (not included): ${row.key}`);
-          continue;
-        }
-        const drift = classifyDrift(row);
+        // Explain the difference with the curated note (if the expected output is unchanged)
+        // or a known fix. Unexplained drift in current-era runs would be a regression.
+        const prior = priorDrift.get(`${run.replace(/^quality-/, '')}/${scenario}`);
+        const drift = prior && prior.expected === final ? prior.drift : classifyDrift(row);
         if (!drift) {
-          console.warn(`UNEXPLAINED DRIFT (not included): ${row.key}`);
+          const kind = run >= CURRENT_ERA_FROM ? 'UNEXPECTED' : 'UNEXPLAINED';
+          console.warn(`${kind} DRIFT (not included): ${row.key}`);
           continue;
         }
         row.drift = drift;
@@ -239,6 +254,12 @@ function loadRows(root: string): Row[] {
 function classifyDrift(r: Row): string | null {
   const rec = r.recorded ?? '';
   const cur = r.current ?? '';
+  if (r.prefill && /^\s*\{\{FILL_HERE\}\}\s*<\/COMPLETION>/.test(r.raw) && !rec && cur) {
+    return (
+      'prefill-scaffold-retry: the thinking-leak retry now also applies when the first block ' +
+      'is only prompt scaffolding ({{FILL_HERE}}); the retry answer used to be lost.'
+    );
+  }
   if (
     r.prefill &&
     cur &&

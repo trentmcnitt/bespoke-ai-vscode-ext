@@ -57,7 +57,7 @@ The builder prints the composition (by strategy, model, mode and tag), plus a wa
 - **Intended.** Rebuild the set, or edit that case's `expected_final` and `expected_checks` by hand. Set `recorded_final` to the old value and add a `drift` note that cites the commit.
 - **Not intended.** You have a regression. Fix the code. Do not update the fixture to match it.
 
-Adding new quality runs to the source folder and rebuilding can change which cases are selected. Review the diff to the fixture before you commit it.
+Adding new quality runs, or a pipeline fix that makes more old cases explainable, can change which cases a rebuild selects. Drift notes already in the fixture are carried forward for any case whose expected output hasn't changed. For a small change, editing the affected cases by hand keeps the set stable; if you rebuild, review the diff to the fixture before you commit it.
 
 ## What it covers, and what it doesn't
 

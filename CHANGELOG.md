@@ -11,6 +11,8 @@
 - **Fix — lost completion with the Anthropic API presets:** when the model echoed the `{{FILL_HERE}}` placeholder, closed its answer, and then answered properly in a second block, the real answer was dropped and no ghost text appeared. The second block is now used.
 - **Fix — failed requests recorded as empty:** with the API backend, a code-override request that was never sent — blocked by the open circuit breaker, or naming a preset that does not exist — showed up in Show Recent Completions as `empty` instead of `error` (`circuit_open` / `backend_unavailable`).
 - **Fix — pool robustness:** a corrupt lockfile is reclaimed instead of blocking every window; a pool server that fails to start no longer stays bound or hangs; a window disabled during startup no longer ends up running the shared Claude Code pool.
+- **Privacy — stopping trace export no longer sends what was queued:** turning VS Code telemetry off or clearing the OTLP endpoint now discards spans that were waiting to be sent, instead of sending them on the way out. A plain `http://` endpoint on another machine is now called out as unencrypted in the first-export notice.
+- **Privacy — local files are owner-only:** `~/.bespokeai/` is now created (and tightened, if it is yours) as owner-only, and the usage ledger and trace file are owner-only. Old trace archives are also cleaned up at startup, not only when the file rotates.
 
 ## 0.8.15 — Explain / Fix / Do with opencode
 

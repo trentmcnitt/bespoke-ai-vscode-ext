@@ -104,7 +104,7 @@ _The Claude Code backend uses your existing paid Claude plan (Pro, Max, Team, or
 
 ## 🧪 How quality is measured
 
-Autocomplete fails quietly — you just dismiss bad ghost text — so quality is measured offline against ~105 scenarios modelled on real use: journal entries, prompts to Claude, mid-document edits, gaps between paragraphs, and code in several languages. Each run generates completions through the production prompt and extraction code, runs six deterministic checks, and has an LLM judge score what the user would actually see. Details and all numbers: [`evals/`](evals/).
+Autocomplete fails quietly — you just dismiss bad ghost text — so quality is measured offline against ~105 scenarios modelled on real use: journal entries, prompts to Claude, mid-document edits, gaps between paragraphs, and code in several languages. Each run generates completions through the production prompt and extraction code, runs seven deterministic checks, and has an LLM judge score what the user would actually see. Details and all numbers: [`evals/`](evals/).
 
 What this has caught so far:
 
@@ -375,13 +375,13 @@ Spans are batched (every 5 s or 20 spans), each request times out after 5 s, and
 
 **No telemetry.** The extension collects no usage analytics and makes no network calls other than to your configured backend — plus the optional trace export below, which you have to point at an endpoint yourself. (The Claude Code CLI, when you use that backend, has its own telemetry settings.)
 
-**What stays on your machine**, in `~/.bespokeai/`:
+**What stays on your machine**, in `~/.bespokeai/` (a folder only your user account can open):
 
-| File                     | Contents                                                                                                                                                            | When                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `usage-ledger.jsonl`     | Per-request model, token counts, duration, cost where reported, the workspace folder name, and (Claude Code backend) the CLI session id. No prompt or document text | Always (feeds the Usage view in the status menu)       |
-| `traces.jsonl`           | Per-request trace records; includes prompt and output text unless you turn capture off. Rotated at 5 MB; archives older than 7 days are deleted                     | Only with `bespokeAI.trace.file` on. Owner-only (0600) |
-| `pool.lock`, `pool.sock` | Coordination between VS Code windows sharing one Claude Code pool                                                                                                   | Claude Code backend                                    |
+| File                     | Contents                                                                                                                                                            | When                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `usage-ledger.jsonl`     | Per-request model, token counts, duration, cost where reported, the workspace folder name, and (Claude Code backend) the CLI session id. No prompt or document text | Always (feeds the Usage view in the status menu). Owner-only (0600) |
+| `traces.jsonl`           | Per-request trace records; includes prompt and output text unless you turn capture off. Rotated at 5 MB; archives older than 7 days are deleted                     | Only with `bespokeAI.trace.file` on. Owner-only (0600)              |
+| `pool.lock`, `pool.sock` | Coordination between VS Code windows sharing one Claude Code pool                                                                                                   | Claude Code backend                                                 |
 
 **Optional trace export.** `bespokeAI.trace.otlp.endpoint` sends trace records to an OpenTelemetry backend you run or subscribe to (for example Langfuse, or an OTel Collector). It is off by default, pauses while VS Code telemetry is disabled (`telemetry.telemetryLevel`; VSCodium ships with telemetry off, so there export stays paused until you turn telemetry on), and exports prompt text only if you also turn on `bespokeAI.trace.otlp.captureContent`. The first export to a non-local host shows a notice saying what will be sent where.
 
