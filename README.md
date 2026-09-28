@@ -96,7 +96,7 @@ Override via settings or the status bar menu.
 
 I tried every open-source AI autocomplete extension I could find. Most handled code fine but fell apart with prose — breaking paragraphs mid-thought, injecting code syntax into journal entries, producing gibberish outside of source files. Nothing came close to Copilot for non-code text.
 
-So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering, but the result handles writing just as well as code.
+So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering.
 
 _The Claude Code backend uses your existing paid Claude plan (Pro, Max, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider._
 
