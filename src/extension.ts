@@ -41,7 +41,9 @@ import {
   isValidEnvVarName,
   isValidOtlpEndpoint,
   otlpTracesUrl,
+  otlpWarnKey,
   parseOtlpHeaders,
+  redactUrl,
 } from './utils/otlp-exporter';
 import {
   initSecretStorage,
@@ -1311,29 +1313,52 @@ function applyOtlpConfig(config: ExtensionConfig): void {
     return;
   }
   otlpHeadersEnvVar = envVar;
+  // Replacing the sink flushes the old exporter's queue; don't let it ship content that
+  // otlp.captureContent no longer allows.
+  if (current && current.includeContent && !includeContent) current.stripQueuedContent();
   traceRecorder.setSink(
     'otlp',
     new OtlpExporter({
       endpoint,
-      getHeaders: () => (envVar ? parseOtlpHeaders(resolveApiKey(envVar)) : {}),
+      getHeaders: () =>
+        envVar ? parseOtlpHeaders(resolveApiKey(envVar), (key) => logInvalidOtlpHeader(key)) : {},
       serviceVersion: String(extensionContext.extension.packageJSON?.version ?? '0.0.0'),
       includeContent,
       logger,
     }),
   );
   logger.info(
-    `Trace: exporting spans to ${otlpTracesUrl(endpoint)}${includeContent ? ' (with prompt content)' : ''}`,
+    `Trace: exporting spans to ${redactUrl(otlpTracesUrl(endpoint))}${includeContent ? ' (with prompt content)' : ''}`,
   );
   void warnRemoteOtlpEndpoint(endpoint, includeContent);
 }
 
-/** Tell the user once per host that trace data is leaving the machine. */
+/** Headers are re-parsed at every flush; report each invalid header once per session. */
+const loggedInvalidOtlpHeaders = new Set<string>();
+
+function logInvalidOtlpHeader(key: string | undefined): void {
+  const id = key ?? '';
+  if (loggedInvalidOtlpHeaders.has(id)) return;
+  loggedInvalidOtlpHeaders.add(id);
+  logger.error(
+    key
+      ? `Trace: ignoring OTLP header "${key}" — its value contains characters not allowed in an HTTP header`
+      : 'Trace: ignoring an OTLP header with an invalid name',
+  );
+}
+
+/**
+ * Tell the user once per host that trace data is leaving the machine — and again if prompt
+ * content starts being sent to a host that was only warned about metadata.
+ */
 async function warnRemoteOtlpEndpoint(endpoint: string, includeContent: boolean): Promise<void> {
   if (isLoopbackUrl(endpoint)) return;
   const host = new URL(endpoint).host;
+  const key = otlpWarnKey(host, includeContent);
   const warned = extensionContext.globalState.get<string[]>(OTLP_WARNED_HOSTS_KEY) ?? [];
-  if (warned.includes(host)) return;
-  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, host]);
+  // A host already warned about content export was also told about metadata.
+  if (warned.includes(key) || warned.includes(otlpWarnKey(host, true))) return;
+  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, key]);
   const what = includeContent
     ? 'request metadata and prompt/response text'
     : 'request metadata (models, tokens, timing, outcomes — no prompt text)';

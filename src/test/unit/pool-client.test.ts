@@ -271,6 +271,14 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
     expect(SOCK_PATH.startsWith(fakeHome)).toBe(true);
   });
 
+  it('a disposed client reports the completion as aborted, not empty', async () => {
+    const h = makeClient('disposed');
+    h.client.dispose();
+    const res = await h.client.getCompletionWithDetail(makeProseContext(), signal());
+    expect(res.text).toBeNull();
+    expect(res.detail?.aborted).toBe(true);
+  });
+
   describe('leader election', () => {
     it('first client becomes server, writes lockfile with its pid, and binds the socket', async () => {
       const a = makeClient('A');

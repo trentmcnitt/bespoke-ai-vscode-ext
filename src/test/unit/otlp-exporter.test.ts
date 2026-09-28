@@ -6,7 +6,9 @@ import {
   isValidEnvVarName,
   isValidOtlpEndpoint,
   otlpTracesUrl,
+  otlpWarnKey,
   parseOtlpHeaders,
+  redactUrl,
   toOtlpAttributes,
   toOtlpSpan,
 } from '../../utils/otlp-exporter';
@@ -126,12 +128,11 @@ describe('OTLP JSON shape', () => {
     );
   });
 
-  it('marks errors with status 2 and a message', () => {
-    const span = toOtlpSpan(
-      makeRecord({ outcome: 'error', errorType: '429', errorMessage: 'rate limited' }),
-      false,
-    );
-    expect(span.status).toEqual({ code: 2, message: 'rate limited' });
+  it('marks errors with status 2 and a message (error.type unless content is included)', () => {
+    const r = makeRecord({ outcome: 'error', errorType: '429', errorMessage: 'rate limited' });
+    expect(toOtlpSpan(r, true).status).toEqual({ code: 2, message: 'rate limited' });
+    const span = toOtlpSpan(r, false);
+    expect(span.status).toEqual({ code: 2, message: '429' });
     expect(span.attributes.find((a) => a.key === 'error.type')?.value).toEqual({
       stringValue: '429',
     });
@@ -160,7 +161,7 @@ describe('OTLP config helpers', () => {
     expect(parseOtlpHeaders('Authorization=Basic cGs6c2s=,x-langfuse-ingestion-version=4')).toEqual(
       { Authorization: 'Basic cGs6c2s=', 'x-langfuse-ingestion-version': '4' },
     );
-    expect(parseOtlpHeaders(' a = b , , =x, noeq, c=%20d ')).toEqual({ a: 'b', c: ' d' });
+    expect(parseOtlpHeaders(' a = b , , =x, noeq, c=%20d ')).toEqual({ a: 'b', c: 'd' });
     expect(parseOtlpHeaders('bad key=v,ok=1')).toEqual({ ok: '1' });
     expect(parseOtlpHeaders('x=a%0D%0AInjected: y')).toEqual({});
     expect(parseOtlpHeaders(undefined)).toEqual({});
@@ -252,7 +253,7 @@ describe('OtlpExporter', () => {
   it('swallows network errors and HTTP failures with a rate-limited log line', async () => {
     let n = 0;
     const fetchFn = vi.fn<FetchLike>(async () => {
-      if (n++ === 0) throw new Error('ECONNREFUSED');
+      if (n++ === 0) throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
       return { ok: false, status: 503 };
     });
     const { exporter, logger } = makeExporter({ fetchFn });
@@ -315,5 +316,81 @@ describe('trace settings (package.json)', () => {
       'bespokeAI.trace.otlp.headersEnvVar',
     ]);
     for (const [, v] of trace) expect(v.scope).toBe('application');
+  });
+});
+
+describe('OTLP review fixes', () => {
+  it('drops header values with control characters (NUL) and reports only the key', () => {
+    const invalid: Array<string | undefined> = [];
+    const headers = parseOtlpHeaders('Authorization=Bearer%00SECRET,ok=1,bad name=SECRET2', (k) =>
+      invalid.push(k),
+    );
+    expect(headers).toEqual({ ok: '1' });
+    expect(invalid).toEqual(['Authorization', undefined]);
+    expect(parseOtlpHeaders('x=a%7Fb,t=a%09b')).toEqual({ t: 'a\tb' });
+  });
+
+  it('never logs a fetch error message (undici quotes the header value in it)', async () => {
+    const fetchFn = vi.fn<FetchLike>(async () => {
+      throw new TypeError('Headers.append: "Bearer SECRET-TOKEN" is an invalid header value.');
+    });
+    const { exporter, logger } = makeExporter({ fetchFn });
+    exporter.export(makeRecord());
+    await exporter.flush();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const line = logger.error.mock.calls[0][0] as string;
+    expect(line).not.toContain('SECRET');
+    expect(line).toContain('TypeError');
+    expect(line).toContain('collector.example.com');
+  });
+
+  it('redactUrl drops userinfo, query, and fragment', () => {
+    expect(redactUrl('https://user:pw@collector.example.com:4318/v1/traces?api_key=SECRET#x')).toBe(
+      'https://collector.example.com:4318/v1/traces',
+    );
+    expect(redactUrl('not a url')).not.toContain('not a url');
+  });
+
+  it('warn key distinguishes metadata-only from content export for the same host', () => {
+    expect(otlpWarnKey('h:1', false)).toBe('h:1');
+    expect(otlpWarnKey('h:1', true)).not.toBe(otlpWarnKey('h:1', false));
+  });
+
+  it('dispose() gives up after the shutdown deadline and logs the dropped count', async () => {
+    const fetchFn = vi.fn<FetchLike>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason));
+        }),
+    );
+    const { exporter, logger } = makeExporter({
+      fetchFn,
+      maxBatch: 1,
+      timeoutMs: 5_000,
+      shutdownMs: 50,
+    });
+    // Three one-span batches: the first hangs on the collector, two stay queued.
+    for (let i = 0; i < 3; i++) exporter.export(makeRecord());
+    const t0 = Date.now();
+    await exporter.dispose();
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const line = logger.error.mock.calls.at(-1)?.[0] as string;
+    expect(line).toMatch(/did not finish within 50 ms at shutdown; dropped 2 queued span/);
+  });
+
+  it('turning capture off strips content from spans queued but not yet sent', async () => {
+    const { exporter, fetchFn } = makeExporter({ includeContent: true });
+    const rec = new TraceRecorder({ captureContent: true });
+    rec.setSink('otlp', exporter);
+    rec.record(makeRecord({ outcome: 'error', errorType: '400', errorMessage: 'SECRET-ERR' }));
+    rec.setCaptureContent(false);
+    await exporter.flush();
+    expect(fetchFn.mock.calls[0][1].body).not.toContain('SECRET');
+  });
+
+  it('exports cache hits as INTERNAL spans', () => {
+    expect(toOtlpSpan(makeRecord({ outcome: 'cache_hit', detail: undefined }), false).kind).toBe(1);
+    expect(toOtlpSpan(makeRecord(), false).kind).toBe(3);
   });
 });

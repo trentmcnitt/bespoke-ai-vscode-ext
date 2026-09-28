@@ -21,6 +21,7 @@ import {
   newSpanId,
   spanName,
   GENAI_SCHEMA_URL,
+  SPAN_KIND_INTERNAL,
 } from '../../utils/trace';
 
 function makeDetail(overrides: Partial<GenerationDetail> = {}): GenerationDetail {
@@ -176,7 +177,7 @@ describe('trace — span JSON', () => {
     expect(toSpanJson(makeRecord({ outcome: 'cache_hit' }), false).status.code).toBe(1);
     expect(toSpanJson(makeRecord({ outcome: 'empty' }), false).status.code).toBe(0);
     expect(toSpanJson(makeRecord({ outcome: 'aborted' }), false).status.code).toBe(0);
-    const err = toSpanJson(makeRecord({ outcome: 'error', errorMessage: 'boom' }), false);
+    const err = toSpanJson(makeRecord({ outcome: 'error', errorMessage: 'boom' }), true);
     expect(err.status).toEqual({ code: 2, message: 'boom' });
   });
 
@@ -367,4 +368,137 @@ describe('TraceFileSink', () => {
     await sink.flush();
     expect(logger.error).toHaveBeenCalled();
   });
+});
+
+describe('trace — review fixes', () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  it('exports cache hits and backend_unavailable as INTERNAL spans with no model/usage attributes', () => {
+    const hit = makeRecord({ outcome: 'cache_hit', detail: undefined });
+    const unavailable = makeRecord({
+      outcome: 'error',
+      errorType: 'backend_unavailable',
+      detail: makeDetail(),
+    });
+    for (const r of [hit, unavailable]) {
+      const span = toSpanJson(r, true);
+      expect(span.kind).toBe(SPAN_KIND_INTERNAL);
+      expect(span.attributes['gen_ai.operation.name']).toBe('text_completion');
+      expect(Object.keys(span.attributes).some((k) => k.startsWith('gen_ai.usage.'))).toBe(false);
+      expect(span.attributes['gen_ai.response.model']).toBeUndefined();
+    }
+    expect(toSpanJson(makeRecord(), false).kind).toBe(3);
+  });
+
+  it('omits gen_ai.usage.* for requests that did not complete (error / aborted)', () => {
+    const zeros = makeDetail({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+      costUsd: 0,
+    });
+    for (const outcome of ['error', 'aborted'] as const) {
+      const a = buildSpanAttributes(
+        makeRecord({ outcome, detail: zeros, errorType: '429' }),
+        false,
+      );
+      expect(Object.keys(a).some((k) => k.startsWith('gen_ai.usage.'))).toBe(false);
+    }
+    const empty = buildSpanAttributes(makeRecord({ outcome: 'empty' }), false);
+    expect(empty['gen_ai.usage.output_tokens']).toBe(8);
+  });
+
+  it('keeps real usage on aborted requests that still ran (superseded CLI requests)', () => {
+    const a = buildSpanAttributes(makeRecord({ outcome: 'aborted' }), false);
+    expect(a['gen_ai.usage.output_tokens']).toBe(8);
+  });
+
+  it('sets gen_ai.response.finish_reasons when the finish reason is known', () => {
+    expect(buildSpanAttributes(makeRecord(), false)['gen_ai.response.finish_reasons']).toEqual([
+      'end_turn',
+    ]);
+  });
+
+  it('status.message is error.type only without content, flattened and capped with content', () => {
+    const r = makeRecord({
+      outcome: 'error',
+      errorType: '400',
+      errorMessage: 'proxy echo: SECRET-BODY\n' + 'x'.repeat(500),
+    });
+    expect(toSpanJson(r, false).status).toEqual({ code: 2, message: '400' });
+    const withContent = toSpanJson(r, true).status.message!;
+    expect(withContent.length).toBeLessThanOrEqual(200);
+    expect(withContent).not.toContain('\n');
+  });
+
+  it('the file sink writes error.type (not the message) for records captured with content off', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+    const file = path.join(dir, 'traces.jsonl');
+    const sink = new TraceFileSink(file);
+    const rec = new TraceRecorder({ captureContent: false });
+    rec.setSink('file', sink);
+    rec.record(makeRecord({ outcome: 'error', errorType: '400', errorMessage: 'SECRET-BODY' }));
+    await sink.flush();
+    const line = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
+    expect(line.status).toEqual({ code: 2, message: '400' });
+  });
+
+  it('turning capture off strips content from the ring and queued sink items, and notifies', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+    const file = path.join(dir, 'traces.jsonl');
+    const rec = new TraceRecorder({ captureContent: true });
+    const sink = new TraceFileSink(file);
+    rec.setSink('file', sink);
+    const resets = vi.fn();
+    rec.onDidReset(resets);
+    rec.record(makeRecord({ outcome: 'error', errorMessage: 'SECRET-ERR' }));
+    // Still queued (writes are deferred to a macrotask) when capture goes off.
+    rec.setCaptureContent(false);
+    expect(resets).toHaveBeenCalledTimes(1);
+    const ringed = JSON.stringify(rec.getRecent()[0]);
+    expect(ringed).not.toContain('SYSTEM');
+    expect(ringed).not.toContain('FINAL');
+    await sink.flush();
+    const text = fs.readFileSync(file, 'utf-8');
+    expect(text).not.toContain('SYSTEM');
+    expect(text).not.toContain('gen_ai.input.messages');
+    expect(text).not.toContain('SECRET-ERR');
+    // off→off and off→on do not fire.
+    rec.setCaptureContent(false);
+    rec.setCaptureContent(true);
+    expect(resets).toHaveBeenCalledTimes(1);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the trace file and its archives owner-only (0600), tightening a pre-existing file',
+    async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+      const file = path.join(dir, 'traces.jsonl');
+      const mode = (p: string) => fs.statSync(p).mode & 0o777;
+
+      const sink = new TraceFileSink(file);
+      sink.export(makeRecord());
+      await sink.flush();
+      expect(mode(file)).toBe(0o600);
+
+      const legacy = path.join(dir, 'legacy.jsonl');
+      fs.writeFileSync(legacy, '', { mode: 0o644 });
+      fs.chmodSync(legacy, 0o644);
+      const legacySink = new TraceFileSink(legacy);
+      legacySink.export(makeRecord());
+      await legacySink.flush();
+      expect(mode(legacy)).toBe(0o600);
+
+      const rotating = new TraceFileSink(file, undefined, 10);
+      rotating.export(makeRecord());
+      await rotating.flush();
+      const archive = path.join(dir, `traces-${new Date().toISOString().slice(0, 10)}.jsonl`);
+      expect(mode(archive)).toBe(0o600);
+    },
+  );
 });

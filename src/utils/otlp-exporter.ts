@@ -15,21 +15,24 @@
  * Collector in front of it.
  *
  * Behavior: batches (flush every 5 s or at 20 spans), 5 s request timeout, never throws into
- * the completion path, drops a failed batch with a rate-limited log line, flushes on dispose.
+ * the completion path, drops a failed batch with a rate-limited log line, flushes on dispose
+ * within an overall 5 s shutdown deadline. Failure log lines never include error messages
+ * (fetch echoes header values into them) — only the error class/code and the host.
  */
 
 import {
   GENAI_SCHEMA_URL,
   INT_ATTRIBUTES,
-  SPAN_KIND_CLIENT,
   SpanAttributeValue,
   TraceLogger,
   TraceRecord,
   TraceSink,
   buildSpanAttributes,
   msToUnixNano,
+  spanKind,
   spanName,
-  spanStatusCode,
+  spanStatus,
+  stripContent,
 } from './trace';
 
 export interface OtlpAnyValue {
@@ -63,12 +66,22 @@ export function isValidEnvVarName(name: string): boolean {
   return ENV_VAR_NAME.test(name);
 }
 
+/** RFC 7230 `token` — a valid header name. */
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+/** RFC 7230 field-value: visible ASCII, space, tab, obs-text. No controls (NUL, CR, LF, DEL). */
+const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]+$/;
+
 /**
  * Parse `key=value,key2=value2` (the OTEL_EXPORTER_OTLP_HEADERS format). Splits each pair on
  * the FIRST `=` (base64 padding stays in the value), trims, skips malformed/empty entries,
- * and percent-decodes values as that spec allows.
+ * and percent-decodes values as that spec allows. Entries with an invalid name or value are
+ * dropped and reported through `onInvalid` — with the key only when the key itself is valid
+ * (never the value: it is usually a secret, and fetch would echo it into its error message).
  */
-export function parseOtlpHeaders(raw: string | undefined): Record<string, string> {
+export function parseOtlpHeaders(
+  raw: string | undefined,
+  onInvalid?: (key: string | undefined) => void,
+): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw) return out;
   for (const pair of raw.split(',')) {
@@ -76,16 +89,52 @@ export function parseOtlpHeaders(raw: string | undefined): Record<string, string
     if (eq <= 0) continue;
     const key = pair.slice(0, eq).trim();
     let value = pair.slice(eq + 1).trim();
-    if (!key || !value || !/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key)) continue;
+    if (!key || !value) continue;
+    if (!HEADER_NAME.test(key)) {
+      onInvalid?.(undefined);
+      continue;
+    }
     try {
-      value = decodeURIComponent(value);
+      value = decodeURIComponent(value).trim();
     } catch {
       /* keep raw */
     }
-    if (/[\r\n]/.test(value)) continue;
+    if (!value) continue;
+    if (!HEADER_VALUE.test(value)) {
+      onInvalid?.(key);
+      continue;
+    }
     out[key] = value;
   }
   return out;
+}
+
+/** An endpoint for log lines: scheme, host, and path — no userinfo, query, or fragment. */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return '(invalid URL)';
+  }
+}
+
+/** Storage key for the "trace data leaves the machine" notice; content export warns separately. */
+export function otlpWarnKey(host: string, includeContent: boolean): string {
+  return includeContent ? `${host}|content` : host;
+}
+
+/**
+ * A log-safe description of a thrown value: its class and (for network errors) the errno-style
+ * code. Never the message — undici's header errors quote the header value.
+ */
+export function describeErrorForLog(err: unknown): string {
+  if (!(err instanceof Error)) return typeof err;
+  const code = [(err as { code?: unknown }).code, (err.cause as { code?: unknown })?.code].find(
+    (c): c is string => typeof c === 'string' && /^[A-Z][A-Z0-9_]*$/.test(c),
+  );
+  const name = err.name || err.constructor?.name || 'Error';
+  return code ? `${name} ${code}` : name;
 }
 
 /** `{endpoint}/v1/traces`, unless the endpoint already names the traces path. */
@@ -120,18 +169,15 @@ export function toOtlpAttributes(attrs: Record<string, SpanAttributeValue>): Otl
 }
 
 export function toOtlpSpan(record: TraceRecord, includeContent: boolean): OtlpSpan {
-  const status: OtlpSpan['status'] = { code: spanStatusCode(record) };
-  const message = record.errorMessage ?? record.detail?.errorMessage;
-  if (record.outcome === 'error' && message) status.message = message;
   return {
     traceId: record.traceId,
     spanId: record.spanId,
     name: spanName(record),
-    kind: SPAN_KIND_CLIENT,
+    kind: spanKind(record),
     startTimeUnixNano: msToUnixNano(record.startTimeMs),
     endTimeUnixNano: msToUnixNano(record.endTimeMs),
     attributes: toOtlpAttributes(buildSpanAttributes(record, includeContent)),
-    status,
+    status: spanStatus(record, includeContent),
   };
 }
 
@@ -178,6 +224,8 @@ export interface OtlpExporterOptions {
   maxQueue?: number;
   /** Minimum gap between failure log lines. */
   logIntervalMs?: number;
+  /** Overall deadline for the final flush on dispose; whatever is left is dropped. */
+  shutdownMs?: number;
 }
 
 export class OtlpExporter implements TraceSink {
@@ -187,7 +235,7 @@ export class OtlpExporter implements TraceSink {
   private readonly opts: Required<
     Pick<
       OtlpExporterOptions,
-      'flushIntervalMs' | 'maxBatch' | 'timeoutMs' | 'maxQueue' | 'logIntervalMs'
+      'flushIntervalMs' | 'maxBatch' | 'timeoutMs' | 'maxQueue' | 'logIntervalMs' | 'shutdownMs'
     >
   >;
   private readonly getHeaders: () => Record<string, string>;
@@ -195,12 +243,14 @@ export class OtlpExporter implements TraceSink {
   private readonly logger?: TraceLogger;
   private readonly fetchFn: FetchLike;
   /** Records awaiting export; converted to OTLP spans at send time, off the completion path. */
-  private queue: TraceRecord[] = [];
+  private queue: Array<{ record: TraceRecord; includeContent: boolean }> = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight: Promise<void> = Promise.resolve();
   private lastFailureLog = 0;
   private droppedSinceLog = 0;
   private disposed = false;
+  /** Set when the shutdown deadline passes: the flush loop stops sending. */
+  private abandoned = false;
 
   constructor(options: OtlpExporterOptions) {
     this.endpoint = options.endpoint;
@@ -216,16 +266,17 @@ export class OtlpExporter implements TraceSink {
       timeoutMs: options.timeoutMs ?? 5_000,
       maxQueue: options.maxQueue ?? 1_000,
       logIntervalMs: options.logIntervalMs ?? 60_000,
+      shutdownMs: options.shutdownMs ?? 5_000,
     };
     this.timer = setInterval(() => void this.flush(), this.opts.flushIntervalMs);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
   /** Queue a span. Synchronous, never throws, never waits on the network. */
-  export(record: TraceRecord): void {
+  export(record: TraceRecord, includeContent = true): void {
     if (this.disposed) return;
     try {
-      this.queue.push(record);
+      this.queue.push({ record, includeContent });
       if (this.queue.length > this.opts.maxQueue) {
         const over = this.queue.length - this.opts.maxQueue;
         this.queue.splice(0, over);
@@ -233,14 +284,18 @@ export class OtlpExporter implements TraceSink {
       }
       if (this.queue.length >= this.opts.maxBatch) void this.flush();
     } catch (err) {
-      this.logFailure(`could not queue span: ${err}`);
+      this.logFailure(`could not queue span: ${describeErrorForLog(err)}`);
     }
+  }
+
+  stripQueuedContent(): void {
+    this.queue = this.queue.map((q) => ({ record: stripContent(q.record), includeContent: false }));
   }
 
   /** Send everything queued, in batches. Resolves when done; never rejects. */
   flush(): Promise<void> {
     this.inFlight = this.inFlight.then(async () => {
-      while (this.queue.length > 0) {
+      while (this.queue.length > 0 && !this.abandoned) {
         const batch = this.queue.splice(0, this.opts.maxBatch);
         await this.send(batch);
       }
@@ -253,13 +308,41 @@ export class OtlpExporter implements TraceSink {
     this.disposed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    await this.flush();
+    // A hung collector must not hold up VS Code's deactivate for batches × timeout.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = await Promise.race([
+      this.flush().then(() => false),
+      new Promise<boolean>((resolve) => {
+        deadline = setTimeout(() => resolve(true), this.opts.shutdownMs);
+      }),
+    ]);
+    clearTimeout(deadline);
+    if (!timedOut) return;
+    this.abandoned = true;
+    const dropped = this.queue.length;
+    this.queue = [];
+    try {
+      this.logger?.error(
+        `Trace export to ${this.host()} did not finish within ${this.opts.shutdownMs} ms at shutdown; dropped ${dropped} queued span(s).`,
+      );
+    } catch {
+      // Logger may already be disposed during shutdown.
+    }
   }
 
-  private async send(records: TraceRecord[]): Promise<void> {
-    const batch = records;
+  private host(): string {
     try {
-      const spans = records.map((r) => toOtlpSpan(r, this.includeContent));
+      return new URL(this.url).host;
+    } catch {
+      return '(invalid URL)';
+    }
+  }
+
+  private async send(
+    batch: Array<{ record: TraceRecord; includeContent: boolean }>,
+  ): Promise<void> {
+    try {
+      const spans = batch.map((q) => toOtlpSpan(q.record, this.includeContent && q.includeContent));
       const headers = { ...this.getHeaders(), 'Content-Type': 'application/json' };
       const res = await this.fetchFn(this.url, {
         method: 'POST',
@@ -277,9 +360,7 @@ export class OtlpExporter implements TraceSink {
       const reason =
         name === 'TimeoutError' || name === 'AbortError'
           ? `timed out after ${this.opts.timeoutMs} ms`
-          : err instanceof Error
-            ? err.message
-            : String(err);
+          : describeErrorForLog(err);
       this.logFailure(reason);
     }
   }
@@ -288,12 +369,7 @@ export class OtlpExporter implements TraceSink {
     const now = Date.now();
     if (now - this.lastFailureLog < this.opts.logIntervalMs) return;
     this.lastFailureLog = now;
-    let host = this.url;
-    try {
-      host = new URL(this.url).host;
-    } catch {
-      /* keep */
-    }
+    const host = this.host();
     const dropped = this.droppedSinceLog;
     this.droppedSinceLog = 0;
     try {

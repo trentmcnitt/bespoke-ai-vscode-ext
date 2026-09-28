@@ -14,7 +14,11 @@
  * Privacy: prompt/response text lives only in `detail.content` and `finalText`. When
  * `bespokeAI.trace.captureContent` is off, the recorder strips both before any sink sees the
  * record, and providers are asked not to produce content in the first place (so it never
- * crosses the pool-server socket either).
+ * crosses the pool-server socket either). Turning capture off also strips content already held
+ * in the ring and in sink queues not yet written/sent. Free-text error messages are treated like
+ * content on export: a sink that is not including content gets `status.message` = `error.type`
+ * only (a proxy can echo request bodies into error text). Where content is included, the message
+ * is flattened to one line and capped at 200 chars.
  *
  * This module has no `vscode` dependency so it can be unit-tested directly.
  */
@@ -219,8 +223,46 @@ export type SpanAttributeValue = string | number | boolean | string[];
 
 /** OTLP `Status.code`. */
 export const SPAN_STATUS = { UNSET: 0, OK: 1, ERROR: 2 } as const;
-/** OTLP `Span.SpanKind` — CLIENT. */
+/** OTLP `Span.SpanKind` — CLIENT (a model call). */
 export const SPAN_KIND_CLIENT = 3;
+/** OTLP `Span.SpanKind` — INTERNAL (no model call: cache hit, backend unavailable). */
+export const SPAN_KIND_INTERNAL = 1;
+
+/** False for records that never reached a model (cache hits, unavailable backend). */
+export function isModelCall(record: TraceRecord): boolean {
+  return record.outcome !== 'cache_hit' && record.errorType !== 'backend_unavailable';
+}
+
+export function spanKind(record: TraceRecord): number {
+  return isModelCall(record) ? SPAN_KIND_CLIENT : SPAN_KIND_INTERNAL;
+}
+
+/** Longest `status.message` exported when content is included. */
+export const STATUS_MESSAGE_MAX_CHARS = 200;
+
+/**
+ * OTLP `Status`. The error message is free text that may echo request content, so it is only
+ * exported when the sink includes content (flattened, capped); otherwise it is `error.type`.
+ */
+export function spanStatus(
+  record: TraceRecord,
+  includeContent: boolean,
+): { code: number; message?: string } {
+  const status: { code: number; message?: string } = { code: spanStatusCode(record) };
+  if (record.outcome !== 'error') return status;
+  if (includeContent) {
+    const message = record.errorMessage ?? record.detail?.errorMessage;
+    if (message) {
+      status.message = message
+        .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        .trim()
+        .slice(0, STATUS_MESSAGE_MAX_CHARS);
+    }
+  } else {
+    status.message = record.errorType ?? record.detail?.errorType ?? '_OTHER';
+  }
+  return status;
+}
 
 /** Integer-valued attributes (sent as OTLP `intValue`). Everything else numeric is a double. */
 export const INT_ATTRIBUTES: ReadonlySet<string> = new Set([
@@ -263,19 +305,28 @@ export function buildSpanAttributes(
     'gen_ai.provider.name': d?.providerName || record.providerName,
     'gen_ai.request.model': d?.requestModel || record.requestModel,
   };
-  if (d) {
+  // Adapters return 0 tokens on 429 / abort / connection refused, and a failed request must
+  // not claim it used 0 tokens. But an "aborted" CLI request was only superseded: the slot
+  // ignores the abort, runs to completion, and reports real usage and cost. So for error /
+  // aborted outcomes, report usage only when the backend actually reported some.
+  const reportedUsage =
+    !!d && ((d.inputTokens ?? 0) > 0 || (d.outputTokens ?? 0) > 0 || (d.costUsd ?? 0) > 0);
+  const completed = (record.outcome !== 'error' && record.outcome !== 'aborted') || reportedUsage;
+  if (d && isModelCall(record)) {
     if (d.responseModel) a['gen_ai.response.model'] = d.responseModel;
     if (d.maxTokens !== undefined) a['gen_ai.request.max_tokens'] = d.maxTokens;
-    const input = totalInputTokens(d);
-    if (input !== undefined) a['gen_ai.usage.input_tokens'] = input;
-    if (d.outputTokens !== undefined) a['gen_ai.usage.output_tokens'] = d.outputTokens;
-    if (d.cacheReadTokens !== undefined) {
-      a['gen_ai.usage.cache_read.input_tokens'] = d.cacheReadTokens;
+    if (completed) {
+      const input = totalInputTokens(d);
+      if (input !== undefined) a['gen_ai.usage.input_tokens'] = input;
+      if (d.outputTokens !== undefined) a['gen_ai.usage.output_tokens'] = d.outputTokens;
+      if (d.cacheReadTokens !== undefined) {
+        a['gen_ai.usage.cache_read.input_tokens'] = d.cacheReadTokens;
+      }
+      if (d.cacheWriteTokens !== undefined) {
+        a['gen_ai.usage.cache_write.input_tokens'] = d.cacheWriteTokens;
+      }
+      if (d.costUsd !== undefined) a['gen_ai.usage.cost'] = d.costUsd;
     }
-    if (d.cacheWriteTokens !== undefined) {
-      a['gen_ai.usage.cache_write.input_tokens'] = d.cacheWriteTokens;
-    }
-    if (d.costUsd !== undefined) a['gen_ai.usage.cost'] = d.costUsd;
     if (d.finishReason) a['gen_ai.response.finish_reasons'] = [d.finishReason];
     if (d.serverAddress) a['server.address'] = d.serverAddress;
     if (d.waitMs !== undefined) a['bespoke_ai.wait_ms'] = d.waitMs;
@@ -332,17 +383,14 @@ export interface SpanJson {
 }
 
 export function toSpanJson(record: TraceRecord, includeContent: boolean): SpanJson {
-  const status: SpanJson['status'] = { code: spanStatusCode(record) };
-  const message = record.errorMessage ?? record.detail?.errorMessage;
-  if (record.outcome === 'error' && message) status.message = message;
   return {
     traceId: record.traceId,
     spanId: record.spanId,
     name: spanName(record),
-    kind: SPAN_KIND_CLIENT,
+    kind: spanKind(record),
     startTimeUnixNano: msToUnixNano(record.startTimeMs),
     endTimeUnixNano: msToUnixNano(record.endTimeMs),
-    status,
+    status: spanStatus(record, includeContent),
     attributes: buildSpanAttributes(record, includeContent),
     schemaUrl: GENAI_SCHEMA_URL,
   };
@@ -359,8 +407,13 @@ export interface TraceLogger {
 }
 
 export interface TraceSink {
-  /** Receives records already stripped of content when capture is off. Must not throw. */
-  export(record: TraceRecord): void;
+  /**
+   * Receives records already stripped of content when capture is off. `includeContent` is the
+   * recorder's capture setting at record time (governs free-text error messages). Must not throw.
+   */
+  export(record: TraceRecord, includeContent?: boolean): void;
+  /** Capture was turned off: drop content from anything queued but not yet written/sent. */
+  stripQueuedContent?(): void;
   dispose?(): void | Promise<void>;
 }
 
@@ -381,6 +434,7 @@ export class TraceRecorder {
   private captureContent: boolean;
   private readonly ring: TraceRecord[] = [];
   private readonly listeners = new Set<(r: TraceRecord) => void>();
+  private readonly resetListeners = new Set<() => void>();
   private readonly sinks = new Map<string, TraceSink>();
   private readonly logger?: TraceLogger;
 
@@ -394,8 +448,23 @@ export class TraceRecorder {
     return this.captureContent;
   }
 
+  /**
+   * On the on→off transition, content already captured is removed too: from the ring (so the
+   * viewer can no longer expand old prompts) and from sink queues not yet written/sent.
+   */
   setCaptureContent(on: boolean): void {
+    const turningOff = this.captureContent && !on;
     this.captureContent = on;
+    if (!turningOff) return;
+    for (let i = 0; i < this.ring.length; i++) this.ring[i] = stripContent(this.ring[i]);
+    for (const [name, sink] of this.sinks) {
+      try {
+        sink.stripQueuedContent?.();
+      } catch (err) {
+        this.logger?.error(`Trace: sink ${name} failed to strip content: ${err}`);
+      }
+    }
+    this.notifyReset();
   }
 
   /** Install (or replace, or remove with `null`) a named sink. */
@@ -430,7 +499,7 @@ export class TraceRecorder {
       }
       for (const [name, sink] of this.sinks) {
         try {
-          sink.export(record);
+          sink.export(record, this.captureContent);
         } catch (err) {
           this.logger?.error(`Trace: sink ${name} failed: ${err}`);
         }
@@ -454,8 +523,25 @@ export class TraceRecorder {
     return { dispose: () => this.listeners.delete(listener) };
   }
 
+  /** Fired when existing records changed in place (content stripped); re-read `getRecent()`. */
+  onDidReset(listener: () => void): { dispose(): void } {
+    this.resetListeners.add(listener);
+    return { dispose: () => this.resetListeners.delete(listener) };
+  }
+
+  private notifyReset(): void {
+    for (const l of this.resetListeners) {
+      try {
+        l();
+      } catch (err) {
+        this.logger?.error(`Trace: listener failed: ${err}`);
+      }
+    }
+  }
+
   async dispose(): Promise<void> {
     this.listeners.clear();
+    this.resetListeners.clear();
     const pending = [...this.sinks.values()].map(async (s) => {
       try {
         await s.dispose?.();
@@ -472,6 +558,13 @@ export class TraceRecorder {
 export const TRACE_FILE_ROTATION_BYTES = 5 * 1_048_576;
 /** Archives older than this are purged on rotation. */
 export const TRACE_ARCHIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Trace files (active + archives) are owner-read/write only. */
+export const TRACE_FILE_MODE = 0o600;
+
+async function restrictMode(filePath: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  await fs.promises.chmod(filePath, TRACE_FILE_MODE).catch(() => {});
+}
 
 /**
  * Appends one OTel-shaped span (`toSpanJson`) per line to a JSONL file. Writes are queued and
@@ -484,10 +577,12 @@ export class TraceFileSink implements TraceSink {
   private readonly dirPath: string;
   private readonly logger?: TraceLogger;
   private readonly rotationBytes: number;
-  private queue: TraceRecord[] = [];
+  private queue: Array<{ record: TraceRecord; includeContent: boolean }> = [];
   private chain: Promise<void> = Promise.resolve();
   private scheduled = false;
   private disposed = false;
+  /** A file created before 0600 was enforced keeps its old mode; tighten it once. */
+  private modeChecked = false;
 
   constructor(filePath: string, logger?: TraceLogger, rotationBytes = TRACE_FILE_ROTATION_BYTES) {
     this.filePath = filePath;
@@ -496,11 +591,11 @@ export class TraceFileSink implements TraceSink {
     this.rotationBytes = rotationBytes;
   }
 
-  export(record: TraceRecord): void {
+  export(record: TraceRecord, includeContent = true): void {
     if (this.disposed) return;
     // Content is already stripped by the recorder when capture is off. Serialization happens
     // in drain(), off the completion path.
-    this.queue.push(record);
+    this.queue.push({ record, includeContent });
     if (!this.scheduled) {
       this.scheduled = true;
       // Defer to a macrotask so serialization + I/O start after the completion is returned.
@@ -508,6 +603,10 @@ export class TraceFileSink implements TraceSink {
         .then(() => new Promise<void>((resolve) => setImmediate(resolve)))
         .then(() => this.drain());
     }
+  }
+
+  stripQueuedContent(): void {
+    this.queue = this.queue.map((q) => ({ record: stripContent(q.record), includeContent: false }));
   }
 
   /** Resolves once every queued line has been written. */
@@ -526,10 +625,15 @@ export class TraceFileSink implements TraceSink {
     const records = this.queue;
     this.queue = [];
     let data = '';
-    for (const r of records) data += JSON.stringify(toSpanJson(r, true)) + '\n';
+    for (const q of records) data += JSON.stringify(toSpanJson(q.record, q.includeContent)) + '\n';
     try {
       await fs.promises.mkdir(this.dirPath, { recursive: true });
-      await fs.promises.appendFile(this.filePath, data, { flag: 'a' });
+      // Owner-only: the file can hold prompt text and ~/.bespokeai is world-readable.
+      await fs.promises.appendFile(this.filePath, data, { flag: 'a', mode: TRACE_FILE_MODE });
+      if (!this.modeChecked) {
+        this.modeChecked = true;
+        await restrictMode(this.filePath);
+      }
       await this.checkRotation();
     } catch (err) {
       this.logger?.error(`Trace: file write failed: ${err instanceof Error ? err.message : err}`);
@@ -552,11 +656,14 @@ export class TraceFileSink implements TraceSink {
         return;
       }
       if (fs.existsSync(archivePath)) {
-        await fs.promises.appendFile(archivePath, await fs.promises.readFile(tempPath));
+        await fs.promises.appendFile(archivePath, await fs.promises.readFile(tempPath), {
+          mode: TRACE_FILE_MODE,
+        });
         await fs.promises.unlink(tempPath);
       } else {
         await fs.promises.rename(tempPath, archivePath);
       }
+      await restrictMode(archivePath);
       this.logger?.info(`Trace: rotated to ${archiveName}`);
       await this.purgeOldArchives(base);
     } catch (err) {

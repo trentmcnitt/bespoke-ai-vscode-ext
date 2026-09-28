@@ -511,7 +511,10 @@ export class PoolClient implements ICompletionProvider {
     const configuredModel = this.config.claudeCode.model;
     const captureContent = options?.captureContent === true;
     if (this.disposed) {
-      return { text: null, detail: { ...wireMetaToDetail(undefined, configuredModel, false) } };
+      return {
+        text: null,
+        detail: { ...wireMetaToDetail(undefined, configuredModel, false), aborted: true },
+      };
     }
 
     try {
@@ -545,6 +548,13 @@ export class PoolClient implements ICompletionProvider {
         },
       };
     } catch (err) {
+      // Disposed mid-request (pending requests are rejected): cancelled, not a pool failure.
+      if (this.disposed) {
+        return {
+          text: null,
+          detail: { ...wireMetaToDetail(undefined, configuredModel, false), aborted: true },
+        };
+      }
       this.logger.error(`Pool: completion error: ${err}`);
       return {
         text: null,

@@ -56,6 +56,10 @@ export class TraceViewPanel {
         if (!this.ready) return;
         this.post({ type: 'append', item: toTraceViewItem(record) });
       }),
+      // Capture was turned off and old records lost their content: re-render without it.
+      this.recorder.onDidReset(() => {
+        if (this.ready) this.postSnapshot();
+      }),
       this.panel.onDidDispose(() => this.dispose()),
     );
   }
