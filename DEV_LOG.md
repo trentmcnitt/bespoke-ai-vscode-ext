@@ -6,6 +6,10 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Command errors reach the log (#7) (branch `showcase/held-misc`)
+
+- **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).
+
 ### `anthropic-sonnet` preset fixed (branch `showcase/followup-sonnet`)
 
 - **Sonnet 5 rejects `temperature` and an assistant prefill (HTTP 400), so the preset had failed every request since 0.8.8.** Claude-model presets now take strategy and request features from `providers/api/model-capabilities.ts` (sourced from the Sonnet 5 migration guide and the Claude API skill): no prefill → `tag-extraction`; no sampling → `temperature` left out. Unknown ids keep the Haiku 4.5 behaviour, so add a row when a new Claude model ships.

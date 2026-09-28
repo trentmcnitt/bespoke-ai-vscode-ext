@@ -32,6 +32,7 @@ vi.mock('vscode', () => {
       activeTextEditor: undefined as unknown,
       showWarningMessage: vi.fn(),
       showInformationMessage: vi.fn(),
+      showErrorMessage: vi.fn(),
       setStatusBarMessage: vi.fn(),
       withProgress: vi.fn(),
     },
@@ -48,11 +49,13 @@ import { suggestEdit, originalContentProvider, correctedContentProvider } from '
 import { SYSTEM_PROMPT } from '../../utils/suggest-edit-utils';
 import type { BackendRouter } from '../../providers/backend-router';
 import type { UsageLedger } from '../../utils/usage-ledger';
+import type { Logger } from '../../utils/logger';
 
 const win = vscode.window as unknown as {
   activeTextEditor: unknown;
   showWarningMessage: ReturnType<typeof vi.fn>;
   showInformationMessage: ReturnType<typeof vi.fn>;
+  showErrorMessage: ReturnType<typeof vi.fn>;
   setStatusBarMessage: ReturnType<typeof vi.fn>;
   withProgress: ReturnType<typeof vi.fn>;
 };
@@ -120,12 +123,17 @@ function runProgressNormally() {
   );
 }
 
-async function run(router: ReturnType<typeof makeRouter>, ledger?: Partial<UsageLedger>) {
-  await suggestEdit(
-    router as unknown as BackendRouter,
-    makeLogger(),
-    ledger as UsageLedger | undefined,
-  );
+async function run(
+  router: ReturnType<typeof makeRouter>,
+  ledger?: Partial<UsageLedger>,
+  logger: Logger = makeLogger(),
+) {
+  await suggestEdit(router as unknown as BackendRouter, logger, ledger as UsageLedger | undefined);
+}
+
+function makeErrorSpyLogger() {
+  const error = vi.fn();
+  return { logger: { ...makeLogger(), error } as unknown as Logger, error };
 }
 
 function appliedEdits() {
@@ -273,9 +281,18 @@ describe('suggestEdit — response handling', () => {
     expect(applyEdit).not.toHaveBeenCalled();
   });
 
-  it('propagates backend errors and releases the in-flight guard', async () => {
+  it('logs and toasts backend errors (resolving, not rejecting) and releases the in-flight guard', async () => {
     win.activeTextEditor = makeEditor(content, { visible });
-    await expect(run(makeRouter(new Error('pool crashed')))).rejects.toThrow('pool crashed');
+    // The toast never settles (the user hasn't dismissed it). The wrapper must not
+    // await it, or the in-flight guard would stay held until dismissal.
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {}));
+    const { logger, error } = makeErrorSpyLogger();
+    const err = new Error('pool crashed');
+    await expect(run(makeRouter(err), undefined, logger)).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith('Suggest edit failed', err);
+    expect(win.showErrorMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Suggest edit failed — pool crashed',
+    );
     // A subsequent invocation is not blocked by a stuck in-flight flag.
     const router = makeRouter({ text: null });
     await run(router);
@@ -395,8 +412,13 @@ describe('suggestEdit — diff preview and apply', () => {
         throw new Error('diff failed');
       }
     });
-    await expect(run(makeRouter({ text: `<corrected>${corrected}</corrected>` }))).rejects.toThrow(
-      'diff failed',
+    const { logger, error } = makeErrorSpyLogger();
+    await expect(
+      run(makeRouter({ text: `<corrected>${corrected}</corrected>` }), undefined, logger),
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith('Suggest edit failed', expect.any(Error));
+    expect(win.showErrorMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Suggest edit failed — diff failed',
     );
     expect(executeCommand).toHaveBeenCalledWith('workbench.action.closeActiveEditor');
     expect(originalContentProvider.provideTextDocumentContent(leftUri, {} as any)).toBe('');

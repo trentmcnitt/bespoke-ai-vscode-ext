@@ -34,7 +34,12 @@ Supports two backends: **Claude Code CLI** (via `@anthropic-ai/claude-agent-sdk`
 
 **Interpreting pasted content:** When the user pastes log output, error messages, or other diagnostic content without an explicit instruction, assume they want you to investigate the issue. Diagnose, identify the root cause, and propose a fix. If the diagnosed issue matches a [Known Limitation](#known-limitations), explain the trade-off rather than proposing a fix.
 
-**Error handling pattern:** `ClaudeCodeProvider` and `CommandPool` catch abort errors and return `null`; all other errors propagate to the completion orchestrator, which logs them via the `Logger`. The orchestrator shows errors to the user via `showErrorMessage`, rate-limited to one notification per 60 seconds. New code should follow this same pattern.
+**Error handling pattern:** Providers and adapters turn an abort into a `null` result, not a throw; other errors propagate up to the feature's entry point, which logs them via the `Logger` and shows them to the user. On the Claude Code backend, `PoolClient` already catches and logs command/completion failures and returns `null`; on the API backend, `ApiCompletionProvider`/`ApiCommandProvider` re-throw adapter errors.
+
+- **Inline completions:** the completion orchestrator catches, logs, and shows `showErrorMessage`, rate-limited to one notification per 60 seconds.
+- **Command features** (`suggestEdit()`, `generateCommitMessage()`): the exported wrapper catches, calls `logger.error`, and shows `void vscode.window.showErrorMessage('Bespoke AI: <Feature> failed — …')`. The toast is **not awaited**, so the `finally` that releases the in-flight guard runs immediately rather than when the user dismisses the notification. No rate limit — each is one explicit invocation.
+
+New code should follow the same pattern: catch at the entry point, never let a rejection escape to VS Code unlogged.
 
 **Pre-commit gate:** Run `npm run check` before creating any commit. Only proceed if it passes.
 
