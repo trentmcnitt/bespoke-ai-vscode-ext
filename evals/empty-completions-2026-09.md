@@ -83,7 +83,7 @@ The 429-with-`retry-after` row shows the shape behind the March class (c) durati
 
 ### Reproduction on current code
 
-The full runner was run with `anthropic-haiku` on the 52 scenarios that were empty in any March haiku run (4 of them `regression-*`), at the runner's concurrency of 10 and with no other runs in parallel. That is 52 API calls.
+The full runner was run with `anthropic-haiku` on the 52 scenarios that were empty in any March haiku run (4 of them `regression-*`), at the runner's concurrency of 10 and with no other runs in parallel. That is 52 API calls. The run folder (full prompts, gitignored) was not retained, so this table is reported rather than reproducible from the repo.
 
 | Outcome                       | Count | Detail                                                                                                       |
 | ----------------------------- | ----: | ------------------------------------------------------------------------------------------------------------ |
