@@ -65,16 +65,26 @@ describe('cleanupStaleEndpoint', () => {
 });
 
 describe('ensureStateDir', () => {
+  // Temp dirs only: the default target is the developer's real ~/.bespokeai.
   it('creates the directory if it does not exist', () => {
-    // ensureStateDir targets STATE_DIR which already exists in normal use.
-    // We verify the contract by confirming STATE_DIR exists after the call.
-    ensureStateDir();
-    expect(fs.existsSync(STATE_DIR)).toBe(true);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'state-dir-'));
+    try {
+      const dir = path.join(tmp, 'a', '.bespokeai');
+      ensureStateDir(dir);
+      expect(fs.existsSync(dir)).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('does not throw if the directory already exists', () => {
-    ensureStateDir();
-    expect(() => ensureStateDir()).not.toThrow();
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'state-dir-'));
+    try {
+      ensureStateDir(tmp);
+      expect(() => ensureStateDir(tmp)).not.toThrow();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   describe.skipIf(IS_WINDOWS)('owner-only mode (0700)', () => {

@@ -391,6 +391,17 @@ describe('TraceFileSink', () => {
     expect(fs.readFileSync(file, 'utf-8')).toBe('{}\n');
   });
 
+  it('also purges after a rotation (archives that expired while the sink was running)', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+    const sink = new TraceFileSink(path.join(dir, 'traces.jsonl'), undefined, 10);
+    await sink.flush(); // the create-time purge has run
+    const old = path.join(dir, 'traces-2020-01-01.jsonl');
+    fs.writeFileSync(old, '{}\n');
+    sink.export(makeRecord());
+    await sink.flush();
+    expect(fs.existsSync(old)).toBe(false);
+  });
+
   it('purge on create tolerates a missing directory', async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
     const logger = { error: vi.fn(), info: vi.fn() };
