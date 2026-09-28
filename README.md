@@ -129,21 +129,22 @@ CI replays 52 recorded model outputs through the current extraction and cleanup 
 
 The API backend includes presets for popular providers. Change the active preset via the status bar menu or the `bespokeAI.api.preset` setting.
 
-| Preset                    | Provider                                      | Model                       |
-| ------------------------- | --------------------------------------------- | --------------------------- |
-| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning |
-| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1            |
-| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                 |
-| `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5-20251001   |
-| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5             |
-| `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                |
-| `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                 |
-| `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash            |
-| `openrouter-haiku`        | [OpenRouter](https://openrouter.ai/)          | anthropic/claude-haiku-4.5  |
-| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)          | openai/gpt-4.1-nano         |
-| `ollama-default`          | [Ollama](https://ollama.com/) _(local, free)_ | qwen2.5-coder:7b            |
-| `ollama-qwen3-4b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:4b                    |
-| `ollama-qwen3-8b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:8b                    |
+| Preset                    | Provider                                      | Model                                                          |
+| ------------------------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning                                    |
+| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1                                               |
+| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                                                    |
+| `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5-20251001                                      |
+| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5                                                |
+| `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                                                   |
+| `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                                                    |
+| `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash                                               |
+| `openrouter-haiku`        | [OpenRouter](https://openrouter.ai/)          | anthropic/claude-haiku-4.5                                     |
+| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)          | openai/gpt-4.1-nano                                            |
+| `ollama-default`          | [Ollama](https://ollama.com/) _(local, free)_ | qwen2.5-coder:7b                                               |
+| `ollama-qwen3-4b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:4b                                                       |
+| `ollama-qwen3-8b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:8b                                                       |
+| `ollama-qwen35-9b`        | [Ollama](https://ollama.com/) _(local, free)_ | qwen3.5:9b _(experimental; many empty completions in testing)_ |
 
 **API keys:** Store keys via the **Enter API Key** command (Command Palette → "Enter API Key"). Keys are saved in your OS keychain. As a fallback, the extension also checks environment variables and `~/.creds/api-keys.env`:
 
