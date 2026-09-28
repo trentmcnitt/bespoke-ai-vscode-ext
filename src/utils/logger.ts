@@ -2,7 +2,18 @@ import * as vscode from 'vscode';
 
 export type LogLevel = 'info' | 'debug' | 'trace';
 
+/** The valid `bespokeAI.logLevel` values. `error` is not one: `[ERROR]` lines are always written. */
+export const LOG_LEVELS: readonly LogLevel[] = ['info', 'debug', 'trace'];
+
 const LEVEL_RANK: Record<LogLevel, number> = { trace: 0, debug: 1, info: 2 };
+
+/**
+ * Whether `value` is a real log level. Uses `typeof` on an own lookup rather than
+ * `in`, because `'constructor' in LEVEL_RANK` (and other prototype keys) is true.
+ */
+export function isLogLevel(value: unknown): value is LogLevel {
+  return typeof value === 'string' && typeof LEVEL_RANK[value as LogLevel] === 'number';
+}
 
 const SEPARATOR = '───────────────────────────────────────────────────────────────────';
 
@@ -38,8 +49,23 @@ export class Logger {
     this.channel = vscode.window.createOutputChannel(name);
   }
 
+  /**
+   * Set the level. An unknown value (e.g. `'error'`, `'Debug'` from a hand-edited
+   * settings.json) falls back to `'info'` — an unrecognized value must never widen
+   * what is written.
+   */
   setLevel(level: LogLevel): void {
-    this.level = level;
+    this.level = isLogLevel(level) ? level : 'info';
+  }
+
+  /**
+   * The single gate for every level-filtered method. Treats an unknown level as
+   * disabled, so a bad value can never make the two guard styles disagree
+   * (previously `rank <= X` suppressed while `rank > X` early-returns wrote).
+   */
+  private enabled(min: LogLevel): boolean {
+    const rank = LEVEL_RANK[this.level];
+    return typeof rank === 'number' && rank <= LEVEL_RANK[min];
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -51,13 +77,13 @@ export class Logger {
   }
 
   debug(msg: string): void {
-    if (LEVEL_RANK[this.level] <= LEVEL_RANK.debug) {
+    if (this.enabled('debug')) {
       this.channel.appendLine(`[DEBUG ${ts()}] ${msg}`);
     }
   }
 
   trace(msg: string): void {
-    if (LEVEL_RANK[this.level] <= LEVEL_RANK.trace) {
+    if (this.enabled('trace')) {
       this.channel.appendLine(`[TRACE ${ts()}] ${msg}`);
     }
   }
@@ -76,7 +102,7 @@ export class Logger {
    * Only shown at debug level and above.
    */
   requestStart(reqId: string, details: RequestStartDetails): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+    if (!this.enabled('debug')) {
       return;
     }
     this.channel.appendLine(SEPARATOR);
@@ -90,7 +116,7 @@ export class Logger {
    * Only shown at debug level and above.
    */
   requestEnd(reqId: string, details: RequestEndDetails): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+    if (!this.enabled('debug')) {
       return;
     }
 
@@ -116,7 +142,7 @@ export class Logger {
    * Only shown at debug level and above.
    */
   cacheHit(reqId: string, resultLen: number): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.debug) {
+    if (!this.enabled('debug')) {
       return;
     }
     this.channel.appendLine(SEPARATOR);
@@ -132,7 +158,7 @@ export class Logger {
    * Content is written verbatim (no truncation), so trace logs show exactly what was sent.
    */
   traceBlock(label: string, content: string): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) {
+    if (!this.enabled('trace')) {
       return;
     }
 
@@ -149,7 +175,7 @@ export class Logger {
    * Log a short inline trace value (no block formatting).
    */
   traceInline(label: string, value: string): void {
-    if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) {
+    if (!this.enabled('trace')) {
       return;
     }
     this.channel.appendLine(`[TRACE]   ${label}: ${value}`);

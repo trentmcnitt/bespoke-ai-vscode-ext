@@ -109,15 +109,30 @@ export interface PoolStats {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
-  /** Cumulative cost in USD. */
+  /**
+   * Total cost in USD of the requests served since activation (excluding warmups),
+   * summed from per-turn costs — not from the SDK's cumulative per-session totals.
+   */
   totalCostUsd: number;
   /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
   resolvedModel: string | null;
 }
 
 export interface ResultMetadata {
+  /** Wall time of this turn inside the CLI (the SDK's `duration_ms` is already per turn). */
   durationMs: number;
+  /**
+   * API time attributed to this turn. The SDK's `duration_api_ms` is cumulative for the
+   * slot's session, so `consumeStream()` replaces it with the delta from the previous
+   * result on the same stream. Approximate: the CLI may count API time spent between
+   * turns, so a delta can exceed `durationMs`.
+   */
   durationApiMs: number;
+  /**
+   * Cost of THIS turn in USD. The SDK's `total_cost_usd` is cumulative for the slot's
+   * session, so `consumeStream()` replaces it with the per-turn delta (0 when the SDK
+   * reported no cost). Usage-ledger rows and pool stats sum this.
+   */
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -129,9 +144,11 @@ export interface ResultMetadata {
   /** `stop_reason` from the final assistant message, when the SDK reports one. */
   stopReason?: string;
   /**
-   * Cost of THIS turn. The SDK's `total_cost_usd` is cumulative for the slot's session
-   * (verified against usage-ledger data: it grows monotonically across a slot's requests),
-   * so this is the delta from the previous result on the same stream.
+   * Cost of THIS turn, set only when the SDK actually reported `total_cost_usd` (traces
+   * must never show a fabricated 0). Same value as `costUsd` otherwise. The SDK total is
+   * cumulative per session (verified against usage-ledger data: it grows monotonically
+   * across a slot's requests), so this is the delta from the previous result on the same
+   * stream; a new stream (recycle) is a new session and starts from 0.
    */
   turnCostUsd?: number;
 }
@@ -719,8 +736,10 @@ export abstract class SlotPool {
     const iterator = (stream as AsyncIterable<any>)[Symbol.asyncIterator]();
     try {
       let resultCount = 0;
-      // total_cost_usd is cumulative per session; track it to derive per-turn cost.
+      // total_cost_usd and duration_api_ms are cumulative per session (this stream);
+      // track them to derive per-turn values. A new stream is a new session: reset.
       let prevCumulativeCost = 0;
+      let prevCumulativeApiMs = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let iterResult: IteratorResult<any>;
       while (!(iterResult = await iterator.next()).done) {
@@ -748,6 +767,11 @@ export abstract class SlotPool {
           if (typeof message.total_cost_usd === 'number') {
             meta.turnCostUsd = Math.max(0, message.total_cost_usd - prevCumulativeCost);
             prevCumulativeCost = message.total_cost_usd;
+            meta.costUsd = meta.turnCostUsd;
+          }
+          if (typeof message.duration_api_ms === 'number') {
+            meta.durationApiMs = Math.max(0, message.duration_api_ms - prevCumulativeApiMs);
+            prevCumulativeApiMs = message.duration_api_ms;
           }
 
           if (resultCount === 1) {

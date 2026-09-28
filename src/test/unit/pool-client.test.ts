@@ -174,6 +174,25 @@ vi.mock('../../providers/command-pool', () => ({
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
       if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
       if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
+      if (message === 'OLD_SERVER_COST') {
+        // A server from before the per-turn fix: costUsd is the SDK's cumulative
+        // session total, turnCostUsd the real per-turn cost.
+        return {
+          text: 'cmd',
+          meta: {
+            model: this.model,
+            durationMs: 12,
+            durationApiMs: 10,
+            costUsd: 0.5,
+            turnCostUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            sessionId: 'sess-1',
+          },
+        };
+      }
       return {
         text: `cmd:${this.model}:${message}`,
         meta: {
@@ -473,6 +492,16 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
         expect(res.meta).toMatchObject({ model: 'opus', durationMs: 12, sessionId: 'sess-1' });
       }
       expect((await b.client.sendCommand('NO_META')).meta).toBeNull();
+    });
+
+    it('a follower records the per-turn cost even when the server sends a cumulative costUsd', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      const res = await b.client.sendCommand('OLD_SERVER_COST');
+      expect(res.meta?.costUsd).toBe(0.01);
+      expect(res.meta?.turnCostUsd).toBe(0.01);
     });
 
     it('a command the pool ended reaches the requester with its reason on both paths', async () => {

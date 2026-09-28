@@ -1,4 +1,26 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { makeLogger } from '../helpers';
+
+vi.mock('vscode', () => ({
+  ProgressLocation: { Notification: 15 },
+  window: {
+    showWarningMessage: vi.fn(),
+    showInformationMessage: vi.fn(),
+    showErrorMessage: vi.fn(),
+    setStatusBarMessage: vi.fn(),
+    showQuickPick: vi.fn(),
+    withProgress: vi.fn(async (_opts: unknown, task: any) =>
+      task({ report: vi.fn() }, { onCancellationRequested: vi.fn() }),
+    ),
+  },
+  extensions: { getExtension: vi.fn() },
+  workspace: { workspaceFolders: [{ uri: { fsPath: '/home/u/my-project' } }] },
+}));
+
+import * as vscode from 'vscode';
+import { generateCommitMessage } from '../../commit-message';
+import type { BackendRouter } from '../../providers/backend-router';
+import type { Logger } from '../../utils/logger';
 import {
   buildFullCommitPrompt,
   parseCommitMessage,
@@ -98,5 +120,62 @@ describe('truncateDiff', () => {
   it('default limit is the exported constant', () => {
     const d = 'y\n'.repeat(MAX_COMMIT_DIFF_CHARS);
     expect(truncateDiff(d).length).toBeLessThan(MAX_COMMIT_DIFF_CHARS + 100);
+  });
+});
+
+describe('generateCommitMessage — error handling', () => {
+  const win = vscode.window as unknown as {
+    showErrorMessage: ReturnType<typeof vi.fn>;
+    setStatusBarMessage: ReturnType<typeof vi.fn>;
+  };
+  const getExtension = vscode.extensions.getExtension as unknown as ReturnType<typeof vi.fn>;
+
+  function makeRouter(sendCommand: () => Promise<unknown>) {
+    return {
+      isCommandAvailable: vi.fn(() => true),
+      getCurrentModel: vi.fn(() => 'sonnet'),
+      sendCommand: vi.fn(sendCommand),
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const repo = {
+      rootUri: { fsPath: '/home/u/my-project' },
+      diff: vi.fn(async (staged: boolean) => (staged ? 'diff --git a/x b/x\n+hello\n' : '')),
+      inputBox: { value: '' },
+    };
+    getExtension.mockReturnValue({
+      isActive: true,
+      exports: { getAPI: () => ({ repositories: [repo] }) },
+    });
+  });
+
+  it('logs and toasts a backend error (resolving, not rejecting) and releases the in-flight guard', async () => {
+    // The toast never settles; the wrapper must not await it.
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {}));
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const err = new Error('401 invalid x-api-key');
+    const failing = makeRouter(async () => {
+      throw err;
+    });
+
+    await expect(
+      generateCommitMessage(failing as unknown as BackendRouter, logger),
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith('Commit message generation failed', err);
+    expect(win.showErrorMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Commit message generation failed — 401 invalid x-api-key',
+    );
+
+    // A subsequent invocation is not blocked by a stuck in-flight flag.
+    const next = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(next as unknown as BackendRouter, makeLogger());
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+    expect(win.setStatusBarMessage).not.toHaveBeenCalledWith(
+      'Bespoke AI: Request already in progress',
+      2000,
+    );
   });
 });

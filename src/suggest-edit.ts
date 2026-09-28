@@ -37,6 +37,13 @@ export async function suggestEdit(
   inFlight = true;
   try {
     await doSuggestEdit(router, logger, ledger);
+  } catch (err) {
+    // Command features are their own entry point (no orchestrator above them),
+    // so log and surface errors here. The toast is deliberately not awaited:
+    // awaiting it would hold the in-flight guard until the user dismisses it.
+    logger.error('Suggest edit failed', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Bespoke AI: Suggest edit failed — ${msg}`);
   } finally {
     inFlight = false;
   }

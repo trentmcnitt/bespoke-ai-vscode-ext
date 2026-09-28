@@ -88,7 +88,12 @@ export type PoolRequest =
 export interface ResultMetadata {
   model: string;
   durationMs?: number;
+  /** Per-turn API time (delta of the SDK's cumulative `duration_api_ms`; approximate). */
   durationApiMs?: number;
+  /**
+   * Per-turn cost in USD (commands). Servers before this change sent the SDK's cumulative
+   * per-session total here, so clients prefer `turnCostUsd` when both are present.
+   */
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -98,7 +103,7 @@ export interface ResultMetadata {
   // --- Trace detail (all optional; see utils/trace.ts GenerationDetail) ---
   /** Model the request asked for (config alias, e.g. `sonnet`); `model` is what responded. */
   requestModel?: string;
-  /** Cost of this turn. `costUsd` is the SDK's cumulative per-session total. */
+  /** Cost of this turn, only when the SDK reported one (see slot-pool `ResultMetadata`). */
   turnCostUsd?: number;
   /** Time waiting for a pool slot before sending. */
   waitMs?: number;
@@ -172,7 +177,7 @@ export interface PoolStatsInfo {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
-  /** Cumulative cost in USD. */
+  /** Total cost in USD of served requests since activation, summed from per-turn costs. */
   totalCostUsd: number;
   /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
   resolvedModel: string | null;

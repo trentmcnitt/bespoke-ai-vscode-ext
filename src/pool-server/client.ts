@@ -139,7 +139,16 @@ export class PoolClient implements ICompletionProvider {
 
       // Give up waiting — attempt lock acquisition as last resort and become server
       this.logger.error('Pool: failed to connect after retries, forcing lock acquisition');
-      acquireLock(process.pid); // best-effort; if this fails, becomeServer's listen() will fail if another server is active
+      // Best-effort: acquireLock() fails if the lock still names a live pid (a hung
+      // leader, or a pid reused after a crash). We become the server anyway, WITHOUT
+      // the lock. On Unix this does not fail when another server is active:
+      // PoolServer.start() deletes the socket path before listen(), so we displace a
+      // live leader and two servers can run (only Windows' named pipe refuses a second
+      // listener). Known limitation — see AGENTS.md "Forced pool leadership". Do not
+      // make dispose() release only its own lock without also force-taking the lock
+      // here: followers recover from a forced server's exit only because dispose()
+      // deletes the lock unconditionally.
+      acquireLock(process.pid);
       await this.becomeServer();
     } finally {
       this.activating = false;
@@ -654,7 +663,8 @@ export class PoolClient implements ICompletionProvider {
                 model: protocolMeta.model,
                 durationMs: protocolMeta.durationMs ?? 0,
                 durationApiMs: protocolMeta.durationApiMs ?? 0,
-                costUsd: protocolMeta.costUsd ?? 0,
+                // Older servers sent the cumulative session total as costUsd.
+                costUsd: protocolMeta.turnCostUsd ?? protocolMeta.costUsd ?? 0,
                 inputTokens: protocolMeta.inputTokens ?? 0,
                 outputTokens: protocolMeta.outputTokens ?? 0,
                 cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,

@@ -6,15 +6,27 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Command errors reach the log (#7) (branch `showcase/held-misc`)
+
+- **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).
+
 ### `anthropic-sonnet` preset fixed (branch `showcase/followup-sonnet`)
 
 - **Sonnet 5 rejects `temperature` and an assistant prefill (HTTP 400), so the preset had failed every request since 0.8.8.** Claude-model presets now take strategy and request features from `providers/api/model-capabilities.ts` (sourced from the Sonnet 5 migration guide and the Claude API skill): no prefill → `tag-extraction`; no sampling → `temperature` left out. Unknown ids keep the Haiku 4.5 behaviour, so add a row when a new Claude model ships.
 - **Sonnet 5 thinks by default, and thinking tokens count against `max_tokens`.** With the presets' 200-token cap, 3 of 51 sampled requests spent all 200 on thinking and returned no text. The adapter now sends `thinking: {type: "disabled"}` for Sonnet 5 / Opus 5. Opus 5.5 and Fable reject that, so a custom preset on them can still come back empty.
 - Tag extraction without a prefill kept the leading space on Sonnet 5 (0/29 glued in the sample, one misread word in the harness). The earlier 24/28 glued result (variant P1) was haiku with `<COMPLETION>` still prefilled, a different setup. See `evals/2026-09-28-sonnet-preset.md`.
 
+### Invalid logLevel no longer writes trace content (#8) (branch `showcase/held-misc`)
+
+- **#8:** the Logger's two guard styles (`rank <= X` vs early-return `rank > X`) disagreed on an unknown level's `undefined` rank, so `logLevel: "error"` silenced `debug()` but wrote full trace blocks; every gated method now uses one `enabled()` helper, and `setLevel`/`readLogLevel` fall back to `info` (via `typeof`, since `'constructor' in LEVEL_RANK` is true).
+
 ---
 
 ## 09-27-26
+
+### Forced pool leadership documented (#10) (branch `showcase/held-misc`)
+
+- Docs only (option c): the forced-leadership comment in `PoolClient.activate()` claimed `listen()` would fail against a live server, which is false on Unix (`start()` deletes the socket first); the comment is corrected and the two-server case is a Known Limitation, with the per-server socket path as the later structural fix; `dispose()`'s unconditional lock delete is deliberately untouched.
 
 ### CLI slot isolation, pool-kill outcomes, breaker and empties (branch `showcase/followup-pool`)
 
@@ -23,6 +35,10 @@ Reverse chronological. Most recent entry first.
 - **Follow-up (branch `showcase/followup-pool2`):** a command sent after dispose is now `aborted`, not `empty`, and the SlotPool rapid-recycle breaker, which has no timed cooldown (it recovers on restart or recycle), now makes the pool report unavailable and fail requests at once with `pool_circuit_open`, including a follower's, whose leader now sends the reason in the unavailable response.
 - **Follow-up (branch `showcase/followup-hang`):** `consumeStream()` had no arm for a stream that ends cleanly, so `recycleSlot()` dropped the held request's callback and the completion (which has no timeout) hung; it now ends as `slot_stream_ended`, a pending warmup fails at once instead of after 30 s, and `settleResult()` clears the callback on delivery so no path can settle a request twice.
 - **API breaker counted genuine empties.** Counting empties dates from when adapters swallowed 429/529 as a bare null; they now report `errorType`, so only that (and a malformed empty: no tokens, no finish reason) counts.
+
+### CLI cost and API time recorded per turn (branch `showcase/held-misc`)
+
+- the SDK's `total_cost_usd` (and `duration_api_ms`) are session totals, and only traces used the per-turn delta — ledger rows and `totalCostUsd` pool stats added the running totals; `consumeStream()` now overwrites `meta.costUsd`/`durationApiMs` with the deltas so every consumer is per-turn (API-time deltas are approximate, see `evals/latency-2026-09.md`), and old ledger rows are left as they are.
 
 ### Showcase pass: tests, CI matrix, evals, tracing (branch `showcase/audit-and-polish`)
 

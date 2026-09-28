@@ -27,7 +27,7 @@ import {
   isPresetAvailable,
   findFirstAvailablePreset,
 } from './providers/api/presets';
-import { Logger } from './utils/logger';
+import { Logger, LogLevel, LOG_LEVELS, isLogLevel } from './utils/logger';
 import { displayModelName, shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
@@ -603,8 +603,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       // --- Log Level section ---
       items.push({ label: 'Log Level', kind: vscode.QuickPickItemKind.Separator });
-      const logLevels = ['info', 'debug', 'trace'] as const;
-      for (const level of logLevels) {
+      for (const level of LOG_LEVELS) {
         const isCurrent = config.logLevel === level;
         const icon = level === 'info' ? '$(info)' : level === 'debug' ? '$(bug)' : '$(list-tree)';
         const item: vscode.QuickPickItem = {
@@ -1449,6 +1448,17 @@ function readPermissionMode(ws: vscode.WorkspaceConfiguration): PermissionMode {
 }
 
 /**
+ * Read `logLevel`, falling back to `info` for anything outside the declared enum
+ * (e.g. `"error"`, which reads like a level but is not one). The Logger enforces
+ * the same fallback; validating here also keeps the status menu's "(current)" mark
+ * and the startup log line honest.
+ */
+function readLogLevel(ws: vscode.WorkspaceConfiguration): LogLevel {
+  const raw = ws.get<string>('logLevel', 'info');
+  return isLogLevel(raw) ? raw : 'info';
+}
+
+/**
  * Read `contextMenu.agent`, rejecting anything outside the declared union.
  * Same reasoning as `readPermissionMode()`: the value selects what runs in the terminal.
  */
@@ -1531,7 +1541,7 @@ function loadConfig(): ExtensionConfig {
         captureContent: ws.get<boolean>('trace.otlp.captureContent', false) === true,
       },
     },
-    logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
+    logLevel: readLogLevel(ws),
   };
 }
 
