@@ -110,7 +110,9 @@ function makeEditor(
   return { document, selection, visibleRanges: opts.visible ?? [] };
 }
 
-function makeRouter(response: { text: string | null; meta?: unknown } | Error) {
+function makeRouter(
+  response: { text: string | null; meta?: unknown; errorType?: string; aborted?: boolean } | Error,
+) {
   return {
     isCommandAvailable: vi.fn(() => true),
     getCurrentModel: vi.fn(() => 'sonnet'),
@@ -298,6 +300,32 @@ describe('suggestEdit — response handling', () => {
     expect(win.showWarningMessage).not.toHaveBeenCalled();
     expect(executeCommand).not.toHaveBeenCalled();
     expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('toasts and logs a pool failure (null text with an errorType), naming the cause', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {})); // never dismissed
+    const { logger, error } = makeErrorSpyLogger();
+    const ledger = { record: vi.fn() };
+    await run(makeRouter({ text: null, meta: null, errorType: 'pool_recycled' }), ledger, logger);
+    expect(error).toHaveBeenCalledWith('Suggest edit failed: pool_recycled');
+    expect(win.showErrorMessage).toHaveBeenCalledOnce();
+    const msg = win.showErrorMessage.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^Bespoke AI: Suggest edit failed — /);
+    expect(msg).toContain('restarted');
+    expect(ledger.record).not.toHaveBeenCalled();
+    // The unsettled toast does not hold the in-flight guard.
+    const next = makeRouter({ text: null });
+    await run(next);
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it('stays silent on an aborted (superseded / shutdown) command', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const { logger, error } = makeErrorSpyLogger();
+    await run(makeRouter({ text: null, meta: null, aborted: true }), undefined, logger);
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('warns on an unparseable response and does not edit', async () => {

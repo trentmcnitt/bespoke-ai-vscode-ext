@@ -5,6 +5,7 @@ import { UsageLedger } from './utils/usage-ledger';
 import { BackendRouter } from './providers/backend-router';
 import { buildFullEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
 import { getWorkspaceRoot } from './utils/workspace';
+import { commandFailureType, describeCommandFailure } from './utils/command-failure';
 
 const TIMEOUT_MS = 90_000;
 
@@ -109,7 +110,7 @@ async function doSuggestEdit(
 
   // 5. Send to command pool with progress
   const startTime = Date.now();
-  const { text, meta } = await vscode.window.withProgress(
+  const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Bespoke AI: Suggesting edits...',
@@ -128,8 +129,18 @@ async function doSuggestEdit(
   );
 
   const durationMs = Date.now() - startTime;
+  const { text, meta } = result;
 
   if (text === null) {
+    // The pool (or API) ended the request without a reply: say why. A cancellation
+    // or supersession stays silent. Not awaited, so the in-flight guard is released.
+    const failure = commandFailureType(result);
+    if (failure) {
+      logger.error(`Suggest edit failed: ${failure}`);
+      void vscode.window.showErrorMessage(
+        `Bespoke AI: Suggest edit failed — ${describeCommandFailure(failure)}`,
+      );
+    }
     return;
   }
 

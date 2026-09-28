@@ -10,6 +10,7 @@ import {
   MAX_COMMIT_DIFF_CHARS,
 } from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
+import { commandFailureType, describeCommandFailure } from './utils/command-failure';
 import type { GitExtension, Repository } from './types/git';
 
 const TIMEOUT_MS = 60_000;
@@ -149,7 +150,7 @@ async function doGenerateCommitMessage(
 
   // 6. Send to command pool with progress
   const startTime = Date.now();
-  const { text, meta } = await vscode.window.withProgress(
+  const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Bespoke AI: Generating commit message...',
@@ -168,8 +169,18 @@ async function doGenerateCommitMessage(
   );
 
   const durationMs = Date.now() - startTime;
+  const { text, meta } = result;
 
   if (text === null) {
+    // The pool (or API) ended the request without a reply: say why. A cancellation
+    // or supersession stays silent. Not awaited, so the in-flight guard is released.
+    const failure = commandFailureType(result);
+    if (failure) {
+      logger.error(`Commit message generation failed: ${failure}`);
+      void vscode.window.showErrorMessage(
+        `Bespoke AI: Commit message generation failed — ${describeCommandFailure(failure)}`,
+      );
+    }
     return;
   }
 

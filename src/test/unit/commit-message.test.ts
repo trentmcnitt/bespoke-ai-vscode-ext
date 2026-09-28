@@ -178,4 +178,40 @@ describe('generateCommitMessage — error handling', () => {
       2000,
     );
   });
+
+  it('toasts and logs a pool failure (null text with an errorType), naming the cause', async () => {
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {})); // never dismissed
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({
+      text: null,
+      meta: null,
+      errorType: 'pool_circuit_open',
+    }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(error).toHaveBeenCalledWith('Commit message generation failed: pool_circuit_open');
+    expect(win.showErrorMessage).toHaveBeenCalledOnce();
+    const msg = win.showErrorMessage.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^Bespoke AI: Commit message generation failed — /);
+    expect(msg).toContain('crashing repeatedly');
+    // The unsettled toast does not hold the in-flight guard.
+    const next = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(next as unknown as BackendRouter, makeLogger());
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it('stays silent on an aborted (superseded / shutdown) command', async () => {
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({ text: null, meta: null, aborted: true }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('stays silent on a bare null (the user cancelled)', async () => {
+    const router = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(router as unknown as BackendRouter, makeLogger());
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+  });
 });
