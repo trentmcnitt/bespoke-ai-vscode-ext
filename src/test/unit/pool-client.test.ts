@@ -581,10 +581,9 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       );
     });
 
-    // BUG (client.ts attemptTakeOver): `disposed` is checked only on entry, before the
-    // back-off delay. A client disposed during the delay still acquires the lock and
-    // starts a PoolServer, which nothing will ever dispose (dispose() early-returns).
-    it.fails('dispose during takeover back-off cancels the takeover (known bug)', async () => {
+    // Regression: `disposed` used to be checked only before the back-off delay, so a
+    // client disposed during the delay still started a PoolServer nothing would dispose.
+    it('dispose during takeover back-off cancels the takeover', async () => {
       const a = makeClient('A');
       const b = makeClient('B');
       await a.client.activate();
@@ -603,10 +602,9 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       }
     });
 
-    // BUG (client.ts getCurrentModel): serverModel is cached from the client-hello and
-    // never cleared, so after a follower takes over it keeps reporting the old leader's
-    // model even though its own server runs config.claudeCode.model.
-    it.fails('getCurrentModel reflects the new server after takeover (known bug)', async () => {
+    // Regression: serverModel (cached from the client-hello) used to survive takeover,
+    // so the new leader kept reporting the old leader's model.
+    it('getCurrentModel reflects the new server after takeover', async () => {
       const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
       const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
       await a.client.activate();
@@ -667,13 +665,11 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       expect(fs.statSync(SOCK_PATH).isSocket()).toBe(true);
     });
 
-    // BUG (server.ts acquireLock): readLockfile() returns null for unparseable content,
-    // so the stale-lock unlink is skipped and the 'wx' write hits EEXIST forever. A
-    // PoolClient then only becomes server via the forced path after ~1.5s of retries,
-    // still without owning the lock.
-    it.fails('reclaims a corrupt lockfile (known bug: never reclaimed)', () => {
+    it('reclaims a corrupt lockfile left behind by a crash', () => {
       fs.mkdirSync(STATE_DIR, { recursive: true });
       fs.writeFileSync(LOCK_PATH, '{not json');
+      const old = new Date(Date.now() - 5000);
+      fs.utimesSync(LOCK_PATH, old, old);
 
       expect(acquireLock(process.pid)).toBe(true);
     });

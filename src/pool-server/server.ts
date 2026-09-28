@@ -106,7 +106,18 @@ export class PoolServer {
 
       this.logger.debug('Pool server: providers activated');
     } catch (err) {
-      // Clean up lockfile on failure so other clients can acquire it
+      // Stop listening and remove the socket so other windows don't connect to a
+      // server whose pools never started, then release the lockfile.
+      const server = this.server;
+      this.server = null;
+      if (server?.listening) {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+      try {
+        cleanupStaleEndpoint();
+      } catch {
+        // Ignore cleanup errors
+      }
       try {
         if (fs.existsSync(LOCK_PATH)) fs.unlinkSync(LOCK_PATH);
       } catch {
@@ -510,6 +521,18 @@ export function readLockfile(): LockInfo | null {
   }
 }
 
+/** Grace period before an unparseable lockfile is treated as stale (a writer may be mid-write). */
+const CORRUPT_LOCK_GRACE_MS = 1000;
+
+function isCorruptLockfile(): boolean {
+  try {
+    const stat = fs.statSync(LOCK_PATH);
+    return readLockfile() === null && Date.now() - stat.mtimeMs > CORRUPT_LOCK_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
 export function isProcessAlive(pid: number): boolean {
   try {
     // Signal 0 checks if process exists without actually sending a signal
@@ -532,8 +555,10 @@ export function acquireLock(pid: number): boolean {
       return false;
     }
 
-    // Stale lock exists — remove it first
-    if (existing) {
+    // Stale lock exists — remove it first. An unparseable lockfile (truncated
+    // write, crash mid-write) is also stale once it is older than a moment;
+    // without this it would block every acquire until someone deletes it by hand.
+    if (existing || isCorruptLockfile()) {
       try {
         fs.unlinkSync(LOCK_PATH);
       } catch {

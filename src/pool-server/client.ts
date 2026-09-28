@@ -279,6 +279,9 @@ export class PoolClient implements ICompletionProvider {
     try {
       this.reconnectAttempts++;
       await this.delay(RECONNECT_DELAY_MS * this.reconnectAttempts);
+      // The window may have closed during the back-off; dispose() has already run
+      // and would never shut down a server we started now.
+      if (this.disposed) return;
 
       // Try to connect first (another client may have become server)
       const connected = await this.tryConnect();
@@ -319,6 +322,8 @@ export class PoolClient implements ICompletionProvider {
     await this.server.start();
 
     this.role = 'server';
+    // Forget the previous leader's model so getCurrentModel() reports our own.
+    this.serverModel = null;
     this.reconnectAttempts = 0;
     this.onRoleChange?.('server');
     this.logger.debug('Pool: now acting as server');

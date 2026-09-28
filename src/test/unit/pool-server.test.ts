@@ -291,11 +291,10 @@ describe('PoolServer — lifecycle', () => {
     expect(fs.existsSync(ipc.LOCK_PATH)).toBe(false);
   });
 
-  // BUG (reported, not fixed): server.ts start() catch block only unlinks the
-  // lockfile. When listen() succeeded but activate() rejects, the net.Server is
-  // left listening and the socket file stays on disk, so other windows connect
+  // Regression: when listen() succeeded but activate() rejected, start() used to leave
+  // the net.Server listening and the socket file on disk, so other windows connected
   // to a half-started server whose pools never activated.
-  it.fails('closes the listener and socket file when pool activation fails', async () => {
+  it('closes the listener and socket file when pool activation fails', async () => {
     const s = new PoolServer({
       config: makeConfig(),
       logger: makeLogger(),
@@ -761,16 +760,22 @@ describe('lockfile', () => {
     expect(readLockfile()?.pid).toBe(process.pid);
   });
 
-  // BUG (reported, not fixed): readLockfile() returns null for a corrupt/empty
-  // lockfile, so acquireLock() skips the stale-lock unlink, then the 'wx' write
-  // hits EEXIST, and the EEXIST branch returns false. A truncated lockfile
-  // (e.g. crash mid-write) therefore blocks acquisition until something else
-  // deletes it.
-  it.fails('treats a corrupt lockfile as absent and replaces it', () => {
+  // A truncated/garbage lockfile (e.g. crash mid-write) is reclaimed once it is
+  // older than a short grace period, so it can't block acquisition forever.
+  it('replaces a corrupt lockfile once it is past the grace period', () => {
     fs.writeFileSync(ipc.LOCK_PATH, '{garbage');
+    const old = new Date(Date.now() - 5000);
+    fs.utimesSync(ipc.LOCK_PATH, old, old);
     expect(readLockfile()).toBeNull();
     expect(acquireLock(process.pid)).toBe(true);
     expect(readLockfile()?.pid).toBe(process.pid);
+  });
+
+  // A fresh unparseable lockfile may belong to a writer that is mid-write — leave it.
+  it('does not reclaim a corrupt lockfile that was just written', () => {
+    fs.writeFileSync(ipc.LOCK_PATH, '{garbage');
+    expect(acquireLock(process.pid)).toBe(false);
+    expect(fs.readFileSync(ipc.LOCK_PATH, 'utf-8')).toBe('{garbage');
   });
 
   it('readLockfile returns null when there is no lock', () => {
