@@ -55,6 +55,35 @@ export function detectCliAuthEnvVars(env: NodeJS.ProcessEnv = process.env): stri
   return CLI_AUTH_ENV_VARS.filter((name) => !!env[name]);
 }
 
+/**
+ * Env vars that keep a slot's CLI session from loading the host's Claude Code
+ * customizations. `settingSources: []` only skips settings.json files: with it
+ * alone, a CLI 2.1.283 slot still received the user's claude.ai connectors
+ * (~145 MCP tools and their server instructions, ~96k tokens written to the
+ * prompt cache per session), the auto-memory MEMORY.md, CLAUDE.md content,
+ * and user agents (verified 2026-09-27 via the SDK's `system/init` message
+ * and by asking the model what it received). `strictMcpConfig` drops the MCP
+ * servers, connectors included; these cover the rest.
+ *
+ * Env vars rather than CLI flags on purpose: an older `claude` ignores an
+ * env var it doesn't know, but exits on an unknown flag, which would fail
+ * warmup and degrade the pool. Auth is unaffected (safe mode keeps the
+ * subscription login; verified). Do not use `--bare`: it never reads OAuth.
+ */
+export const SLOT_ISOLATION_ENV: Readonly<Record<string, string>> = {
+  /** Disables CLAUDE.md, skills, plugins, hooks, MCP servers, custom agents, output styles. */
+  CLAUDE_CODE_SAFE_MODE: '1',
+  /** For CLIs without safe mode (the bundled 2.0.77 cli.js has these two). */
+  CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+};
+
+/** The environment for a slot's CLI subprocess: the host's, plus the isolation vars. */
+export function slotEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  return { ...base, ...SLOT_ISOLATION_ENV };
+}
+
 export interface SlotStats {
   state: SlotState;
   requestCount: number;
@@ -376,7 +405,10 @@ export abstract class SlotPool {
           permissionMode: 'bypassPermissions',
           allowDangerouslySkipPermissions: true,
           systemPrompt: this.getSystemPrompt(),
+          // Isolation from the host's Claude Code configuration — see SLOT_ISOLATION_ENV.
           settingSources: [],
+          strictMcpConfig: true,
+          env: slotEnv(),
           maxThinkingTokens: MAX_THINKING_TOKENS,
           maxTurns: MAX_TURNS,
           persistSession: false,

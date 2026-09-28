@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CommandPool } from '../../providers/command-pool';
-import { makeLogger, makeFakeStream, consumeIterable, FakeStream } from '../helpers';
+import {
+  makeLogger,
+  makeFakeStream,
+  consumeIterable,
+  FakeStream,
+  expectIsolatedQueryOptions,
+} from '../helpers';
 
 // Mock the SDK dynamic import
 const mockQueryFn = vi.fn();
@@ -59,6 +65,20 @@ describe('CommandPool', () => {
     it('reports unavailable before activation', () => {
       const pool = new CommandPool('haiku', makeLogger());
       expect(pool.isAvailable()).toBe(false);
+    });
+
+    it('isolates the slot session from the host Claude Code configuration', async () => {
+      const fakeStream = createFakeStream([]);
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        consumeIterable(prompt, fakeStream);
+        return fakeStream.stream;
+      });
+
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      expectIsolatedQueryOptions(mockQueryFn.mock.calls[0][0].options);
     });
   });
 

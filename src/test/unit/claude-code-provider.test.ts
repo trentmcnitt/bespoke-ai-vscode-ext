@@ -9,6 +9,7 @@ import {
   makeFakeStream,
   consumeIterable,
   FakeStream,
+  expectIsolatedQueryOptions,
 } from '../helpers';
 
 /** Build a realistic warmup response that passes validation. */
@@ -69,6 +70,20 @@ describe('ClaudeCodeProvider', () => {
     it('reports unavailable before activation', () => {
       const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
       expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('isolates the slot session from the host Claude Code configuration', async () => {
+      const fakeStream0 = createFakeStream('');
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        consumeIterable(prompt, fakeStream0);
+        return fakeStream0.stream;
+      });
+
+      const provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      activeProvider = provider;
+      await provider.activate('/test/workspace');
+
+      expectIsolatedQueryOptions(mockQueryFn.mock.calls[0][0].options);
     });
   });
 
