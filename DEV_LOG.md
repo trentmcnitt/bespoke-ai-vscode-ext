@@ -24,6 +24,10 @@ Reverse chronological. Most recent entry first.
 
 ## 09-27-26
 
+### Forced pool leadership documented (#10) (branch `showcase/held-misc`)
+
+- Docs only (option c): the forced-leadership comment in `PoolClient.activate()` claimed `listen()` would fail against a live server, which is false on Unix (`start()` deletes the socket first); the comment is corrected and the two-server case is a Known Limitation, with the per-server socket path as the later structural fix; `dispose()`'s unconditional lock delete is deliberately untouched.
+
 ### CLI slot isolation, pool-kill outcomes, breaker and empties (branch `showcase/followup-pool`)
 
 - **Slots loaded the host's Claude Code setup.** `settingSources: []` only skips settings.json. On CLI 2.1.283 a slot still got the claude.ai connectors (~145 MCP tools and their instructions; ~96k tokens of cache writes per session), auto-memory, CLAUDE.md content and user agents, and `tools: []` does not remove MCP tools. Found by reading the SDK's `system/init` message and asking the model what it received (a handful of haiku calls). Fix: `strictMcpConfig: true` plus env vars (`CLAUDE_CODE_SAFE_MODE=1` and three older-CLI equivalents). Env vars, not flags, so an older `claude` can't fail warmup on an unknown flag. `--bare` is out: it never reads OAuth. Still injected and not controllable: the environment block, model, date, and account email reminders.
