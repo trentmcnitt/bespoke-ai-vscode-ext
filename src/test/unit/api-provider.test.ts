@@ -467,6 +467,18 @@ describe('ApiCompletionProvider', () => {
       expect(primary.complete).toHaveBeenCalledTimes(1);
     });
 
+    it('reports backend_unavailable (not an empty reply) for an unknown override preset', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const res = await provider.getCompletionWithPresetDetail(
+        'no-such-preset',
+        makeCodeContext(),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('backend_unavailable');
+      expect(provider.getActivePreset()?.id).toBe('xai-grok');
+    });
+
     it('restores the primary adapter even when the override request throws', async () => {
       const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
       const primary = lastAdapter();
