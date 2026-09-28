@@ -23,8 +23,10 @@ import {
   generateRequestId,
   serializeMessage,
   parseMessage,
+  wireMetaToDetail,
 } from './protocol';
-import { PoolServer, acquireLock, isProcessAlive, readLockfile } from './server';
+import type { CompletionWithDetail, GenerationOptions } from '../utils/trace';
+import { PoolServer, acquireLock, commandMetaToWire, isProcessAlive, readLockfile } from './server';
 import { getIpcPath, ipcEndpointMayExist } from './ipc-path';
 
 const CONNECT_TIMEOUT_MS = 2000;
@@ -376,13 +378,16 @@ export class PoolClient implements ICompletionProvider {
           fileName: request.fileName,
           filePath: request.filePath,
         };
-        const abortController = new AbortController();
-        const text = await this.server.getCompletion(context, abortController.signal);
+        const { text, meta } = await this.server.completeWithMeta(
+          context,
+          request.captureContent === true,
+        );
         return {
           type: 'completion',
           id: request.id,
           success: true,
           text,
+          meta,
         };
       }
 
@@ -395,7 +400,7 @@ export class PoolClient implements ICompletionProvider {
           id: request.id,
           success: true,
           text: result.text,
-          meta: result.meta || undefined,
+          meta: commandMetaToWire(result.meta),
         };
       }
 
@@ -466,8 +471,20 @@ export class PoolClient implements ICompletionProvider {
 
   // --- CompletionProvider interface ---
 
-  async getCompletion(context: CompletionContext, _signal: AbortSignal): Promise<string | null> {
-    if (this.disposed) return null;
+  async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
+    return (await this.getCompletionWithDetail(context, signal)).text;
+  }
+
+  async getCompletionWithDetail(
+    context: CompletionContext,
+    _signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    const configuredModel = this.config.claudeCode.model;
+    const captureContent = options?.captureContent === true;
+    if (this.disposed) {
+      return { text: null, detail: { ...wireMetaToDetail(undefined, configuredModel, false) } };
+    }
 
     try {
       const response = await this.sendRequest({
@@ -479,20 +496,36 @@ export class PoolClient implements ICompletionProvider {
         languageId: context.languageId,
         fileName: context.fileName,
         filePath: context.filePath,
+        captureContent,
       });
 
       if (response.type === 'completion' && response.success) {
-        return response.text;
+        return {
+          text: response.text,
+          detail: wireMetaToDetail(response.meta, configuredModel, captureContent),
+        };
       }
       // Log error responses instead of silently swallowing
-      if (response.type === 'error' || (response.type === 'completion' && !response.success)) {
-        const errorMsg = 'error' in response ? response.error : 'unknown error';
-        this.logger.error(`Pool: completion failed: ${errorMsg}`);
-      }
-      return null;
+      const errorMsg = 'error' in response ? (response.error ?? 'unknown error') : 'unknown error';
+      this.logger.error(`Pool: completion failed: ${errorMsg}`);
+      return {
+        text: null,
+        detail: {
+          ...wireMetaToDetail(undefined, configuredModel, false),
+          errorType: 'pool_error',
+          errorMessage: errorMsg,
+        },
+      };
     } catch (err) {
       this.logger.error(`Pool: completion error: ${err}`);
-      return null;
+      return {
+        text: null,
+        detail: {
+          ...wireMetaToDetail(undefined, configuredModel, false),
+          errorType: 'pool_error',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+      };
     }
   }
 
@@ -575,6 +608,8 @@ export class PoolClient implements ICompletionProvider {
               cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,
               cacheCreationTokens: protocolMeta.cacheCreationTokens ?? 0,
               sessionId: protocolMeta.sessionId ?? '',
+              stopReason: protocolMeta.finishReason,
+              turnCostUsd: protocolMeta.turnCostUsd,
             }
           : null;
         return { text: response.text, meta };

@@ -81,6 +81,17 @@ vi.mock('../../providers/claude-code', () => {
     activate = vi.fn(async () => {});
     isAvailable = vi.fn(() => this.available);
     getCompletion = vi.fn(async (ctx: CompletionContext) => `<<${ctx.prefix}|${ctx.suffix}>>`);
+    // Mirrors the real provider: detail wraps getCompletion (so call assertions still apply).
+    getCompletionWithDetail = vi.fn(
+      async (ctx: CompletionContext, signal: AbortSignal, opts?: { captureContent?: boolean }) => {
+        const text = await this.getCompletion(ctx, signal);
+        if (this.detailOverride === undefined) return { text };
+        const detail = { ...this.detailOverride };
+        if (!opts?.captureContent) delete detail.content;
+        return { text, detail };
+      },
+    );
+    detailOverride: Record<string, unknown> | undefined = undefined;
     getStats = vi.fn(() => fakeStats('completion'));
     recycleAll = vi.fn(async () => {});
     restart = vi.fn(async () => {});
@@ -426,7 +437,74 @@ describe.skipIf(IS_WINDOWS)('PoolServer — request dispatch', () => {
 
     completionPool().lastUsedModel = 'claude-haiku-4-5-20251001';
     const second = await client.request(completionReq('c2'));
-    expect(second.meta).toEqual({ model: 'claude-haiku-4-5-20251001' });
+    expect(second.meta).toMatchObject({ model: 'claude-haiku-4-5-20251001' });
+  });
+
+  it('completion: carries generation detail in meta, and content only when requested', async () => {
+    await startServer({ claudeCode: { model: 'sonnet', models: ['sonnet'] } });
+    const client = await connect();
+    completionPool().detailOverride = {
+      providerName: 'anthropic',
+      requestModel: 'sonnet',
+      responseModel: 'claude-sonnet-4-5',
+      inputTokens: 2,
+      outputTokens: 9,
+      cacheReadTokens: 1500,
+      cacheWriteTokens: 40,
+      costUsd: 0.004,
+      durationApiMs: 700,
+      waitMs: 12,
+      finishReason: 'end_turn',
+      content: { systemPrompt: 'SYS', userMessage: 'MSG', rawOutput: 'RAW', extracted: 'EX' },
+    };
+
+    const withContent = await client.request(completionReq('d1', { captureContent: true }));
+    expect(withContent.meta).toMatchObject({
+      model: 'claude-sonnet-4-5',
+      requestModel: 'sonnet',
+      inputTokens: 2,
+      outputTokens: 9,
+      cacheReadTokens: 1500,
+      cacheCreationTokens: 40,
+      turnCostUsd: 0.004,
+      durationApiMs: 700,
+      waitMs: 12,
+      finishReason: 'end_turn',
+      content: { systemPrompt: 'SYS', userMessage: 'MSG', rawOutput: 'RAW', extracted: 'EX' },
+    });
+    expect(completionPool().getCompletionWithDetail.mock.calls[0][2]).toEqual({
+      captureContent: true,
+    });
+
+    // Absent or false: the provider is asked not to capture, and nothing crosses the socket.
+    for (const extra of [{}, { captureContent: false }]) {
+      const res = await client.request(completionReq('d2', extra));
+      expect(res.meta.content).toBeUndefined();
+      expect(JSON.stringify(res)).not.toContain('SYS');
+      expect(res.meta.outputTokens).toBe(9);
+    }
+    const lastCall = completionPool().getCompletionWithDetail.mock.calls.at(-1)!;
+    expect(lastCall[2]).toEqual({ captureContent: false });
+  });
+
+  it('completeWithMeta strips content even if a provider returns it with capture off', async () => {
+    const s = await startServer();
+    completionPool().getCompletionWithDetail.mockResolvedValueOnce({
+      text: 'x',
+      detail: { providerName: 'anthropic', requestModel: 'sonnet', content: { systemPrompt: 'S' } },
+    });
+    const { meta } = await s.completeWithMeta(
+      {
+        prefix: 'a',
+        suffix: '',
+        mode: 'prose',
+        languageId: 'markdown',
+        fileName: '',
+        filePath: '',
+      },
+      false,
+    );
+    expect(meta.content).toBeUndefined();
   });
 
   it('completion: fills defaults for missing optional context fields', async () => {

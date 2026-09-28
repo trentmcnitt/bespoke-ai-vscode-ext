@@ -490,3 +490,114 @@ describe('buildFillMessage', () => {
     expect(message).toContain('before cursor{{FILL_HERE}} after cursor');
   });
 });
+
+describe('ClaudeCodeProvider — generation detail', () => {
+  let provider: ClaudeCodeProvider | null = null;
+  afterEach(() => {
+    provider?.dispose();
+    provider = null;
+  });
+
+  /** Scripted SDK stream: assistant + result per turn, with a cumulative total_cost_usd. */
+  function scriptedQuery(turns: Array<{ text: string; cumulativeCost?: number; stop?: string }>) {
+    mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      async function* gen() {
+        const it = prompt[Symbol.asyncIterator]();
+        await it.next(); // warmup message
+        yield {
+          type: 'assistant',
+          message: { model: 'claude-sonnet-4-5', stop_reason: 'end_turn' },
+        };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          result: '<COMPLETION>four</COMPLETION>',
+          total_cost_usd: 0.01,
+          usage: { input_tokens: 2, output_tokens: 3 },
+        };
+        for (const turn of turns) {
+          if ((await it.next()).done) return;
+          yield {
+            type: 'assistant',
+            message: { model: 'claude-sonnet-4-5', stop_reason: turn.stop },
+          };
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: turn.text,
+            ...(turn.cumulativeCost !== undefined ? { total_cost_usd: turn.cumulativeCost } : {}),
+            duration_api_ms: 321,
+            usage: {
+              input_tokens: 2,
+              output_tokens: 5,
+              cache_read_input_tokens: 700,
+              cache_creation_input_tokens: 30,
+            },
+          };
+        }
+        await it.next();
+      }
+      return gen();
+    });
+  }
+
+  it('reports per-turn cost (SDK total is cumulative), usage, stop reason, and content', async () => {
+    scriptedQuery([
+      { text: '<COMPLETION> went home.</COMPLETION>', cumulativeCost: 0.03, stop: 'end_turn' },
+      { text: '<COMPLETION> and slept.</COMPLETION>', cumulativeCost: 0.045, stop: 'max_tokens' },
+    ]);
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+    const ctx = makeProseContext({ prefix: 'She', suffix: '' });
+
+    const first = await provider.getCompletionWithDetail(ctx, new AbortController().signal, {
+      captureContent: true,
+    });
+    expect(first.text).toBe(' went home.');
+    expect(first.detail).toMatchObject({
+      providerName: 'anthropic',
+      requestModel: 'sonnet',
+      responseModel: 'claude-sonnet-4-5',
+      inputTokens: 2,
+      outputTokens: 5,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 30,
+      durationApiMs: 321,
+      finishReason: 'end_turn',
+      content: {
+        userMessage: buildFillMessage('She', '', ctx.languageId),
+        rawOutput: '<COMPLETION> went home.</COMPLETION>',
+        extracted: ' went home.',
+      },
+    });
+    expect(first.detail?.costUsd).toBeCloseTo(0.02, 10);
+    expect(first.detail?.waitMs).toBeGreaterThanOrEqual(0);
+    expect(first.detail?.content?.systemPrompt).toBeTruthy();
+
+    const second = await provider.getCompletionWithDetail(ctx, new AbortController().signal);
+    expect(second.detail?.costUsd).toBeCloseTo(0.015, 10);
+    expect(second.detail?.finishReason).toBe('max_tokens');
+    expect(second.detail?.content).toBeUndefined();
+  });
+
+  it('leaves cost unset when the SDK reports none (never a fabricated 0)', async () => {
+    scriptedQuery([{ text: '<COMPLETION> x</COMPLETION>' }]);
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+    const res = await provider.getCompletionWithDetail(
+      makeProseContext({ prefix: 'a' }),
+      new AbortController().signal,
+    );
+    expect(res.detail?.outputTokens).toBe(5);
+    expect(res.detail?.costUsd).toBeUndefined();
+  });
+
+  it('reports sdk_unavailable before activation', async () => {
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    const res = await provider.getCompletionWithDetail(
+      makeProseContext(),
+      new AbortController().signal,
+    );
+    expect(res).toMatchObject({ text: null, detail: { errorType: 'sdk_unavailable' } });
+  });
+});

@@ -77,6 +77,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
         },
         model: response.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
+        finishReason: response.choices?.[0]?.finish_reason ?? undefined,
       };
     } catch (err: unknown) {
       if (isAbortError(err)) {
@@ -98,6 +99,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: '429',
         };
       }
 
@@ -182,7 +184,7 @@ interface OpenAIClient {
         },
         options?: { signal?: AbortSignal },
       ): Promise<{
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
         usage?: {
           prompt_tokens?: number;
           completion_tokens?: number;

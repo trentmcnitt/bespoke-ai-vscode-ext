@@ -115,6 +115,7 @@ async function doSuggestEdit(
       return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
+        traceSource: 'suggest-edit',
       });
     },
   );

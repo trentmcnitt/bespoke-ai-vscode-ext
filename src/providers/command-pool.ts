@@ -1,5 +1,6 @@
 import { Logger } from '../utils/logger';
 import { SlotPool, ResultMetadata } from './slot-pool';
+import type { GenerationDetail } from '../utils/trace';
 
 export const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely. Output only what is requested — no commentary, preamble, or meta-text.`;
 
@@ -14,11 +15,15 @@ const PROMPT_TOO_LONG = 'Prompt is too long';
 export interface SendPromptOptions {
   timeoutMs?: number;
   onCancel?: AbortSignal;
+  /** Which feature issued the command — labels its trace record. Ignored by the pool. */
+  traceSource?: 'commit-message' | 'suggest-edit';
 }
 
 export interface SendPromptResult {
   text: string | null;
   meta: ResultMetadata | null;
+  /** Generation detail (API backend). The CLI path's detail is rebuilt from `meta`. */
+  detail?: GenerationDetail;
 }
 
 export class CommandPool extends SlotPool {

@@ -91,6 +91,30 @@ vi.mock('../../providers/claude-code', () => ({
       // Identify the serving instance: model + index in registry
       return `${this.config.claudeCode.model}#${registry.completion.indexOf(this)}:${ctx.prefix}`;
     }
+    async getCompletionWithDetail(
+      ctx: { prefix: string },
+      _s: unknown,
+      opts?: { captureContent?: boolean },
+    ) {
+      const text = await this.getCompletion(ctx);
+      return {
+        text,
+        detail: {
+          providerName: 'anthropic',
+          requestModel: this.config.claudeCode.model,
+          responseModel: `claude-${this.config.claudeCode.model}-resolved`,
+          inputTokens: 10,
+          outputTokens: 3,
+          cacheReadTokens: 100,
+          costUsd: 0.002,
+          waitMs: 5,
+          finishReason: 'end_turn',
+          ...(opts?.captureContent
+            ? { content: { systemPrompt: 'SYS', userMessage: `U:${ctx.prefix}`, rawOutput: 'RAW' } }
+            : {}),
+        },
+      };
+    }
     getStats() {
       return fakeStats('completion', this.isAvailable());
     }
@@ -294,6 +318,74 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       expect(await b.client.getCompletion(ctx, signal())).toBe('opus#0:hello');
       // Leader uses the local fast path and hits the same provider
       expect(await a.client.getCompletion(ctx, signal())).toBe('opus#0:hello');
+    });
+
+    it('generation detail reaches the requester on both the fast path and the socket', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      const ctx = makeProseContext({ prefix: 'hi' });
+      for (const h of [a, b]) {
+        const res = await h.client.getCompletionWithDetail(ctx, signal(), { captureContent: true });
+        expect(res.text).toBe('opus#0:hi');
+        expect(res.detail).toMatchObject({
+          providerName: 'anthropic',
+          requestModel: 'opus',
+          responseModel: 'claude-opus-resolved',
+          inputTokens: 10,
+          outputTokens: 3,
+          cacheReadTokens: 100,
+          costUsd: 0.002,
+          waitMs: 5,
+          finishReason: 'end_turn',
+          content: { systemPrompt: 'SYS', userMessage: 'U:hi', rawOutput: 'RAW' },
+        });
+      }
+    });
+
+    it('omits content on both paths when capture is off', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      const ctx = makeProseContext({ prefix: 'hi' });
+      for (const h of [a, b]) {
+        const res = await h.client.getCompletionWithDetail(ctx, signal(), {
+          captureContent: false,
+        });
+        expect(res.detail?.content).toBeUndefined();
+        expect(res.detail?.outputTokens).toBe(3);
+        const plain = await h.client.getCompletionWithDetail(ctx, signal());
+        expect(plain.detail?.content).toBeUndefined();
+      }
+    });
+
+    it('does not report a stale response model when nothing responded', async () => {
+      const { wireMetaToDetail } = await import('../../pool-server/protocol');
+      // Server fallback `model` is the previous request's resolved model; no usage reported.
+      const d = wireMetaToDetail(
+        { model: 'claude-opus-4-previous', requestModel: 'opus', aborted: true },
+        'opus',
+        true,
+      );
+      expect(d.responseModel).toBeUndefined();
+      expect(d.aborted).toBe(true);
+    });
+
+    it('reports a pool failure as error detail rather than a bare null', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      const res = await b.client.getCompletionWithDetail(
+        makeProseContext({ prefix: 'THROW' }),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail).toMatchObject({ errorType: 'pool_error', errorMessage: 'boom' });
     });
 
     it('concurrent follower requests are matched to their own responses', async () => {

@@ -30,11 +30,21 @@ export interface Preset {
 
 export interface ApiAdapterResult {
   text: string | null;
-  usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number };
+  /** `inputTokens` is NON-cached input across all adapters; cache reads/writes are separate. */
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   model: string;
   durationMs: number;
   /** True when the request was cancelled by an AbortSignal (not a real failure). */
   aborted?: boolean;
+  /** Provider's stop/finish reason (e.g. `end_turn`, `stop`, `length`), when reported. */
+  finishReason?: string;
+  /** Set when the adapter swallowed a failure and returned null text (e.g. HTTP "429"). */
+  errorType?: string;
 }
 
 export interface ApiAdapter {

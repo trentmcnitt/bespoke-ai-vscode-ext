@@ -5,6 +5,7 @@ import { SYSTEM_PROMPT } from '../../providers/prompt-strategy';
 import { UsageLedger } from '../../utils/usage-ledger';
 import { Logger } from '../../utils/logger';
 import { makeConfig, makeLogger, makeProseContext, makeCodeContext } from '../helpers';
+import { detailFromError } from '../../utils/trace';
 
 // The adapter factory is mocked so the provider's own logic (strategy selection,
 // extraction, breaker, ledger) is exercised without touching an SDK or network.
@@ -535,5 +536,87 @@ describe('ApiCompletionProvider', () => {
         error: 'No adapter loaded',
       });
     });
+  });
+});
+
+describe('ApiCompletionProvider — generation detail', () => {
+  beforeEach(() => {
+    mocks.createAdapter.mockReset();
+    installAdapterFactory();
+  });
+
+  it('reports provider, models, usage, finish reason, and content when capture is on', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    lastAdapter().complete.mockResolvedValue(
+      makeResult({
+        usage: { inputTokens: 100, outputTokens: 12, cacheReadTokens: 40, cacheWriteTokens: 5 },
+        finishReason: 'stop',
+      }),
+    );
+    const { text, detail } = await provider.getCompletionWithDetail(
+      makeProseContext({ prefix: 'The fox', suffix: '' }),
+      signal(),
+      { captureContent: true },
+    );
+    expect(text).toBe(' ran into the forest.');
+    expect(detail).toMatchObject({
+      providerName: 'x_ai',
+      requestModel: lastAdapter().preset.modelId,
+      responseModel: 'fake-model',
+      serverAddress: 'api.x.ai',
+      maxTokens: lastAdapter().preset.maxTokens,
+      inputTokens: 100,
+      outputTokens: 12,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 5,
+      durationApiMs: 123,
+      finishReason: 'stop',
+    });
+    expect(detail?.costUsd).toBeUndefined();
+    expect(detail?.content?.systemPrompt).toBe(lastAdapter().complete.mock.calls[0][0]);
+    expect(detail?.content?.userMessage).toBe(lastAdapter().complete.mock.calls[0][1][0].content);
+    expect(detail?.content?.rawOutput).toBe('<COMPLETION> ran into the forest.</COMPLETION>');
+    expect(detail?.content?.extracted).toBe(' ran into the forest.');
+  });
+
+  it('omits content when capture is off (the default)', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    const { detail } = await provider.getCompletionWithDetail(makeProseContext(), signal());
+    expect(detail?.content).toBeUndefined();
+    expect(detail?.outputTokens).toBe(12);
+  });
+
+  it('flags aborted and swallowed rate-limit results', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    lastAdapter().complete.mockResolvedValueOnce(makeResult({ text: null, aborted: true }));
+    expect(
+      (await provider.getCompletionWithDetail(makeProseContext(), signal())).detail?.aborted,
+    ).toBe(true);
+    lastAdapter().complete.mockResolvedValueOnce(makeResult({ text: null, errorType: '429' }));
+    expect(
+      (await provider.getCompletionWithDetail(makeProseContext(), signal())).detail?.errorType,
+    ).toBe('429');
+  });
+
+  it('attaches detail to thrown adapter errors', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    const err = new Error('boom');
+    lastAdapter().complete.mockRejectedValueOnce(err);
+    await expect(
+      provider.getCompletionWithDetail(makeProseContext(), signal(), { captureContent: true }),
+    ).rejects.toBe(err);
+    expect(detailFromError(err)).toMatchObject({ providerName: 'x_ai' });
   });
 });

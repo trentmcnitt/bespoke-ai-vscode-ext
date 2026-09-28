@@ -155,6 +155,7 @@ async function doGenerateCommitMessage(
       return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
+        traceSource: 'commit-message',
       });
     },
   );

@@ -97,6 +97,14 @@ export interface ResultMetadata {
   sessionId: string;
   /** The model that actually generated this response (from the SDK assistant message). */
   model: string;
+  /** `stop_reason` from the final assistant message, when the SDK reports one. */
+  stopReason?: string;
+  /**
+   * Cost of THIS turn. The SDK's `total_cost_usd` is cumulative for the slot's session
+   * (verified against usage-ledger data: it grows monotonically across a slot's requests),
+   * so this is the delta from the previous result on the same stream.
+   */
+  turnCostUsd?: number;
 }
 
 export interface Slot {
@@ -118,6 +126,8 @@ export interface Slot {
   lastResultMeta: ResultMetadata | null;
   /** Model from the most recent assistant message in the stream. */
   lastAssistantModel: string | null;
+  /** stop_reason from the most recent assistant message in the stream. */
+  lastAssistantStopReason?: string | null;
   /** Buffered stderr output from the CLI subprocess for diagnostics. */
   stderrChunks: string[];
 }
@@ -573,12 +583,15 @@ export abstract class SlotPool {
     const iterator = (stream as AsyncIterable<any>)[Symbol.asyncIterator]();
     try {
       let resultCount = 0;
+      // total_cost_usd is cumulative per session; track it to derive per-turn cost.
+      let prevCumulativeCost = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let iterResult: IteratorResult<any>;
       while (!(iterResult = await iterator.next()).done) {
         const message = iterResult.value;
         if (message.type === 'assistant') {
           slot.lastAssistantModel = message.message?.model ?? null;
+          slot.lastAssistantStopReason = message.message?.stop_reason ?? null;
           if (slot.lastAssistantModel) {
             this._resolvedModel = slot.lastAssistantModel;
           }
@@ -592,6 +605,14 @@ export abstract class SlotPool {
           const assistantModel = slot.lastAssistantModel ?? undefined;
           slot.lastAssistantModel = null;
           const meta = this.extractMetadata(message, assistantModel);
+          const stopReason = message.stop_reason ?? slot.lastAssistantStopReason;
+          slot.lastAssistantStopReason = null;
+          if (stopReason) meta.stopReason = stopReason;
+          // Only when the SDK actually reported a cost — never invent a 0.
+          if (typeof message.total_cost_usd === 'number') {
+            meta.turnCostUsd = Math.max(0, message.total_cost_usd - prevCumulativeCost);
+            prevCumulativeCost = message.total_cost_usd;
+          }
 
           if (resultCount === 1) {
             // Warmup result — validate, then signal initSlot

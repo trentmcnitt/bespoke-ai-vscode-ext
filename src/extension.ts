@@ -34,6 +34,7 @@ import { suggestEdit, originalContentProvider, correctedContentProvider } from '
 import { explainSelection, fixSelection, doSelection } from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
+import { TraceFileSink, TraceRecorder } from './utils/trace';
 import {
   initSecretStorage,
   loadSecretKey,
@@ -117,6 +118,7 @@ let activeRequests = 0;
 let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
+let traceRecorder: TraceRecorder;
 let extensionContext: vscode.ExtensionContext;
 let autoSelectedPresetId: string | null = null;
 /** Result of the last background API health check, tied to the preset it tested.
@@ -323,6 +325,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   completionProvider = new CompletionProvider(config, backendRouter, logger, usageTracker);
   context.subscriptions.push({ dispose: () => completionProvider.dispose() });
+
+  // Per-request trace records (ring buffer + opt-in sinks)
+  traceRecorder = new TraceRecorder({ captureContent: config.trace.captureContent, logger });
+  applyTraceConfig(config);
+  completionProvider.setTraceRecorder(traceRecorder);
+  backendRouter.setTraceRecorder(traceRecorder);
+  context.subscriptions.push({ dispose: () => void traceRecorder.dispose() });
 
   completionProvider.setRequestCallbacks(
     () => {
@@ -1038,6 +1047,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         backendRouter.updateConfig(newConfig);
         completionProvider.updateConfig(newConfig);
+        applyTraceConfig(newConfig);
 
         // Update context menu visibility when backend or context menu agent changes
         if (
@@ -1205,6 +1215,19 @@ export function activate(context: vscode.ExtensionContext) {
   logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
 }
 
+/** Apply `bespokeAI.trace.*` settings to the recorder and its sinks (live, no restart). */
+function applyTraceConfig(config: ExtensionConfig): void {
+  if (!traceRecorder) return;
+  traceRecorder.setCaptureContent(config.trace.captureContent);
+  const hasFileSink = traceRecorder.getSink('file') !== undefined;
+  if (config.trace.file && !hasFileSink) {
+    traceRecorder.setSink('file', new TraceFileSink(path.join(STATE_DIR, 'traces.jsonl'), logger));
+    logger.info(`Trace: writing records to ${path.join(STATE_DIR, 'traces.jsonl')}`);
+  } else if (!config.trace.file && hasFileSink) {
+    traceRecorder.setSink('file', null);
+  }
+}
+
 /**
  * One-time review of custom presets already persisted in User settings.
  *
@@ -1347,6 +1370,10 @@ function loadConfig(): ExtensionConfig {
       permissionMode: readPermissionMode(ws),
     },
     customInstructions: ws.get<string>('customInstructions', '')!,
+    trace: {
+      captureContent: ws.get<boolean>('trace.captureContent', true) !== false,
+      file: ws.get<boolean>('trace.file', false) === true,
+    },
     logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
   };
 }

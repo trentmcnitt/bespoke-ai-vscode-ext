@@ -68,6 +68,7 @@ export class OllamaAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: '429',
         };
       }
 
@@ -86,6 +87,7 @@ export class OllamaAdapter implements ApiAdapter {
         },
         model: data.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
+        finishReason: data.done_reason || undefined,
       };
     } catch (err: unknown) {
       if (isAbortError(err)) {
@@ -105,6 +107,7 @@ export class OllamaAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: 'connection_refused',
         };
       }
 

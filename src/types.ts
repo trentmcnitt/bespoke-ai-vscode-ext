@@ -1,3 +1,5 @@
+import type { CompletionWithDetail, GenerationOptions } from './utils/trace';
+
 export type CompletionMode = 'prose' | 'code';
 
 /** Default model used throughout the extension and tests.
@@ -61,6 +63,16 @@ export interface CompletionContext {
 
 export interface CompletionProvider {
   getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null>;
+  /**
+   * Optional: same as `getCompletion`, plus model-side detail for trace records (tokens,
+   * model, timing, and — when `options.captureContent` — prompt/response text).
+   * The orchestrator prefers this when present and falls back to `getCompletion`.
+   */
+  getCompletionWithDetail?(
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail>;
   isAvailable(): boolean;
   updateConfig?(config: ExtensionConfig): void;
   recycleAll?(): Promise<void>;
@@ -119,5 +131,12 @@ export interface ExtensionConfig {
   };
   /** Standing user instructions appended to the inline-completion system prompt. Empty string = none. */
   customInstructions: string;
+  /** Per-request trace records (see `utils/trace.ts`). */
+  trace: {
+    /** Keep prompt/response text in trace records. Off = content omitted at every sink. */
+    captureContent: boolean;
+    /** Append records to `~/.bespokeai/traces.jsonl`. */
+    file: boolean;
+  };
   logLevel: 'info' | 'debug' | 'trace';
 }

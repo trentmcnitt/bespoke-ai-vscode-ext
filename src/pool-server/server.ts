@@ -20,10 +20,30 @@ import {
   CompletionRequest,
   CommandRequest,
   ConfigUpdateRequest,
+  ResultMetadata as ProtocolResultMetadata,
+  detailToWireMeta,
   serializeMessage,
   parseMessage,
 } from './protocol';
 import { LOCK_PATH, getIpcPath, cleanupStaleEndpoint, ensureStateDir } from './ipc-path';
+
+/** Whitelist slot-pool command metadata onto the wire shape (shared with the local fast path). */
+export function commandMetaToWire(meta: ResultMetadata | null): ProtocolResultMetadata | undefined {
+  if (!meta) return undefined;
+  return {
+    durationMs: meta.durationMs,
+    durationApiMs: meta.durationApiMs,
+    costUsd: meta.costUsd,
+    inputTokens: meta.inputTokens,
+    outputTokens: meta.outputTokens,
+    cacheReadTokens: meta.cacheReadTokens,
+    cacheCreationTokens: meta.cacheCreationTokens,
+    sessionId: meta.sessionId,
+    model: meta.model,
+    turnCostUsd: meta.turnCostUsd,
+    finishReason: meta.stopReason,
+  };
+}
 
 export interface PoolServerOptions {
   config: ExtensionConfig;
@@ -139,6 +159,26 @@ export class PoolServer {
 
   async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
     return this.completionProvider.getCompletion(context, signal);
+  }
+
+  /**
+   * Run a completion and return its text plus wire metadata (model, tokens, timing, and —
+   * only when `captureContent` — prompt/response text). Shared by the IPC handler and the
+   * leader's local fast path so both return identical detail.
+   */
+  async completeWithMeta(
+    context: CompletionContext,
+    captureContent: boolean,
+  ): Promise<{ text: string | null; meta: ProtocolResultMetadata }> {
+    // AbortSignal not used by pool (ignored once slot acquired)
+    const signal = new AbortController().signal;
+    const { text, detail } = await this.completionProvider.getCompletionWithDetail(
+      context,
+      signal,
+      { captureContent },
+    );
+    const fallbackModel = this.completionProvider.lastUsedModel || this.config.claudeCode.model;
+    return { text, meta: detailToWireMeta(detail, fallbackModel, captureContent) };
   }
 
   async sendCommand(
@@ -359,19 +399,14 @@ export class PoolServer {
       filePath: request.filePath || '',
     };
 
-    // AbortSignal not used by pool (ignored once slot acquired)
-    const abortController = new AbortController();
-
     try {
-      const text = await this.completionProvider.getCompletion(context, abortController.signal);
-      // Include model in response for tracking (full metadata would require interface changes)
-      const model = this.completionProvider.lastUsedModel || this.config.claudeCode.model;
+      const { text, meta } = await this.completeWithMeta(context, request.captureContent === true);
       return {
         type: 'completion',
         id: request.id,
         success: true,
         text,
-        meta: { model },
+        meta,
       };
     } catch (err) {
       return {
@@ -405,19 +440,7 @@ export class PoolServer {
         id: request.id,
         success: true,
         text: result.text,
-        meta: result.meta
-          ? {
-              durationMs: result.meta.durationMs,
-              durationApiMs: result.meta.durationApiMs,
-              costUsd: result.meta.costUsd,
-              inputTokens: result.meta.inputTokens,
-              outputTokens: result.meta.outputTokens,
-              cacheReadTokens: result.meta.cacheReadTokens,
-              cacheCreationTokens: result.meta.cacheCreationTokens,
-              sessionId: result.meta.sessionId,
-              model: result.meta.model,
-            }
-          : undefined,
+        meta: commandMetaToWire(result.meta),
       };
     } catch (err) {
       return {

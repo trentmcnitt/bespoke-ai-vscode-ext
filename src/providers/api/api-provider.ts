@@ -13,6 +13,33 @@ import {
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
+import {
+  CompletionWithDetail,
+  GenerationContent,
+  GenerationDetail,
+  GenerationOptions,
+  attachDetailToError,
+  genAiProviderName,
+  serverAddressFor,
+} from '../../utils/trace';
+import { ApiAdapterResult } from './types';
+
+/** Copy an adapter result's model-side numbers onto a generation detail. */
+export function applyAdapterResult(detail: GenerationDetail, result: ApiAdapterResult): void {
+  detail.responseModel = result.model;
+  detail.inputTokens = result.usage.inputTokens;
+  detail.outputTokens = result.usage.outputTokens;
+  if (result.usage.cacheReadTokens !== undefined) {
+    detail.cacheReadTokens = result.usage.cacheReadTokens;
+  }
+  if (result.usage.cacheWriteTokens !== undefined) {
+    detail.cacheWriteTokens = result.usage.cacheWriteTokens;
+  }
+  detail.durationApiMs = result.durationMs;
+  if (result.finishReason) detail.finishReason = result.finishReason;
+  if (result.aborted) detail.aborted = true;
+  if (result.errorType) detail.errorType = result.errorType;
+}
 
 export class ApiCompletionProvider implements CompletionProvider {
   private config: ExtensionConfig;
@@ -51,8 +78,16 @@ export class ApiCompletionProvider implements CompletionProvider {
   }
 
   async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
-    if (!this.adapter || !this.activePreset || !this.strategy) return null;
-    if (this.breaker.isOpen()) return null;
+    return (await this.getCompletionWithDetail(context, signal)).text;
+  }
+
+  async getCompletionWithDetail(
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    if (!this.adapter || !this.activePreset || !this.strategy) return { text: null };
+    if (this.breaker.isOpen()) return { text: null };
 
     const preset = this.activePreset;
     const messages = this.strategy.buildMessages(
@@ -80,6 +115,21 @@ export class ApiCompletionProvider implements CompletionProvider {
       this.logger.traceBlock('api → prefill', messages.assistantPrefill);
     }
 
+    const detail: GenerationDetail = {
+      providerName: genAiProviderName(preset.provider),
+      requestModel: preset.modelId,
+      serverAddress: serverAddressFor(preset.provider, preset.baseUrl),
+      maxTokens: preset.maxTokens,
+    };
+    const content: GenerationContent | undefined = options?.captureContent
+      ? {
+          systemPrompt: system,
+          userMessage: messages.user,
+          ...(messages.assistantPrefill ? { prefill: messages.assistantPrefill } : {}),
+        }
+      : undefined;
+    if (content) detail.content = content;
+
     let result;
     try {
       result = await this.adapter.complete(system, adapterMessages, {
@@ -90,6 +140,7 @@ export class ApiCompletionProvider implements CompletionProvider {
       });
     } catch (err) {
       this.breaker.recordFailure();
+      attachDetailToError(err, detail);
       throw err;
     }
 
@@ -106,9 +157,12 @@ export class ApiCompletionProvider implements CompletionProvider {
       outputChars: result.text?.length ?? 0,
     });
 
+    applyAdapterResult(detail, result);
+    if (content) content.rawOutput = result.text;
+
     if (!result.text) {
       if (!result.aborted) this.breaker.recordFailure();
-      return null;
+      return { text: null, detail };
     }
 
     this.breaker.recordSuccess();
@@ -117,7 +171,8 @@ export class ApiCompletionProvider implements CompletionProvider {
 
     // Extract completion using the strategy
     const extracted = this.strategy.extractCompletion(result.text);
-    if (!extracted) return null;
+    if (content) content.extracted = extracted;
+    if (!extracted) return { text: null, detail };
 
     if (extracted !== result.text) {
       this.logger.traceBlock('api ← extracted', extracted);
@@ -137,7 +192,7 @@ export class ApiCompletionProvider implements CompletionProvider {
       this.logger.traceBlock('api ← processed', final ?? '(null)');
     }
 
-    return final;
+    return { text: final, detail };
   }
 
   async recycleAll(): Promise<void> {
@@ -201,6 +256,16 @@ export class ApiCompletionProvider implements CompletionProvider {
     context: CompletionContext,
     signal: AbortSignal,
   ): Promise<string | null> {
+    return (await this.getCompletionWithPresetDetail(presetId, context, signal)).text;
+  }
+
+  /** `getCompletionWithPreset` plus generation detail for trace records. */
+  async getCompletionWithPresetDetail(
+    presetId: string,
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
     const prevPreset = this.activePreset;
     const prevAdapter = this.adapter;
     const prevStrategy = this.strategy;
@@ -209,7 +274,7 @@ export class ApiCompletionProvider implements CompletionProvider {
     this.adapter = null;
     this.loadAdapter(presetId);
     try {
-      return await this.getCompletion(context, signal);
+      return await this.getCompletionWithDetail(context, signal, options);
     } finally {
       this.adapter = prevAdapter;
       this.activePreset = prevPreset;

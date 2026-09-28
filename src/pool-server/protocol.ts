@@ -6,6 +6,7 @@
  */
 
 import { CompletionMode } from '../types';
+import type { GenerationDetail } from '../utils/trace';
 
 // --- Request Types ---
 
@@ -18,6 +19,11 @@ export interface CompletionRequest {
   languageId: string;
   fileName: string;
   filePath: string;
+  /**
+   * Requester's `bespokeAI.trace.captureContent`. The server includes prompt/response text in
+   * `meta.content` only when this is exactly `true` — absent (older clients) means no content.
+   */
+  captureContent?: boolean;
 }
 
 export interface CommandRequest {
@@ -89,6 +95,24 @@ export interface ResultMetadata {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   sessionId?: string;
+  // --- Trace detail (all optional; see utils/trace.ts GenerationDetail) ---
+  /** Model the request asked for (config alias, e.g. `sonnet`); `model` is what responded. */
+  requestModel?: string;
+  /** Cost of this turn. `costUsd` is the SDK's cumulative per-session total. */
+  turnCostUsd?: number;
+  /** Time waiting for a pool slot before sending. */
+  waitMs?: number;
+  finishReason?: string;
+  /** Request superseded (latest-request-wins) or pool disposed before sending. */
+  aborted?: boolean;
+  errorType?: string;
+  /** Prompt/response text — only when the request set `captureContent: true`. */
+  content?: {
+    systemPrompt?: string;
+    userMessage?: string;
+    rawOutput?: string | null;
+    extracted?: string | null;
+  };
 }
 
 export interface CompletionResponse {
@@ -219,6 +243,73 @@ export interface PoolDegradedEvent {
 }
 
 export type ServerEvent = ServerShuttingDownEvent | PoolDegradedEvent;
+
+// --- Trace detail <-> wire metadata ---
+
+/**
+ * Convert a provider's generation detail into wire metadata for a completion response.
+ * Content is copied only when `captureContent` is true — when the requesting window has
+ * content capture off, prompt text never crosses the socket.
+ */
+export function detailToWireMeta(
+  detail: GenerationDetail | undefined,
+  fallbackModel: string,
+  captureContent: boolean,
+): ResultMetadata {
+  if (!detail) return { model: fallbackModel };
+  const meta: ResultMetadata = {
+    model: detail.responseModel || fallbackModel,
+    requestModel: detail.requestModel,
+    durationApiMs: detail.durationApiMs,
+    turnCostUsd: detail.costUsd,
+    inputTokens: detail.inputTokens,
+    outputTokens: detail.outputTokens,
+    cacheReadTokens: detail.cacheReadTokens,
+    cacheCreationTokens: detail.cacheWriteTokens,
+    waitMs: detail.waitMs,
+    finishReason: detail.finishReason,
+    aborted: detail.aborted,
+    errorType: detail.errorType,
+  };
+  if (captureContent && detail.content) {
+    const c = detail.content;
+    meta.content = {
+      systemPrompt: c.systemPrompt,
+      userMessage: c.userMessage,
+      rawOutput: c.rawOutput,
+      extracted: c.extracted,
+    };
+  }
+  return meta;
+}
+
+/** Rebuild a GenerationDetail (CLI backend) from wire metadata. */
+export function wireMetaToDetail(
+  meta: ResultMetadata | undefined,
+  configuredModel: string,
+  captureContent: boolean,
+): GenerationDetail {
+  const detail: GenerationDetail = {
+    providerName: 'anthropic',
+    requestModel: meta?.requestModel || configuredModel,
+  };
+  if (!meta) return detail;
+  // `model` falls back to the configured alias / previous response model when nothing
+  // responded, so only trust it as the response model when the backend reported usage.
+  if (meta.model && meta.outputTokens !== undefined) detail.responseModel = meta.model;
+  detail.inputTokens = meta.inputTokens;
+  detail.outputTokens = meta.outputTokens;
+  detail.cacheReadTokens = meta.cacheReadTokens;
+  detail.cacheWriteTokens = meta.cacheCreationTokens;
+  detail.costUsd = meta.turnCostUsd;
+  detail.durationApiMs = meta.durationApiMs;
+  detail.waitMs = meta.waitMs;
+  detail.finishReason = meta.finishReason;
+  if (meta.aborted) detail.aborted = true;
+  if (meta.errorType) detail.errorType = meta.errorType;
+  if (captureContent && meta.content) detail.content = { ...meta.content };
+  return detail;
+}
 
 // --- Utilities ---
 

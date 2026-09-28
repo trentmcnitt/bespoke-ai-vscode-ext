@@ -65,9 +65,11 @@ export class AnthropicAdapter implements ApiAdapter {
           inputTokens: response.usage?.input_tokens ?? 0,
           outputTokens: response.usage?.output_tokens ?? 0,
           cacheReadTokens: (response.usage as CacheUsage)?.cache_read_input_tokens,
+          cacheWriteTokens: (response.usage as CacheUsage)?.cache_creation_input_tokens,
         },
         model: response.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
+        finishReason: response.stop_reason ?? undefined,
       };
     } catch (err: unknown) {
       if (isAbortError(err)) {
@@ -88,6 +90,7 @@ export class AnthropicAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: String(status),
         };
       }
 
@@ -169,6 +172,7 @@ interface AnthropicClient {
       content: ContentBlock[];
       usage?: CacheUsage;
       model?: string;
+      stop_reason?: string | null;
     }>;
   };
 }

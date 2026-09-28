@@ -45,6 +45,7 @@ vi.mock('vscode', () => {
 
 // Import after mock is set up
 import { CompletionProvider } from '../../completion-provider';
+import { TraceRecorder, attachDetailToError } from '../../utils/trace';
 import * as vscode from 'vscode';
 
 // Create a mock document
@@ -642,5 +643,213 @@ describe('CompletionProvider', () => {
       expect(mockProvider.recycleAll).toHaveBeenCalled();
       provider.dispose();
     });
+  });
+});
+
+describe('CompletionProvider — trace outcomes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const detail = {
+    providerName: 'anthropic',
+    requestModel: 'sonnet',
+    responseModel: 'claude-sonnet-4-5',
+    inputTokens: 2,
+    outputTokens: 7,
+    cacheReadTokens: 1000,
+    content: { systemPrompt: 'SYS', userMessage: 'MSG', rawOutput: '<COMPLETION>x</COMPLETION>' },
+  };
+
+  function setup(
+    impl: (ctx: unknown, signal: AbortSignal, opts?: { captureContent?: boolean }) => unknown,
+    configOverrides: Parameters<typeof makeConfig>[0] = {},
+  ) {
+    const mockProvider = {
+      ...createMockProvider(),
+      getCompletionWithDetail: vi.fn().mockImplementation(impl),
+    };
+    const provider = new CompletionProvider(
+      makeConfig(configOverrides),
+      mockProvider,
+      makeLogger(),
+    );
+    const recorder = new TraceRecorder({ captureContent: true });
+    provider.setTraceRecorder(recorder);
+    return { mockProvider, provider, recorder };
+  }
+
+  async function invoke(
+    provider: CompletionProvider,
+    text = 'Hello world',
+    token = createMockToken(),
+  ) {
+    const p = provider.provideInlineCompletionItems(
+      createMockDocument(text) as any,
+      { line: 0, character: text.length } as any,
+      createMockInlineContext(TriggerKind.Invoke),
+      token as any,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    return p;
+  }
+
+  it('records ok with detail, final text, timing, and requests content capture', async () => {
+    const { mockProvider, provider, recorder } = setup(async () => ({
+      text: ' there',
+      detail,
+    }));
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('ok');
+    expect(r.operation).toBe('text_completion');
+    expect(r.source).toBe('completion');
+    expect(r.mode).toBe('prose');
+    expect(r.languageId).toBe('markdown');
+    expect(r.finalText).toBe(' there');
+    expect(r.detail?.outputTokens).toBe(7);
+    expect(r.requestId).toMatch(/^[0-9a-f]{4}$/);
+    expect(r.endTimeMs).toBeGreaterThanOrEqual(r.startTimeMs);
+    expect(r.startTimeMs).toBeGreaterThanOrEqual(r.receivedAtMs);
+    expect(mockProvider.getCompletionWithDetail.mock.calls[0][2]).toEqual({ captureContent: true });
+    provider.dispose();
+  });
+
+  it('asks providers not to capture content when the setting is off', async () => {
+    const { mockProvider, provider, recorder } = setup(async () => ({ text: 'x', detail }), {
+      trace: { captureContent: false, file: false },
+    });
+    await invoke(provider);
+    expect(mockProvider.getCompletionWithDetail.mock.calls[0][2]).toEqual({
+      captureContent: false,
+    });
+    // The recorder strips anything a provider returned anyway.
+    recorder.setCaptureContent(false);
+    await invoke(provider, 'Another line');
+    expect(recorder.getRecent()[0].detail?.content).toBeUndefined();
+    provider.dispose();
+  });
+
+  it('records cache_hit without calling the backend again', async () => {
+    const { mockProvider, provider, recorder } = setup(async () => ({ text: ' there', detail }));
+    await invoke(provider);
+    await invoke(provider);
+    expect(mockProvider.getCompletionWithDetail).toHaveBeenCalledTimes(1);
+    const [hit, ok] = recorder.getRecent();
+    expect(ok.outcome).toBe('ok');
+    expect(hit.outcome).toBe('cache_hit');
+    expect(hit.finalText).toBe(' there');
+    expect(hit.detail).toBeUndefined();
+    expect(hit.requestModel).toBe('sonnet');
+    expect(hit.providerName).toBe('anthropic');
+    provider.dispose();
+  });
+
+  it('records empty when the model returns nothing', async () => {
+    const { provider, recorder } = setup(async () => ({ text: null, detail }));
+    await invoke(provider);
+    expect(recorder.getRecent()[0].outcome).toBe('empty');
+    provider.dispose();
+  });
+
+  it('records aborted when the request was superseded or cancelled after sending', async () => {
+    const { provider, recorder } = setup(async () => ({
+      text: null,
+      detail: { ...detail, aborted: true },
+    }));
+    await invoke(provider);
+    expect(recorder.getRecent()[0].outcome).toBe('aborted');
+
+    const token = createMockToken();
+    const cancelling = setup(async () => {
+      token.cancel();
+      return { text: null, detail };
+    });
+    await invoke(cancelling.provider, 'Hello world', token);
+    expect(cancelling.recorder.getRecent()[0].outcome).toBe('aborted');
+    provider.dispose();
+    cancelling.provider.dispose();
+  });
+
+  it('records error (with detail) when the provider throws, and still shows the toast', async () => {
+    const err = Object.assign(new Error('rate limited'), { status: 429 });
+    attachDetailToError(err, detail);
+    const { provider, recorder } = setup(async () => {
+      throw err;
+    });
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('error');
+    expect(r.errorType).toBe('429');
+    expect(r.errorMessage).toBe('rate limited');
+    expect(r.detail?.requestModel).toBe('sonnet');
+    expect(vscode.window.showErrorMessage).toHaveBeenCalled();
+    provider.dispose();
+  });
+
+  it('records error when a swallowed backend failure is reported in detail', async () => {
+    const { provider, recorder } = setup(async () => ({
+      text: null,
+      detail: { providerName: 'anthropic', requestModel: 'sonnet', errorType: 'pool_error' },
+    }));
+    await invoke(provider);
+    expect(recorder.getRecent()[0].outcome).toBe('error');
+    provider.dispose();
+  });
+
+  it('records error when the backend is unavailable', async () => {
+    const { mockProvider, provider, recorder } = setup(async () => ({ text: 'x' }));
+    (mockProvider.isAvailable as any).mockReturnValue(false);
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('error');
+    expect(r.errorType).toBe('backend_unavailable');
+    provider.dispose();
+  });
+
+  it('does not record debounce-cancelled requests', async () => {
+    const { provider, recorder } = setup(async () => ({ text: 'x' }));
+    const token = createMockToken();
+    const p = provider.provideInlineCompletionItems(
+      createMockDocument('Hello world') as any,
+      { line: 0, character: 11 } as any,
+      createMockInlineContext(TriggerKind.Automatic),
+      token as any,
+    );
+    token.cancel();
+    await vi.advanceTimersByTimeAsync(3000);
+    await p;
+    expect(recorder.getRecent()).toHaveLength(0);
+    provider.dispose();
+  });
+
+  it('falls back to getCompletion for providers without detail support', async () => {
+    const mockProvider = createMockProvider('plain');
+    const provider = new CompletionProvider(makeConfig(), mockProvider, makeLogger());
+    const recorder = new TraceRecorder({ captureContent: true });
+    provider.setTraceRecorder(recorder);
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('ok');
+    expect(r.detail).toBeUndefined();
+    expect(r.finalText).toBe('plain');
+    provider.dispose();
+  });
+
+  it('labels API-backend records with the preset model and provider', async () => {
+    const { provider, recorder } = setup(async () => ({ text: null }), {
+      backend: 'api',
+      api: { preset: 'xai-grok', customPresets: [] },
+    });
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.backend).toBe('api');
+    expect(r.providerName).toBe('x_ai');
+    provider.dispose();
   });
 });

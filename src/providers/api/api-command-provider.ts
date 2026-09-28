@@ -5,6 +5,14 @@ import { CircuitBreaker } from '../../utils/circuit-breaker';
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
+import { applyAdapterResult } from './api-provider';
+import {
+  CompletionWithDetail,
+  GenerationDetail,
+  attachDetailToError,
+  genAiProviderName,
+  serverAddressFor,
+} from '../../utils/trace';
 
 /** Max output tokens for commands (commit messages, suggest-edits need much
  *  more than the 200 tokens used for inline completions). */
@@ -51,8 +59,17 @@ export class ApiCommandProvider {
     userMessage: string,
     signal?: AbortSignal,
   ): Promise<string | null> {
-    if (!this.adapter || !this.activePreset) return null;
-    if (this.breaker.isOpen()) return null;
+    return (await this.sendPromptWithDetail(systemPrompt, userMessage, signal)).text;
+  }
+
+  /** `sendPrompt` plus generation detail for trace records (content included; caller gates it). */
+  async sendPromptWithDetail(
+    systemPrompt: string,
+    userMessage: string,
+    signal?: AbortSignal,
+  ): Promise<CompletionWithDetail> {
+    if (!this.adapter || !this.activePreset) return { text: null };
+    if (this.breaker.isOpen()) return { text: null };
 
     const preset = this.activePreset;
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
@@ -61,6 +78,13 @@ export class ApiCommandProvider {
 
     this.logger.traceBlock('api-cmd → system', systemPrompt);
     this.logger.traceBlock('api-cmd → user', userMessage);
+
+    const detail: GenerationDetail = {
+      providerName: genAiProviderName(preset.provider),
+      requestModel: preset.modelId,
+      serverAddress: serverAddressFor(preset.provider, preset.baseUrl),
+      maxTokens: COMMAND_MAX_TOKENS,
+    };
 
     let result;
     try {
@@ -72,8 +96,10 @@ export class ApiCommandProvider {
       });
     } catch (err) {
       this.breaker.recordFailure();
+      attachDetailToError(err, detail);
       throw err;
     }
+    applyAdapterResult(detail, result);
 
     // Record to ledger
     this.ledger?.record({
@@ -90,12 +116,12 @@ export class ApiCommandProvider {
 
     if (!result.text) {
       if (!result.aborted) this.breaker.recordFailure();
-      return null;
+      return { text: null, detail };
     }
 
     this.breaker.recordSuccess();
     this.logger.traceBlock('api-cmd ← raw', result.text);
-    return result.text;
+    return { text: result.text, detail };
   }
 
   dispose(): void {

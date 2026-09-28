@@ -404,6 +404,18 @@
           "default": "",
           "editPresentation": "multilineText",
           "markdownDescription": "Standing instructions appended to the inline-completion prompt to steer output (e.g. `Prefer const over let`, `Follow MISRA C rules`, `Avoid dynamic memory allocation`). Applies to both backends. Keep it short (maximum 2000 characters; longer values are truncated) — it is sent on every completion request, so long text adds latency and token cost. Does not affect commit-message or Suggest Edits commands, and never overrides the core completion rules (output format, continuing rather than replying)."
+        },
+        "bespokeAI.trace.captureContent": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Keep prompt and response text (system prompt, message sent, raw model output, ghost text) in per-request trace records. The records stay on this machine unless you enable a trace sink that sends them elsewhere. When off, text is omitted everywhere: the Recent Completions view, the trace file, the pool-server socket, and any exporter."
+        },
+        "bespokeAI.trace.file": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Append every trace record to `~/.bespokeai/traces.jsonl` (one OpenTelemetry-shaped span per line; rotated at 5 MB, archives kept 7 days). Includes prompt text when `#bespokeAI.trace.captureContent#` is on."
         }
       }
     }
