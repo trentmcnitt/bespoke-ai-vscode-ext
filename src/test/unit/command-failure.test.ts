@@ -41,6 +41,11 @@ describe('describeCommandFailure', () => {
     expect(describeCommandFailure(type)).toContain(phrase);
   });
 
+  it('explains a Claude Code usage-limit notice instead of the raw type', () => {
+    expect(describeCommandFailure('cli_usage_limit')).toMatch(/usage limit/);
+    expect(describeCommandFailure('cli_notice')).toMatch(/notice instead of an answer/);
+  });
+
   it('says a command timed out instead of showing the raw type', () => {
     expect(describeCommandFailure('timeout')).toMatch(/did not answer in time/);
   });

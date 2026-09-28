@@ -761,7 +761,7 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
   function controlledQuery() {
     const END = {};
     const ctl = {
-      warmup: '<COMPLETION>four</COMPLETION>' as string | null,
+      warmup: '<COMPLETION>four</COMPLETION>' as string | object[] | null,
       spawns: 0,
       pending: null as null | { resolve: (m: object) => void; reject: (e: Error) => void },
       respond(message: object) {
@@ -793,7 +793,8 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
         const it = prompt[Symbol.asyncIterator]();
         await it.next(); // warmup message
         if (warmup === null) return;
-        yield { type: 'result', subtype: 'success', result: warmup };
+        if (Array.isArray(warmup)) yield* warmup;
+        else yield { type: 'result', subtype: 'success', result: warmup };
         for (;;) {
           const next = await Promise.race([
             it.next(),
@@ -804,7 +805,9 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
             ctl.pending = { resolve, reject };
           });
           if (message === END) return;
-          yield message;
+          // An array is several stream messages for one request (e.g. assistant + result).
+          if (Array.isArray(message)) yield* message;
+          else yield message;
         }
       }
       return gen();
@@ -980,6 +983,84 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
     const res = await holding;
     expect(res.text).toBeNull();
     expect(res.detail?.errorType).toBe('cli_error_during_execution');
+  });
+
+  // Claude Code answers some requests itself instead of calling the model — e.g. when
+  // the subscription hits its usage limit it returns "You've hit your session limit ·
+  // resets 6:50pm". That arrives as an assistant message with model "<synthetic>" and a
+  // success result carrying the notice. It must never become ghost text.
+  it('a Claude Code notice (synthetic reply) is an error, never ghost text', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const notice = "You've hit your session limit · resets 6:50pm (America/Chicago)";
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond([
+      {
+        type: 'assistant',
+        message: { model: '<synthetic>', stop_reason: 'stop_sequence', content: [] },
+      },
+      { type: 'result', subtype: 'success', result: notice, total_cost_usd: 0 },
+    ]);
+    const res = await holding;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('cli_usage_limit');
+  });
+
+  it('a usage-limit notice at warmup pauses the pool with the notice, without retrying', async () => {
+    const ctl = controlledQuery();
+    const notice = "You've hit your session limit · resets 6:50pm (America/Chicago)";
+    ctl.warmup = [
+      {
+        type: 'assistant',
+        message: { model: '<synthetic>', stop_reason: 'stop_sequence', content: [] },
+      },
+      { type: 'result', subtype: 'success', result: notice },
+    ];
+    const degraded: string[] = [];
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    provider.onPoolDegraded = (reason) => degraded.push(reason);
+
+    await within(provider.activate());
+    for (let i = 0; i < 20 && degraded.length === 0; i++) await settle();
+
+    expect(degraded).toEqual([`usage limit reached: ${notice}`]);
+    expect(ctl.spawns).toBe(1); // no retry — it can't succeed until the limit resets
+    expect(provider.isAvailable()).toBe(false);
+  });
+
+  it('a result flagged is_error is an error even with text', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 500' });
+    const res = await holding;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('cli_notice');
+  });
+
+  it('a normal model reply is unaffected by the notice check', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond([
+      {
+        type: 'assistant',
+        message: { model: 'claude-sonnet-5', stop_reason: 'end_turn', content: [] },
+      },
+      { type: 'result', subtype: 'success', result: '<COMPLETION> the limit is fine</COMPLETION>' },
+    ]);
+    const res = await holding;
+    expect(res.text).toBe(' the limit is fine');
+    expect(res.detail?.errorType).toBeUndefined();
   });
 
   it('a success result with no text is still empty (the model answered)', async () => {

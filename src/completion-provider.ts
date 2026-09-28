@@ -237,6 +237,13 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
           `#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`,
         );
         const outcome: TraceOutcome = nullResultOutcome(detail, cancelled);
+        // A usage-limit notice from Claude Code means completions stop until the plan
+        // resets; say so (rate-limited like other errors) rather than going quiet.
+        if (outcome === 'error' && detail?.errorType === 'cli_usage_limit') {
+          this.showErrorToast(
+            'Claude plan usage limit reached — completions resume when it resets (details in the Bespoke AI output log).',
+          );
+        }
         this.recordTrace(reqId, completionContext, outcome, receivedAtMs, startTime, {
           detail,
           finalText: result,
@@ -275,16 +282,20 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
         errorType: errorTypeOf(err),
         errorMessage: err instanceof Error ? err.message : String(err),
       });
-      const now = Date.now();
-      if (now - this.lastErrorToastTime > 60_000) {
-        this.lastErrorToastTime = now;
-        const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Bespoke AI: error — ${msg}`);
-      }
+      const msg = err instanceof Error ? err.message : String(err);
+      this.showErrorToast(`error — ${msg}`);
       return null;
     } finally {
       this.onRequestEnd?.();
     }
+  }
+
+  /** Show an error notification, at most one per 60 s across all completion errors. */
+  private showErrorToast(message: string): void {
+    const now = Date.now();
+    if (now - this.lastErrorToastTime <= 60_000) return;
+    this.lastErrorToastTime = now;
+    void vscode.window.showErrorMessage(`Bespoke AI: ${message}`);
   }
 
   /**

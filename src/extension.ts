@@ -220,6 +220,8 @@ export function activate(context: vscode.ExtensionContext) {
         // Pick a user-facing message based on the reason
         const isConfigCorrupted = reason.includes('config file corrupted');
         const isBillingError = reason.includes('credit balance');
+        // "usage limit reached: <Claude Code's own notice, which names the reset time>"
+        const usageLimitNotice = /^usage limit reached: (.+)$/s.exec(reason)?.[1];
         // Set when the pool server found CLI auth env vars in its own process
         // env at degrade time — e.g. "credit balance too low (ANTHROPIC_API_KEY
         // set in the extension host process)".
@@ -228,17 +230,19 @@ export function activate(context: vscode.ExtensionContext) {
         )?.[1];
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
-        const userMsg = isConfigCorrupted
-          ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
-          : isBillingError
-            ? envOverrideVars
-              ? `Bespoke AI: Autocomplete unavailable. ${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
-              : 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
-            : isWarmup
-              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
-              : isCircuitBreaker
-                ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
-                : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+        const userMsg = usageLimitNotice
+          ? `Bespoke AI: Autocomplete paused — your Claude plan hit its usage limit (${usageLimitNotice.trim()}). Run Restart Pools after it resets.`
+          : isConfigCorrupted
+            ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
+            : isBillingError
+              ? envOverrideVars
+                ? `Bespoke AI: Autocomplete unavailable. ${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
+                : 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
+              : isWarmup
+                ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+                : isCircuitBreaker
+                  ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+                  : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
         const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {

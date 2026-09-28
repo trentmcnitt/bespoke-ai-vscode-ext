@@ -815,6 +815,32 @@ describe('CompletionProvider — trace outcomes', () => {
     provider.dispose();
   });
 
+  it('a Claude usage-limit notice is an error with a notification, never ghost text', async () => {
+    const { provider, recorder } = setup(async () => ({
+      text: null,
+      detail: { providerName: 'anthropic', requestModel: 'sonnet', errorType: 'cli_usage_limit' },
+    }));
+    vi.mocked(vscode.window.showErrorMessage).mockClear();
+    const result = await invoke(provider);
+    expect(result).toBeNull();
+    expect(recorder.getRecent()[0].outcome).toBe('error');
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('usage limit reached'),
+    );
+    provider.dispose();
+  });
+
+  it('other swallowed pool failures stay silent (no notification)', async () => {
+    const { provider } = setup(async () => ({
+      text: null,
+      detail: { providerName: 'anthropic', requestModel: 'sonnet', errorType: 'pool_recycled' },
+    }));
+    vi.mocked(vscode.window.showErrorMessage).mockClear();
+    await invoke(provider);
+    expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+    provider.dispose();
+  });
+
   it('records error when the backend is unavailable', async () => {
     const { mockProvider, provider, recorder } = setup(async () => ({ text: 'x' }));
     (mockProvider.isAvailable as any).mockReturnValue(false);

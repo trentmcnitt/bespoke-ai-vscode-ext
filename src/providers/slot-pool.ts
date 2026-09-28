@@ -166,6 +166,8 @@ export interface ResultMetadata {
  * - `slot_unavailable`: the pool is degraded, or the slot lost its session after acquisition.
  * - `pool_circuit_open`: the rapid-recycle circuit breaker killed every slot; nothing was sent.
  * - `cli_<subtype>`: the CLI returned a non-success result (e.g. `cli_error_during_execution`).
+ * - `cli_usage_limit` / `cli_notice`: Claude Code answered with its own notice instead of
+ *   the model (see {@link cliNoticeFailure}); the notice is never delivered as text.
  */
 export type SlotFailure =
   | 'pool_recycled'
@@ -192,6 +194,23 @@ export function denialOutcome(denial: SlotDenial): { aborted: true } | { errorTy
   return denial === 'superseded' || denial === 'cancelled' || denial === 'disposed'
     ? { aborted: true }
     : { errorType: denial };
+}
+
+/**
+ * Claude Code sometimes answers a turn itself instead of calling the model — most
+ * visibly when a subscription hits its usage limit ("You've hit your session limit ·
+ * resets 6:50pm"). Such a reply comes from an assistant message whose model is
+ * `<synthetic>`, or a result flagged `is_error`. Its text is a status message for a
+ * person, not document content, so it must never become ghost text or a commit
+ * message. Returns the failure type to record, or null for a genuine model reply.
+ */
+export function cliNoticeFailure(
+  assistantModel: string | undefined,
+  isError: boolean,
+  text: string | null,
+): SlotFailure | null {
+  if (assistantModel !== '<synthetic>' && !isError) return null;
+  return text && /\blimit\b/i.test(text) ? 'cli_usage_limit' : 'cli_notice';
 }
 
 /** What a slot's result promise resolves with. `failure` is set only when `text` is null. */
@@ -272,6 +291,8 @@ export abstract class SlotPool {
   private _cliConfigCorrupted = false;
   /** Set when warmup returns the API "Credit balance is too low" error (see consumeStream). */
   private _cliBillingError = false;
+  /** Claude Code's usage-limit notice seen at warmup (retrying won't help until it resets). */
+  private _cliUsageLimitNotice: string | null = null;
   /** Set by dispose(); a disposed pool never hands out a slot again. */
   private _disposed = false;
   /**
@@ -412,6 +433,7 @@ export abstract class SlotPool {
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
     this._cliBillingError = false;
+    this._cliUsageLimitNotice = null;
     this._resolvedModel = null;
     this.sdkAvailable = null;
 
@@ -861,6 +883,12 @@ export abstract class SlotPool {
                 if (isCreditBalanceError(text)) {
                   this._cliBillingError = true;
                 }
+                if (
+                  cliNoticeFailure(assistantModel, message.is_error === true, text) ===
+                  'cli_usage_limit'
+                ) {
+                  this._cliUsageLimitNotice = text;
+                }
               }
             } else {
               this.logger.error(`warmup returned null on slot ${slotIndex}, recycling`);
@@ -885,13 +913,22 @@ export abstract class SlotPool {
 
           // Real completion result — deliver to the waiting caller. A non-success
           // result (e.g. error_during_execution) is the CLI failing, not the model
-          // returning nothing.
+          // returning nothing; a Claude Code notice (usage limit etc.) is not model
+          // output either, and is logged instead of delivered.
           slot.resultCount++;
+          const notice = cliNoticeFailure(assistantModel, message.is_error === true, text);
+          if (notice) {
+            this.logger.error(
+              `${this.getPoolLabel()}: Claude Code returned a notice instead of a model reply (${notice}): ${text ?? '(no text)'}`,
+            );
+          }
           this.settleResult(
             slot,
-            message.subtype === 'success' || text !== null
-              ? { text }
-              : { text: null, failure: `cli_${String(message.subtype ?? 'error')}` },
+            notice
+              ? { text: null, failure: notice }
+              : message.subtype === 'success' || text !== null
+                ? { text }
+                : { text: null, failure: `cli_${String(message.subtype ?? 'error')}` },
           );
 
           // Update pool-level statistics
@@ -1040,6 +1077,7 @@ export abstract class SlotPool {
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
     this._cliBillingError = false;
+    this._cliUsageLimitNotice = null;
     // Recycles follow model changes — the new warmup will repopulate this.
     this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
@@ -1245,17 +1283,24 @@ export abstract class SlotPool {
 
     this.killAllSlots('pool_warmup_failed');
 
-    if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted || this._cliBillingError) {
+    if (
+      this._warmupFailureCount >= 2 ||
+      this._cliConfigCorrupted ||
+      this._cliBillingError ||
+      this._cliUsageLimitNotice
+    ) {
       // Exhausted retries (or a retry-won't-help failure) — shut down
       this.sdkAvailable = false;
       const authVars = detectCliAuthEnvVars();
       const reason = this._cliConfigCorrupted
         ? 'cli config file corrupted'
-        : this._cliBillingError
-          ? authVars.length > 0
-            ? `credit balance too low (${authVars.join(', ')} set in the extension host process)`
-            : 'credit balance too low'
-          : 'warmup failed after retry';
+        : this._cliUsageLimitNotice
+          ? `usage limit reached: ${this._cliUsageLimitNotice}`
+          : this._cliBillingError
+            ? authVars.length > 0
+              ? `credit balance too low (${authVars.join(', ')} set in the extension host process)`
+              : 'credit balance too low'
+            : 'warmup failed after retry';
       this.logger.error(`${this.getPoolLabel()}: ${reason}, autocomplete disabled`);
       this.logCliDiagnostics();
       this.onPoolDegraded?.(reason);
