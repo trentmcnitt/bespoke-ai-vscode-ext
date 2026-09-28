@@ -73,6 +73,19 @@ export interface ClientHelloRequest {
   clientId: string;
 }
 
+/**
+ * Stop the sender's in-flight `command` whose id is `requestId`. `id` is a fresh id of
+ * its own: a leader from before `cancel` existed answers it with an `error` response,
+ * which then matches no pending request and is dropped. A cancel for a command that
+ * already finished, or a second cancel, is a no-op. Only the connection that sent the
+ * command can cancel it.
+ */
+export interface CancelRequest {
+  type: 'cancel';
+  id: string;
+  requestId: string;
+}
+
 export type PoolRequest =
   | CompletionRequest
   | CommandRequest
@@ -81,7 +94,8 @@ export type PoolRequest =
   | StatusRequest
   | ConfigUpdateRequest
   | DisposeRequest
-  | ClientHelloRequest;
+  | ClientHelloRequest
+  | CancelRequest;
 
 // --- Response Types ---
 
@@ -216,6 +230,13 @@ export interface ClientHelloResponse {
   model: string;
 }
 
+/** Acknowledges a `cancel`, whether or not a command was still in flight. */
+export interface CancelResponse {
+  type: 'cancel';
+  id: string;
+  success: true;
+}
+
 export interface ErrorResponse {
   type: 'error';
   id: string;
@@ -232,6 +253,7 @@ export type PoolResponse =
   | ConfigUpdateResponse
   | DisposeResponse
   | ClientHelloResponse
+  | CancelResponse
   | ErrorResponse;
 
 // --- Server Events (pushed to clients) ---

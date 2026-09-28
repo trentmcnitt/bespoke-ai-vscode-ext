@@ -385,12 +385,18 @@ export class PoolClient implements ICompletionProvider {
     this.logger.debug('Pool: now acting as server');
   }
 
-  private sendRequest(request: PoolRequest): Promise<PoolResponse> {
+  /**
+   * Send `request` to the leader (or run it locally when we are the leader).
+   * `signal` applies to `command` requests: on the fast path it goes straight to the
+   * CommandPool; over the socket, an abort resolves this request at once as aborted
+   * and sends the leader a `cancel` for it.
+   */
+  private sendRequest(request: PoolRequest, signal?: AbortSignal): Promise<PoolResponse> {
     return new Promise((resolve, reject) => {
       // If we're the server, handle locally
       if (this.role === 'server' && this.server) {
         // For server role, we need to call the pools directly
-        this.handleLocalRequest(request).then(resolve).catch(reject);
+        this.handleLocalRequest(request, signal).then(resolve).catch(reject);
         return;
       }
 
@@ -399,20 +405,61 @@ export class PoolClient implements ICompletionProvider {
         return;
       }
 
-      const pending: PendingRequest = { resolve, reject };
+      const socket = this.socket;
+      let onAbort: (() => void) | undefined;
+      const done = () => {
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
+      };
+      const pending: PendingRequest = {
+        resolve: (response) => {
+          done();
+          resolve(response);
+        },
+        reject: (err) => {
+          done();
+          reject(err);
+        },
+      };
 
       // Set timeout for requests
       pending.timer = setTimeout(() => {
         this.pendingRequests.delete(request.id);
-        reject(new Error('Request timed out'));
+        pending.reject(new Error('Request timed out'));
       }, ipcTimeoutFor(request));
 
+      if (request.type === 'command' && signal) {
+        onAbort = () => {
+          if (this.pendingRequests.get(request.id) !== pending) return; // already answered
+          this.pendingRequests.delete(request.id);
+          clearTimeout(pending.timer);
+          // Its own id: an older leader answers an unknown type with an error for
+          // that id, which matches no pending request and is dropped.
+          if (!socket.destroyed) {
+            socket.write(
+              serializeMessage({ type: 'cancel', id: generateRequestId(), requestId: request.id }),
+            );
+          }
+          // Don't wait for the leader; its eventual reply finds no pending request.
+          pending.resolve({
+            type: 'command',
+            id: request.id,
+            success: true,
+            text: null,
+            meta: { model: '', aborted: true },
+          });
+        };
+        signal.addEventListener('abort', onAbort);
+      }
+
       this.pendingRequests.set(request.id, pending);
-      this.socket.write(serializeMessage(request));
+      socket.write(serializeMessage(request));
     });
   }
 
-  private async handleLocalRequest(request: PoolRequest): Promise<PoolResponse> {
+  private async handleLocalRequest(
+    request: PoolRequest,
+    signal?: AbortSignal,
+  ): Promise<PoolResponse> {
     if (!this.server) {
       return {
         type: 'error',
@@ -448,6 +495,7 @@ export class PoolClient implements ICompletionProvider {
       case 'command': {
         const result = await this.server.sendCommand(request.message, {
           timeoutMs: request.timeoutMs,
+          onCancel: signal,
         });
         return {
           type: 'command',
@@ -496,6 +544,10 @@ export class PoolClient implements ICompletionProvider {
           serverId: this.clientId,
           model: this.server.getModel(),
         };
+
+      case 'cancel':
+        // The fast path passes the caller's signal to the pool directly; nothing to do.
+        return { type: 'cancel', id: request.id, success: true };
 
       default: {
         const unhandled = request as PoolRequest;
@@ -658,17 +710,21 @@ export class PoolClient implements ICompletionProvider {
   async sendCommand(message: string, options?: SendPromptOptions): Promise<SendPromptResult> {
     // The window is shutting down: cancelled, as for a completion after dispose and a
     // command whose client is disposed mid-request — not an empty model reply.
-    if (this.disposed) {
+    // Cancelled before sending: nothing to stop.
+    if (this.disposed || options?.onCancel?.aborted) {
       return { text: null, meta: null, aborted: true };
     }
 
     try {
-      const response = await this.sendRequest({
-        type: 'command',
-        id: generateRequestId(),
-        message,
-        timeoutMs: options?.timeoutMs,
-      });
+      const response = await this.sendRequest(
+        {
+          type: 'command',
+          id: generateRequestId(),
+          message,
+          timeoutMs: options?.timeoutMs,
+        },
+        options?.onCancel,
+      );
 
       if (response.type === 'command' && response.success) {
         // Map protocol metadata to slot-pool format (fill defaults for optional fields)

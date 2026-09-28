@@ -178,17 +178,18 @@ export type SlotFailure =
 
 /**
  * Why a request ended without a slot or a result. `superseded` (a newer request
- * took the single waiter place) and `disposed` (shutdown) are cancellations;
- * everything else is a {@link SlotFailure}.
+ * took the single waiter place), `cancelled` (the caller's signal aborted while it
+ * waited for a slot) and `disposed` (shutdown) are cancellations; everything else
+ * is a {@link SlotFailure}.
  */
-export type SlotDenial = 'superseded' | 'disposed' | SlotFailure;
+export type SlotDenial = 'superseded' | 'cancelled' | 'disposed' | SlotFailure;
 
 /**
- * How a denial is recorded: `superseded` / `disposed` are cancellations (`aborted`);
- * anything else is a failure whose type becomes the trace's `error.type`.
+ * How a denial is recorded: `superseded` / `cancelled` / `disposed` are cancellations
+ * (`aborted`); anything else is a failure whose type becomes the trace's `error.type`.
  */
 export function denialOutcome(denial: SlotDenial): { aborted: true } | { errorType: SlotFailure } {
-  return denial === 'superseded' || denial === 'disposed'
+  return denial === 'superseded' || denial === 'cancelled' || denial === 'disposed'
     ? { aborted: true }
     : { errorType: denial };
 }
@@ -221,6 +222,13 @@ export interface Slot {
   lastRecycleTime: number;
   /** Count of rapid consecutive recycles (resets when gap exceeds threshold). */
   rapidRecycleCount: number;
+  /**
+   * Set when the caller gave up on the request in flight (`cancel` or `timeout`) and
+   * the slot's input was closed ({@link SlotPool.abandonRequest}). The session is
+   * retired: a late result for that turn is dropped and the slot recycles instead of
+   * being handed to the next request. Cleared on recycle.
+   */
+  abandoned?: 'cancel' | 'timeout' | null;
   /** SDK metadata from the most recent result message, read by callers. */
   lastResultMeta: ResultMetadata | null;
   /** Model from the most recent assistant message in the stream. */
@@ -603,7 +611,7 @@ export abstract class SlotPool {
    * Slow path: register as single waiter. A new arrival cancels the previous
    * waiter ('superseded'), so only the most recent request waits.
    */
-  protected async acquireSlotOrDenial(): Promise<number | SlotDenial> {
+  protected async acquireSlotOrDenial(signal?: AbortSignal): Promise<number | SlotDenial> {
     // Disposed or degraded: no slot will ever come, so don't park as a waiter.
     const denied = this.unavailableReason();
     if (denied) return denied;
@@ -627,9 +635,53 @@ export abstract class SlotPool {
       `waiting for slot (${this.slots.map((s, i) => `slot${i}=${s.state}`).join(', ')})`,
     );
 
+    // An already-aborted signal would never fire its abort listener.
+    if (signal?.aborted) return 'cancelled';
+
     return new Promise<number | SlotDenial>((resolve) => {
-      this.pendingWaiter = resolve;
+      // `signal` aborting while this request is still the waiter ends the wait
+      // (`cancelled`); once a slot was handed over the caller owns it.
+      const onAbort = () => {
+        if (this.pendingWaiter !== waiter) return;
+        this.pendingWaiter = null;
+        waiter('cancelled');
+      };
+      const waiter = (result: number | SlotDenial) => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(result);
+      };
+      this.pendingWaiter = waiter;
+      signal?.addEventListener('abort', onAbort);
     });
+  }
+
+  /**
+   * Give back a slot that was acquired but never sent anything (the caller cancelled
+   * in between). The session is untouched, so it is reused, not recycled.
+   */
+  protected releaseSlot(slotIndex: number): void {
+    const slot = this.slots[slotIndex];
+    if (slot.state !== 'busy') return;
+    slot.state = 'available';
+    this.notifyWaiter(slotIndex);
+  }
+
+  /**
+   * End the request in flight on `slot` without its answer (the caller cancelled or
+   * timed out) and retire the session: settle the caller with a null, close the input
+   * so the CLI exits, and mark the slot so the stream consumer recycles it rather than
+   * handing it on when the CLI still delivers the abandoned turn's result.
+   */
+  protected abandonRequest(slot: Slot, why: 'cancel' | 'timeout'): void {
+    slot.abandoned = why;
+    this.settleResult(slot, { text: null });
+    try {
+      slot.channel?.close();
+    } catch (err) {
+      this.logger.error(
+        `${this.getPoolLabel()}: failed to close channel: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   /**
@@ -857,6 +909,11 @@ export abstract class SlotPool {
           if (slot.state === 'dead') {
             break;
           }
+          // The caller gave up on this turn and the input is closed: recycle rather
+          // than hand a session that is exiting to the next request.
+          if (slot.abandoned) {
+            break;
+          }
           if (slot.resultCount >= this.getMaxReuses()) {
             this.logger.debug(
               `slot ${slotIndex} reached max reuses (${this.getMaxReuses()}), recycling`,
@@ -966,6 +1023,7 @@ export abstract class SlotPool {
       slot.lastResultMeta = null;
       slot.lastAssistantModel = null;
       slot.stderrChunks = [];
+      slot.abandoned = null;
       // Reset circuit breaker so intentional recycles (recycleAll) don't count
       slot.lastRecycleTime = 0;
       slot.rapidRecycleCount = 0;
@@ -1000,14 +1058,21 @@ export abstract class SlotPool {
 
     this._totalRecycles++;
 
+    // A user cancel ended this session on purpose — not a crash — so it does not
+    // count toward the rapid-recycle breaker.
+    const cancelled = slot.abandoned === 'cancel';
+    slot.abandoned = null;
+
     // Circuit breaker: detect rapid consecutive recycles
-    const now = Date.now();
-    if (now - slot.lastRecycleTime < RAPID_RECYCLE_WINDOW_MS) {
-      slot.rapidRecycleCount++;
-    } else {
-      slot.rapidRecycleCount = 1;
+    if (!cancelled) {
+      const now = Date.now();
+      if (now - slot.lastRecycleTime < RAPID_RECYCLE_WINDOW_MS) {
+        slot.rapidRecycleCount++;
+      } else {
+        slot.rapidRecycleCount = 1;
+      }
+      slot.lastRecycleTime = now;
     }
-    slot.lastRecycleTime = now;
 
     if (slot.rapidRecycleCount >= RAPID_RECYCLE_LIMIT) {
       this.logger.error(

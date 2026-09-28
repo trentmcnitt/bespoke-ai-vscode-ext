@@ -117,7 +117,20 @@ vi.mock('../../providers/command-pool', () => {
     isAvailable = vi.fn(() => this.available);
     unavailableWhy = 'slot_unavailable';
     unavailableReason = vi.fn(() => (this.available ? null : this.unavailableWhy));
-    sendPrompt = vi.fn(async (msg: string) => ({ text: `reply:${msg}`, meta: null }));
+    /** Signals the server passed for each command, in order. */
+    signals: AbortSignal[] = [];
+    // `HOLD` stays in flight until its onCancel signal aborts, like CommandPool.
+    sendPrompt = vi.fn(async (msg: string, opts?: { onCancel?: AbortSignal }) => {
+      if (opts?.onCancel) this.signals.push(opts.onCancel);
+      if (msg === 'HOLD') {
+        return new Promise((resolve) => {
+          const done = () => resolve({ text: null, meta: null, aborted: true });
+          if (opts?.onCancel?.aborted) done();
+          opts?.onCancel?.addEventListener('abort', done);
+        });
+      }
+      return { text: `reply:${msg}`, meta: null };
+    });
     getStats = vi.fn(() => fakeStats('command'));
     recycleAll = vi.fn(async () => {});
     restart = vi.fn(async () => {});
@@ -601,7 +614,10 @@ describe.skipIf(IS_WINDOWS)('PoolServer — request dispatch', () => {
       message: 'diff',
       timeoutMs: 1234,
     });
-    expect(commandPool().sendPrompt).toHaveBeenCalledWith('diff', { timeoutMs: 1234 });
+    expect(commandPool().sendPrompt).toHaveBeenCalledWith('diff', {
+      timeoutMs: 1234,
+      onCancel: expect.any(AbortSignal),
+    });
     expect(res.text).toBe('feat: add thing');
     expect(res.meta).toEqual({
       model: 'claude-sonnet',
@@ -634,6 +650,68 @@ describe.skipIf(IS_WINDOWS)('PoolServer — request dispatch', () => {
     commandPool().available = false;
     const unavailable = await client.request({ type: 'command', id: 'n', message: 'x' });
     expect(unavailable.error).toBe('Command pool not available');
+  });
+
+  it('cancel: aborts the in-flight command, which answers aborted; the connection stays usable', async () => {
+    await startServer();
+    const client = await connect();
+    client.socket.write(serializeMessage({ type: 'command', id: 'c1', message: 'HOLD' } as never));
+    await vi.waitFor(() => expect(commandPool().signals).toHaveLength(1));
+    expect(commandPool().signals[0].aborted).toBe(false);
+
+    const ack = await client.request({ type: 'cancel', id: 'x1', requestId: 'c1' });
+    expect(ack).toEqual({ type: 'cancel', id: 'x1', success: true });
+    expect(commandPool().signals[0].aborted).toBe(true);
+    const cmd = await client.waitFor((m) => m.id === 'c1');
+    expect(cmd).toMatchObject({ type: 'command', success: true, text: null });
+    expect(cmd.meta).toEqual({ model: '', aborted: true });
+
+    const next = await client.request({ type: 'command', id: 'c2', message: 'x' });
+    expect(next.text).toBe('reply:x');
+  });
+
+  it('cancel: a cancel after the command finished, a second cancel, or an unknown id is a no-op', async () => {
+    await startServer();
+    const client = await connect();
+    const done = await client.request({ type: 'command', id: 'c1', message: 'x' });
+    expect(done.text).toBe('reply:x');
+
+    for (const [id, requestId] of [
+      ['x1', 'c1'],
+      ['x2', 'c1'],
+      ['x3', 'nope'],
+    ]) {
+      expect(await client.request({ type: 'cancel', id, requestId })).toEqual({
+        type: 'cancel',
+        id,
+        success: true,
+      });
+    }
+    expect(commandPool().signals[0].aborted).toBe(false);
+    expect(serverErrors).toEqual([]);
+    expect((await client.request({ type: 'status', id: 's' })).success).toBe(true);
+  });
+
+  it("cancel: a connection cannot cancel another connection's command", async () => {
+    await startServer();
+    const a = await connect();
+    const b = await connect();
+    a.socket.write(serializeMessage({ type: 'command', id: 'same', message: 'HOLD' } as never));
+    await vi.waitFor(() => expect(commandPool().signals).toHaveLength(1));
+    await b.request({ type: 'cancel', id: 'x', requestId: 'same' });
+    expect(commandPool().signals[0].aborted).toBe(false);
+    await a.request({ type: 'cancel', id: 'y', requestId: 'same' });
+    expect(commandPool().signals[0].aborted).toBe(true);
+  });
+
+  it('cancel: a follower that disconnects has its in-flight commands cancelled', async () => {
+    await startServer();
+    const client = await connect();
+    client.socket.write(serializeMessage({ type: 'command', id: 'c1', message: 'HOLD' } as never));
+    await vi.waitFor(() => expect(commandPool().signals).toHaveLength(1));
+    client.socket.destroy();
+    await client.closed;
+    await vi.waitFor(() => expect(commandPool().signals[0].aborted).toBe(true));
   });
 
   it('status: reports pool availability, stats, model, and live client count', async () => {

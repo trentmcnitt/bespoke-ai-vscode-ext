@@ -69,6 +69,8 @@ interface ConnectedClient {
   id: string;
   socket: net.Socket;
   buffer: string;
+  /** This connection's commands in flight, by request id, so a `cancel` can stop them. */
+  commands: Map<string, AbortController>;
 }
 
 export class PoolServer {
@@ -200,7 +202,10 @@ export class PoolServer {
     return { text, meta: detailToWireMeta(detail, fallbackModel, captureContent) };
   }
 
-  async sendCommand(message: string, options?: { timeoutMs?: number }): Promise<SendPromptResult> {
+  async sendCommand(
+    message: string,
+    options?: { timeoutMs?: number; onCancel?: AbortSignal },
+  ): Promise<SendPromptResult> {
     return this.commandPool.sendPrompt(message, options);
   }
 
@@ -283,15 +288,16 @@ export class PoolServer {
       id: '',
       socket,
       buffer: '',
+      commands: new Map(),
     };
     this.clients.set(socket, client);
     this.logger.debug(`Pool server: client connected (${this.clients.size} total)`);
 
     socket.on('data', (data) => this.handleData(client, data));
-    socket.on('close', () => this.handleDisconnect(socket));
+    socket.on('close', () => this.handleDisconnect(client));
     socket.on('error', (err) => {
       this.logger.error(`Pool server: client socket error: ${err.message}`);
-      this.handleDisconnect(socket);
+      this.handleDisconnect(client);
     });
   }
 
@@ -337,7 +343,13 @@ export class PoolServer {
         break;
 
       case 'command':
-        response = await this.handleCommand(request);
+        response = await this.handleCommand(client, request);
+        break;
+
+      case 'cancel':
+        // No-op when the command already finished (or was never ours).
+        client.commands.get(request.requestId)?.abort();
+        response = { type: 'cancel', id: request.id, success: true };
         break;
 
       case 'status':
@@ -448,7 +460,10 @@ export class PoolServer {
     }
   }
 
-  private async handleCommand(request: CommandRequest): Promise<PoolResponse> {
+  private async handleCommand(
+    client: ConnectedClient,
+    request: CommandRequest,
+  ): Promise<PoolResponse> {
     if (!this.commandPool.isAvailable()) {
       return {
         type: 'command',
@@ -460,9 +475,13 @@ export class PoolServer {
       };
     }
 
+    // A follower that never sends `cancel` (older client) leaves this unaborted.
+    const cancel = new AbortController();
+    client.commands.set(request.id, cancel);
     try {
       const result = await this.commandPool.sendPrompt(request.message, {
         timeoutMs: request.timeoutMs,
+        onCancel: cancel.signal,
       });
 
       return {
@@ -480,6 +499,8 @@ export class PoolServer {
         text: null,
         error: err instanceof Error ? err.message : String(err),
       };
+    } finally {
+      if (client.commands.get(request.id) === cancel) client.commands.delete(request.id);
     }
   }
 
@@ -511,8 +532,12 @@ export class PoolServer {
     }
   }
 
-  private handleDisconnect(socket: net.Socket): void {
-    this.clients.delete(socket);
+  private handleDisconnect(client: ConnectedClient): void {
+    // Nobody is left to read these answers: stop the commands instead of letting
+    // them hold the command slot until they finish or time out.
+    for (const cancel of client.commands.values()) cancel.abort();
+    client.commands.clear();
+    this.clients.delete(client.socket);
     this.logger.debug(`Pool server: client disconnected (${this.clients.size} remaining)`);
   }
 

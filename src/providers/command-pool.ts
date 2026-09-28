@@ -100,14 +100,19 @@ export class CommandPool extends SlotPool {
     message: string,
     options?: SendPromptOptions,
   ): Promise<SendPromptResult> {
+    const signal = options?.onCancel;
+    // Cancelled before anything was sent: nothing to stop, no slot to touch.
+    if (signal?.aborted) return { text: null, meta: null, aborted: true };
+
     const denied = this.unavailableReason();
     if (denied) return { text: null, meta: null, ...denialFields(denied) };
     if (!this.queryFn || !this.isAvailable()) {
       return { text: null, meta: null, errorType: 'slot_unavailable' };
     }
 
-    // Acquire an available slot (marks it busy before returning)
-    const slotIndex = await this.acquireSlotOrDenial();
+    // Acquire an available slot (marks it busy before returning). A cancel while
+    // waiting ends the wait as `cancelled` (aborted).
+    const slotIndex = await this.acquireSlotOrDenial(signal);
     if (typeof slotIndex !== 'number') {
       return { text: null, meta: null, ...denialFields(slotIndex) };
     }
@@ -117,6 +122,13 @@ export class CommandPool extends SlotPool {
     // Guard: slot may have lost its session between acquireSlot and here
     if (!slot.channel || !slot.resultPromise) {
       return { text: null, meta: null, errorType: 'slot_unavailable' };
+    }
+
+    // Cancelled in the moment the slot was handed over: nothing was sent, so the
+    // warm session goes back to the pool as it is.
+    if (signal?.aborted) {
+      this.releaseSlot(slotIndex);
+      return { text: null, meta: null, aborted: true };
     }
 
     this.logger.traceBlock('→ command sent', message);
@@ -149,39 +161,29 @@ export class CommandPool extends SlotPool {
           resolved = true;
           timedOut = true;
           this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
-          // Timeout: deliver null to unblock, close channel to force recycle
-          this.settleResult(slot, { text: null });
-          slot.channel?.close();
+          // Deliver null to unblock and retire the session (it recycles).
+          this.abandonRequest(slot, 'timeout');
           resolve(null);
         }, options.timeoutMs);
       });
       promises.push(timeoutPromise);
     }
 
-    // Optional cancellation
+    // Optional cancellation — ends the request the same way a timeout does.
     let cancelCleanup: (() => void) | undefined;
-    if (options?.onCancel) {
-      // Check if already aborted — clean up slot to prevent "busy forever" leak
-      if (options.onCancel.aborted) {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-        this.settleResult(slot, { text: null });
-        slot.channel?.close();
-        return { text: null, meta: null };
-      }
+    let cancelled = false;
+    if (signal) {
       const cancelPromise = new Promise<null>((resolve) => {
         const onAbort = () => {
           if (resolved) return;
           resolved = true;
+          cancelled = true;
           this.logger.debug('CommandPool: request cancelled');
-          // Clean up slot to prevent "busy forever" leak — matches timeout behavior
-          this.settleResult(slot, { text: null });
-          slot.channel?.close();
+          this.abandonRequest(slot, 'cancel');
           resolve(null);
         };
-        options.onCancel!.addEventListener('abort', onAbort);
-        cancelCleanup = () => options.onCancel!.removeEventListener('abort', onAbort);
+        signal.addEventListener('abort', onAbort);
+        cancelCleanup = () => signal.removeEventListener('abort', onAbort);
       });
       promises.push(cancelPromise);
     }
@@ -201,10 +203,11 @@ export class CommandPool extends SlotPool {
 
     this.logger.traceBlock(
       '← command response',
-      raw ?? (failure ? `(null: ${failure})` : '(null)'),
+      raw ?? (failure ? `(null: ${failure})` : cancelled ? '(null: cancelled)' : '(null)'),
     );
 
     if (timedOut) return { text: null, meta, errorType: 'timeout' };
+    if (cancelled) return { text: null, meta, aborted: true };
     return raw === null && failure
       ? { text: null, meta, ...denialFields(failure) }
       : { text: raw, meta };

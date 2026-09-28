@@ -159,6 +159,169 @@ describe('CommandPool', () => {
     });
   });
 
+  describe('cancellation (onCancel)', () => {
+    /**
+     * Sessions answer warmup, then answer each command with `ans:<message>`. A
+     * `hold` command gets no answer; the session exits when its input closes (as
+     * the CLI does on stdin EOF), after first emitting `late` for the held turn
+     * when `lateResult` is set (the CLI finishing the turn it already received).
+     */
+    function cliQuery(opts: { lateResult?: boolean } = {}) {
+      const received: string[][] = [];
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const mine: string[] = [];
+        received.push(mine);
+        async function* gen() {
+          const it = prompt[Symbol.asyncIterator]();
+          await it.next();
+          yield { type: 'result', subtype: 'success', result: 'READY' };
+          for (;;) {
+            const next = await it.next();
+            if (next.done) return;
+            const content = (next.value as { message: { content: string } }).message.content;
+            mine.push(content);
+            if (content === 'hold') {
+              await it.next(); // resolves done once the channel closes
+              if (opts.lateResult) yield { type: 'result', subtype: 'success', result: 'late' };
+              return;
+            }
+            yield { type: 'result', subtype: 'success', result: `ans:${content}` };
+          }
+        }
+        return gen();
+      });
+      return received;
+    }
+    const settle = () => new Promise((r) => setTimeout(r, 10));
+
+    it('an abort ends the in-flight command as aborted and the slot serves the next one', async () => {
+      const sessions = cliQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const controller = new AbortController();
+      const held = pool.sendPrompt('hold', { timeoutMs: 60_000, onCancel: controller.signal });
+      await settle();
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+
+      const next = await pool.sendPrompt('two', { timeoutMs: 5_000 });
+      expect(next).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      // The cancelled session was closed and replaced.
+      expect(sessions.length).toBe(2);
+      expect(sessions[1]).toEqual(['two']);
+    });
+
+    it('a late result for the cancelled turn does not hand the closing session to the next command', async () => {
+      const sessions = cliQuery({ lateResult: true });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const controller = new AbortController();
+      const held = pool.sendPrompt('hold', { onCancel: controller.signal });
+      await settle();
+      controller.abort();
+      // Sent while the cancelled session is still finishing its turn.
+      const next = pool.sendPrompt('two', { timeoutMs: 5_000 });
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+      expect(await next).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      expect(sessions[0]).toEqual(['hold']);
+    });
+
+    it('a late result for a timed-out turn does not hand the closing session to the next command', async () => {
+      const sessions = cliQuery({ lateResult: true });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const held = pool.sendPrompt('hold', { timeoutMs: 20 });
+      await settle();
+      const next = pool.sendPrompt('two', { timeoutMs: 5_000 });
+      expect(await held).toMatchObject({ text: null, errorType: 'timeout' });
+      expect(await next).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      expect(sessions[0]).toEqual(['hold']);
+    });
+
+    it('a signal aborted before sending sends nothing and leaves the warm slot in place', async () => {
+      const sessions = cliQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const controller = new AbortController();
+      controller.abort();
+      expect(await pool.sendPrompt('never', { onCancel: controller.signal })).toEqual({
+        text: null,
+        meta: null,
+        aborted: true,
+      });
+      expect(await pool.sendPrompt('two')).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      expect(sessions).toEqual([['two']]);
+    });
+
+    it('an abort while waiting for the slot ends the wait without sending', async () => {
+      const sessions = cliQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const holder = new AbortController();
+      const held = pool.sendPrompt('hold', { onCancel: holder.signal });
+      await settle();
+      const waiter = new AbortController();
+      const waiting = pool.sendPrompt('queued', { onCancel: waiter.signal });
+      await settle();
+      waiter.abort();
+      const res = await Promise.race([
+        waiting,
+        new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), 200)),
+      ]);
+      expect(res).toEqual({ text: null, meta: null, aborted: true });
+
+      holder.abort();
+      await held;
+      expect(await pool.sendPrompt('two')).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      expect(sessions.flat()).not.toContain('queued');
+    });
+
+    it('an abort after the answer, or a second abort, changes nothing', async () => {
+      const sessions = cliQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const controller = new AbortController();
+      const res = await pool.sendPrompt('one', { onCancel: controller.signal });
+      expect(res.text).toBe('ans:one');
+      controller.abort();
+      controller.abort();
+      await settle();
+      expect(await pool.sendPrompt('two')).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      // Same session: the late abort did not close it.
+      expect(sessions).toEqual([['one', 'two']]);
+    });
+
+    it('repeated cancels do not trip the rapid-recycle circuit breaker', async () => {
+      cliQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      for (let i = 0; i < 6; i++) {
+        const controller = new AbortController();
+        const held = pool.sendPrompt('hold', { onCancel: controller.signal });
+        await settle();
+        controller.abort();
+        expect(await held).toMatchObject({ aborted: true });
+        await settle();
+      }
+      expect(pool.isAvailable()).toBe(true);
+      expect(await pool.sendPrompt('two')).toEqual(expect.objectContaining({ text: 'ans:two' }));
+    });
+  });
+
   describe('sendPrompt', () => {
     it('returns result text from pool', async () => {
       const fakeStream = createFakeStream(['This is the response']);

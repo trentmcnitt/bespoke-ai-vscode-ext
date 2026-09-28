@@ -6,6 +6,10 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Cancelling a CLI command reaches the pool (branch `showcase/fu-cancel`)
+
+- **Cancel now stops CLI commands:** the caller's signal goes to `CommandPool` on the leader's fast path and, from a follower, as a new `cancel` IPC request (own id, so an older leader's `error` reply for the unknown type matches nothing), ending the command as `aborted` and recycling the slot via `SlotPool.abandonRequest()`, which also retires the session so a late result for the cancelled or timed-out turn can no longer hand an exiting session to the next request, and exempts cancel-driven recycles from the rapid-recycle breaker.
+
 ### Command UX: diff close guard, pool failure toasts, accurate unavailable message (branch `showcase/fu-cmdux`)
 
 - **Suggest Edits closed the user's file:** the diff cleanup ran `workbench.action.closeActiveEditor` in a `finally`, so a failed `vscode.diff` (or a tab switch during the Apply prompt) closed whatever was active. It now closes only tabs whose `TabInputTextDiff` has our two `bespoke-edit-*` URIs (compared by scheme + path), via `tabGroups.close`, and only if the diff opened.
