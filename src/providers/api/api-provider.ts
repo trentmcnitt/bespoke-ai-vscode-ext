@@ -219,7 +219,7 @@ export class ApiCompletionProvider implements CompletionProvider {
     this.logger.traceBlock('api ← raw', result.text);
 
     // Extract completion using the strategy
-    const extracted = this.strategy.extractCompletion(result.text, context.prefix);
+    const extracted = this.strategy.extractCompletion(result.text, context.prefix, context.suffix);
     if (content) content.extracted = extracted;
     if (!extracted) return { text: null, detail };
 

@@ -12,7 +12,7 @@
  *    postProcessCompletion(extracted, prefix, suffix, mode).
  *  - API: ApiCompletionProvider.getCompletionWithDetail in
  *    src/providers/api/api-provider.ts — `if (!raw) null`,
- *    strategy.extractCompletion(raw), `if (!extracted) null`,
+ *    strategy.extractCompletion(raw, prefix, suffix), `if (!extracted) null`,
  *    postProcessCompletion(extracted, prefill ? undefined : prefix, suffix, mode).
  */
 import { extractCompletion, getPromptStrategy } from '../../../providers/prompt-strategy';
@@ -57,7 +57,11 @@ export function replayPipeline(input: ReplayInput): ReplayOutput {
     };
   }
   if (!input.raw) return { extracted: null, final: null };
-  const extracted = getPromptStrategy(input.strategy).extractCompletion(input.raw, input.prefix);
+  const extracted = getPromptStrategy(input.strategy).extractCompletion(
+    input.raw,
+    input.prefix,
+    input.suffix,
+  );
   if (!extracted) return { extracted, final: null };
   return {
     extracted,
