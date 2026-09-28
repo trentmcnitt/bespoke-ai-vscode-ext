@@ -456,6 +456,7 @@
     "test:quality": "vitest run --config vitest.quality.config.ts",
     "test:quality:compare": "vitest run --config vitest.quality.config.ts -- src/test/quality/prompt-comparison.test.ts",
     "test:quality:rescore": "tsx src/test/quality/rescore.ts",
+    "latency-report": "tsx src/scripts/latency-report.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
     "install-ext": "npm run compile && vsce package -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",
     "format": "prettier --write 'src/**/*.ts' '*.{json,mjs,md}'",
