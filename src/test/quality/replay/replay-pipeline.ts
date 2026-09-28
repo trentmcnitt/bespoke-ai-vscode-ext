@@ -57,7 +57,7 @@ export function replayPipeline(input: ReplayInput): ReplayOutput {
     };
   }
   if (!input.raw) return { extracted: null, final: null };
-  const extracted = getPromptStrategy(input.strategy).extractCompletion(input.raw);
+  const extracted = getPromptStrategy(input.strategy).extractCompletion(input.raw, input.prefix);
   if (!extracted) return { extracted, final: null };
   return {
     extracted,

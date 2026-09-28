@@ -220,7 +220,9 @@ describe('ApiCompletionProvider', () => {
       const ctx = makeProseContext({ prefix: 'x'.repeat(60) + ' and then   ' });
       const result = await provider.getCompletion(ctx, signal());
 
-      expect(result).toBe(' ran into the forest.');
+      // The prefix already ends in spaces (trimmed off the anchor), so the model's
+      // re-emitted leading space is dropped rather than doubled.
+      expect(result).toBe('ran into the forest.');
       const messages = adapter.complete.mock.calls[0][1];
       expect(messages).toHaveLength(2);
       expect(messages[1].role).toBe('assistant');

@@ -192,8 +192,11 @@ export interface PromptStrategy {
   readonly id: string;
   /** Build the full message set from document context. */
   buildMessages(prefix: string, suffix: string, languageId: string): PromptMessages;
-  /** Extract the completion text from the model's raw response. */
-  extractCompletion(raw: string): string | null;
+  /**
+   * Extract the completion text from the model's raw response. `prefix` is the
+   * document text before the cursor, for strategies whose prompt altered it.
+   */
+  extractCompletion(raw: string, prefix?: string): string | null;
 }
 
 // ─── Strategy implementations ────────────────────────────────────
@@ -226,52 +229,76 @@ export const prefillExtraction: PromptStrategy = {
     // trimEnd() is required — the Anthropic API rejects assistant messages
     // with trailing whitespace. The model still sees the full prefix
     // (including whitespace) in the user message, so completions are correct.
-    const anchor = prefix.slice(-40).trimEnd();
+    const anchor = prefillAnchor(prefix);
     return {
       system: SYSTEM_PROMPT,
       user: buildFillMessage(prefix, suffix, languageId),
       assistantPrefill: `<COMPLETION>${anchor}`,
     };
   },
-  extractCompletion(raw: string): string | null {
-    // With prefill, the model's response continues from the prefill.
-    // The raw text is what the model returned AFTER the prefill
-    // (which already includes the opening <COMPLETION> tag + anchor).
-    //
-    // Anthropic models sometimes exhibit a "thinking leak" pattern:
-    // they immediately close the tag (</COMPLETION>), produce thinking
-    // text, then re-open a new <COMPLETION> block with the real content.
-    //
-    // Strategy: use indexOf to find the first </COMPLETION>. If the
-    // content before it is substantive, use it (handles clean responses
-    // and "valid-first-then-think" patterns). If empty, look for a
-    // second <COMPLETION>...</COMPLETION> pair (the model's retry after
-    // thinking).
-    const close = raw.indexOf('</COMPLETION>');
-    if (close !== -1) {
-      const content = raw.slice(0, close);
-      if (content.trim()) {
-        return content;
-      }
-      // Immediate close — model may have started thinking then retried.
-      // Look for a second <COMPLETION>...</COMPLETION> pair.
-      const secondOpen = raw.indexOf('<COMPLETION>', close);
-      if (secondOpen !== -1) {
-        const afterOpen = secondOpen + '<COMPLETION>'.length;
-        const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
-        if (secondClose !== -1) {
-          const retryContent = raw.slice(afterOpen, secondClose);
-          if (retryContent.trim()) {
-            return retryContent;
-          }
-        }
-      }
-      // No usable content found
-      return null;
-    }
-    return raw; // fallback: no closing tag, use raw text
+  extractCompletion(raw: string, prefix?: string): string | null {
+    const content = extractPrefillContent(raw);
+    if (content === null || prefix === undefined) return content;
+    // The anchor had the prefix's trailing whitespace trimmed, so the model
+    // continues from e.g. "behind" and often re-emits that whitespace
+    // (" inadequate"). Those characters already sit before the cursor, so drop
+    // exactly the part of the output that reproduces them; otherwise the ghost
+    // text doubles the space ("behind  inadequate").
+    const trimmed = prefix.slice(-PREFILL_ANCHOR_CHARS).slice(prefillAnchor(prefix).length);
+    let i = 0;
+    while (i < trimmed.length && i < content.length && trimmed[i] === content[i]) i++;
+    return content.slice(i);
   },
 };
+
+/** How much of the prefix tail is echoed into the assistant prefill. */
+const PREFILL_ANCHOR_CHARS = 40;
+
+// trimEnd() is required — the Anthropic API rejects assistant messages with
+// trailing whitespace. The model still sees the full prefix (including
+// whitespace) in the user message.
+function prefillAnchor(prefix: string): string {
+  return prefix.slice(-PREFILL_ANCHOR_CHARS).trimEnd();
+}
+
+function extractPrefillContent(raw: string): string | null {
+  // With prefill, the model's response continues from the prefill.
+  // The raw text is what the model returned AFTER the prefill
+  // (which already includes the opening <COMPLETION> tag + anchor).
+  //
+  // Anthropic models sometimes exhibit a "thinking leak" pattern:
+  // they immediately close the tag (</COMPLETION>), produce thinking
+  // text, then re-open a new <COMPLETION> block with the real content.
+  //
+  // Strategy: use indexOf to find the first </COMPLETION>. If the
+  // content before it is substantive, use it (handles clean responses
+  // and "valid-first-then-think" patterns). If empty, look for a
+  // second <COMPLETION>...</COMPLETION> pair (the model's retry after
+  // thinking).
+  const close = raw.indexOf('</COMPLETION>');
+  if (close !== -1) {
+    const content = raw.slice(0, close);
+    if (content.trim()) {
+      return content;
+    }
+    // Immediate close — model may have started thinking then retried.
+    // Look for a second <COMPLETION>...</COMPLETION> pair.
+    const secondOpen = raw.indexOf('<COMPLETION>', close);
+    if (secondOpen !== -1) {
+      const afterOpen = secondOpen + '<COMPLETION>'.length;
+      const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
+      if (secondClose !== -1) {
+        const retryContent = raw.slice(afterOpen, secondClose);
+        if (retryContent.trim()) {
+          return retryContent;
+        }
+      }
+    }
+    // No usable content found
+    return null;
+  }
+  return raw; // fallback: no closing tag, use raw text
+}
 
 /** Common preamble patterns that non-Anthropic models produce. */
 const PREAMBLE_PATTERNS = [

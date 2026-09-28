@@ -199,6 +199,58 @@ describe('PrefillExtraction strategy', () => {
       'raw text without tags',
     );
   });
+
+  // The prefill anchor has the prefix's trailing whitespace trimmed (the API
+  // rejects it), so the model re-emits that whitespace. It is already before the
+  // cursor, so extraction must drop it or the ghost text doubles it.
+  describe('re-aligns whitespace trimmed off the prefill anchor', () => {
+    const extract = (raw: string, prefix?: string) =>
+      prefillExtraction.extractCompletion(raw, prefix);
+
+    it('drops a re-emitted space', () => {
+      expect(extract(' inadequate assertions.</COMPLETION>', 'hiding behind ')).toBe(
+        'inadequate assertions.',
+      );
+      expect(extract(' x % 2 == 0</COMPLETION>', 'evens = [x for x in numbers if ')).toBe(
+        'x % 2 == 0',
+      );
+    });
+
+    it('drops re-emitted newlines and indentation', () => {
+      expect(extract('\n\t\t\tresults <- processItem(s)</COMPLETION>', 'go func() {\n\t\t\t')).toBe(
+        'results <- processItem(s)',
+      );
+      expect(extract('\n\nProper error handling</COMPLETION>', '## Error Handling\n\n')).toBe(
+        'Proper error handling',
+      );
+    });
+
+    it('drops only the part that matches the trimmed whitespace', () => {
+      // Prefix ends with "\n\n"; the model emitted one newline then content.
+      expect(extract('\nNext paragraph</COMPLETION>', 'End of heading.\n\n')).toBe(
+        'Next paragraph',
+      );
+      // Prefix ends with a space; the model starts a new line instead — keep it.
+      expect(extract('\nnew line</COMPLETION>', 'some text ')).toBe('\nnew line');
+    });
+
+    it('is a no-op when the prefix has no trailing whitespace', () => {
+      expect(extract(' the scope</COMPLETION>', 'tighter but')).toBe(' the scope');
+      expect(extract('ding flow</COMPLETION>', 'the new onboar')).toBe('ding flow');
+    });
+
+    it('is a no-op when the output does not start with the trimmed whitespace', () => {
+      expect(extract('inadequate</COMPLETION>', 'hiding behind ')).toBe('inadequate');
+    });
+
+    it('is a no-op without a prefix (backward compatible)', () => {
+      expect(extract(' inadequate</COMPLETION>')).toBe(' inadequate');
+    });
+
+    it('still returns null when nothing usable was extracted', () => {
+      expect(extract('</COMPLETION>', 'text ')).toBeNull();
+    });
+  });
 });
 
 describe('InstructionExtraction strategy', () => {

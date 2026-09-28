@@ -59,7 +59,7 @@
       "prefix_omitted_chars": 0,
       "suffix_omitted_chars": 0,
       "raw": "\n\t\t\tresults <- processItem(s)\n\t\t}(item)\n\t}\n\tclose(results)</COMPLETION>\n\nWait, let me reconsider. The structure shows `close(results)` comes after the loop, so I should only fill what goes inside the goroutine:\n\n<COMPLETION>results <- processItem(s)</COMPLETION>",
-      "expected_final": "\n\t\t\tresults <- processItem(s)",
+      "expected_final": "results <- processItem(s)",
       "tags": ["drift:prefill-thinking-leak", "suffix-trim"],
       "scenario_flags": {},
       "expected_checks": [
@@ -86,7 +86,7 @@
         }
       ],
       "recorded_final": "\n\t\t\tresults <- processItem(s)\n\t\t}(item)\n\t}\n\tclose(results)</COMPLETION>\n\nWait, let me reconsider. The structure shows `close(results)` comes after the loop, so I should only fill what goes inside the goroutine:\n\n<COMPLETION>results <- processItem(s)",
-      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text."
+      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text. Then: prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
     },
     {
       "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-js-arrow-function",
@@ -139,7 +139,7 @@
       "prefix_omitted_chars": 0,
       "suffix_omitted_chars": 0,
       "raw": " x % 2 == 0]</COMPLETION>",
-      "expected_final": " x % 2 == 0",
+      "expected_final": "x % 2 == 0",
       "tags": ["drift:code-delimiter-overlap", "suffix-trim"],
       "scenario_flags": {},
       "expected_checks": [
@@ -157,7 +157,7 @@
         }
       ],
       "recorded_final": " x % 2 == 0]",
-      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char; the recorded output duplicated closing delimiters already in the suffix (\"]\")."
+      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char; the recorded output duplicated closing delimiters already in the suffix (\"]\"). Then: prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
     },
     {
       "id": "2026-03-01T22-26-53-api-openai-gpt-4.1-nano/code-mid-file-rs-full",
@@ -1083,7 +1083,7 @@
       "prefix_omitted_chars": 2201,
       "suffix_omitted_chars": 1653,
       "raw": "\n            async with self._semaphore:\n</COMPLETION>",
-      "expected_final": "\n            async with self._semaphore:\n",
+      "expected_final": "            async with self._semaphore:\n",
       "tags": ["ordinary"],
       "scenario_flags": {
         "expect_empty_ok": true
@@ -1100,7 +1100,9 @@
           "detail": "suffix head not in raw output"
         }
       ],
-      "must_avoid": []
+      "must_avoid": [],
+      "recorded_final": "\n            async with self._semaphore:\n",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
     },
     {
       "id": "2026-03-02T01-51-23-api-anthropic-haiku/code-mid-file-ts-handler-full",
@@ -1118,7 +1120,7 @@
       "prefix_omitted_chars": 2200,
       "suffix_omitted_chars": 1142,
       "raw": "\n\n      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
-      "expected_final": "\n\n      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
+      "expected_final": "      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
       "tags": ["prefill-no-close"],
       "scenario_flags": {},
       "expected_checks": [
@@ -1133,7 +1135,9 @@
           "detail": "suffix head not in raw output"
         }
       ],
-      "must_avoid": []
+      "must_avoid": [],
+      "recorded_final": "\n\n      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
     },
     {
       "id": "2026-03-02T01-51-23-api-anthropic-haiku/code-ts-partial-word",
@@ -1235,7 +1239,7 @@
       "prefix_omitted_chars": 0,
       "suffix_omitted_chars": 0,
       "raw": "\n\nProper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.</COMPLETION>",
-      "expected_final": "\n\nProper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.",
+      "expected_final": "Proper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.",
       "tags": ["ordinary"],
       "scenario_flags": {},
       "expected_checks": [
@@ -1250,7 +1254,9 @@
           "detail": "both seams separated"
         }
       ],
-      "must_avoid": []
+      "must_avoid": [],
+      "recorded_final": "\n\nProper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
     },
     {
       "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-bridge-large-detail",
