@@ -4,6 +4,8 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 export class AnthropicAdapter implements ApiAdapter {
   readonly providerId = 'anthropic';
   private client: unknown = null;
+  /** The key `client` was built with; a different resolved key rebuilds it. */
+  private clientKey: string | undefined;
   private preset: Preset;
 
   constructor(preset: Preset) {
@@ -115,9 +117,11 @@ export class AnthropicAdapter implements ApiAdapter {
   }
 
   private async getClient(): Promise<AnthropicClient> {
-    if (this.client) return this.client as AnthropicClient;
-
+    // Resolved per request (an in-memory lookup) so a key replaced with
+    // `setApiKey`, or changed in the environment, takes effect on the next
+    // request instead of the cached client failing until reload.
     const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (this.client && apiKey === this.clientKey) return this.client as AnthropicClient;
     if (!apiKey) {
       throw new Error(
         `API key not found for ${this.preset.apiKeyEnvVar ?? 'ANTHROPIC_API_KEY'}. Set it in your environment or ~/.creds/api-keys.env`,
@@ -131,6 +135,7 @@ export class AnthropicAdapter implements ApiAdapter {
       ...(this.preset.baseUrl && { baseURL: this.preset.baseUrl }),
       ...(this.preset.extraHeaders && { defaultHeaders: this.preset.extraHeaders }),
     });
+    this.clientKey = apiKey;
     return this.client as AnthropicClient;
   }
 }

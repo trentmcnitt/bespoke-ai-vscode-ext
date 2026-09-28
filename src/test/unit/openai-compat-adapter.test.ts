@@ -242,6 +242,41 @@ describe('OpenAICompatAdapter', () => {
       expect(mocks.ctor).toHaveBeenCalledTimes(2);
     });
 
+    it('rebuilds the client when the resolved key changes (a replaced bad key takes effect)', async () => {
+      const adapter = new OpenAICompatAdapter(makePreset());
+      mocks.resolveApiKey.mockReturnValue('sk-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('sk-good');
+      await adapter.complete('SYS', messages, opts());
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect(ctorOpts(0).apiKey).toBe('sk-bad');
+      expect(ctorOpts(1).apiKey).toBe('sk-good');
+      expect(mocks.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('xAI: a key change rebuilds the client but keeps the conv id (it belongs to the adapter)', async () => {
+      const adapter = new OpenAICompatAdapter(xaiPreset());
+      mocks.resolveApiKey.mockReturnValue('xai-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('xai-good');
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect(ctorOpts(1).defaultHeaders?.['x-grok-conv-id']).toBe(
+        ctorOpts(0).defaultHeaders?.['x-grok-conv-id'],
+      );
+    });
+
+    it('a key removed after a client was built throws "not found" instead of using the old client', async () => {
+      const adapter = new OpenAICompatAdapter(xaiPreset());
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue(undefined);
+      await expect(adapter.complete('SYS', messages, opts())).rejects.toThrow(
+        /API key not found for XAI_API_KEY/,
+      );
+      expect(mocks.create).toHaveBeenCalledTimes(1);
+    });
+
     it('throws before constructing a client when the key is missing', async () => {
       mocks.resolveApiKey.mockReturnValue(undefined);
       await expect(

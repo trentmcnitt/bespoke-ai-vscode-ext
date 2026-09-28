@@ -203,6 +203,29 @@ describe('AnthropicAdapter', () => {
       expect(mocks.ctor).toHaveBeenCalledTimes(2);
     });
 
+    it('rebuilds the client when the resolved key changes (a replaced bad key takes effect)', async () => {
+      const adapter = new AnthropicAdapter(makePreset());
+      mocks.resolveApiKey.mockReturnValue('sk-ant-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('sk-ant-good');
+      await adapter.complete('SYS', messages, opts());
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect((mocks.ctor.mock.calls[0][0] as { apiKey: string }).apiKey).toBe('sk-ant-bad');
+      expect((mocks.ctor.mock.calls[1][0] as { apiKey: string }).apiKey).toBe('sk-ant-good');
+      expect(mocks.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('a key removed after a client was built throws "not found" instead of using the old client', async () => {
+      const adapter = new AnthropicAdapter(makePreset());
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue(undefined);
+      await expect(adapter.complete('SYS', messages, opts())).rejects.toThrow(
+        /API key not found for ANTHROPIC_API_KEY/,
+      );
+      expect(mocks.create).toHaveBeenCalledTimes(1);
+    });
+
     it('throws a descriptive error before building a client when the key is missing', async () => {
       mocks.resolveApiKey.mockReturnValue(undefined);
       await expect(

@@ -12,6 +12,8 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 export class OpenAICompatAdapter implements ApiAdapter {
   readonly providerId: string;
   private client: unknown = null;
+  /** The key `client` was built with; a different resolved key rebuilds it. */
+  private clientKey: string | undefined;
   private preset: Preset;
   private sessionId: string;
 
@@ -123,9 +125,11 @@ export class OpenAICompatAdapter implements ApiAdapter {
   }
 
   private async getClient(): Promise<OpenAIClient> {
-    if (this.client) return this.client as OpenAIClient;
-
+    // Resolved per request (an in-memory lookup) so a key replaced with
+    // `setApiKey`, or changed in the environment, takes effect on the next
+    // request instead of the cached client failing until reload.
     const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (this.client && apiKey === this.clientKey) return this.client as OpenAIClient;
     if (!apiKey) {
       throw new Error(
         `API key not found for ${this.preset.apiKeyEnvVar}. Set it in your environment or ~/.creds/api-keys.env`,
@@ -150,6 +154,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
       baseURL: this.preset.baseUrl,
       ...(Object.keys(defaultHeaders).length > 0 && { defaultHeaders }),
     });
+    this.clientKey = apiKey;
     return this.client as OpenAIClient;
   }
 }
