@@ -288,7 +288,7 @@ User types → Mode detection → Context extraction → LRU cache check
 
 A **backend router** dispatches requests to the active backend. The **Claude Code CLI** backend uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and manages subprocesses through a shared pool server — multiple VS Code windows share subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The **API** backend makes direct HTTP calls to Anthropic, OpenAI-compatible (OpenAI, Google Gemini, xAI, OpenRouter), or local Ollama endpoints.
 
-All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Anthropic API, preamble stripping for OpenAI-compat).
+All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Claude models that accept one, such as Haiku 4.5; tag extraction for newer Claude models, which reject a prefill; preamble stripping for OpenAI-compat).
 
 **Key design decisions:**
 
@@ -409,17 +409,17 @@ npm run latency-report            # p50/p90/p95 from your local usage ledger
 
 The quality suite has been run against these models. The reference set for prompt changes is CLI sonnet, `xai-grok` and `openai-gpt-4.1-nano`, one per extraction strategy; the others were last run before the 2026-09 prompt change.
 
-| #   | Backend | Preset ID             | Model                       | Last full run                                                                                                       |
-| --- | ------- | --------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 1   | CLI     | _(default)_           | sonnet                      | 2026-09-28                                                                                                          |
-| 2   | CLI     | —                     | haiku                       | 2026-03-02                                                                                                          |
-| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning | 2026-09-28                                                                                                          |
-| 4   | API     | `xai-grok-code`       | grok-code-fast-1            | 2026-03-01                                                                                                          |
-| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   | 2026-03-02                                                                                                          |
-| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             | never (the 2026-03-01 run used `claude-sonnet-4-5-20250929`; the preset moved to Sonnet 5 in `c3234bc`, 2026-07-02) |
-| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                | 2026-09-28                                                                                                          |
-| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            | 2026-03-01                                                                                                          |
-| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            | 2026-03-01                                                                                                          |
+| #   | Backend | Preset ID             | Model                       | Last full run                               |
+| --- | ------- | --------------------- | --------------------------- | ------------------------------------------- |
+| 1   | CLI     | _(default)_           | sonnet                      | 2026-09-28                                  |
+| 2   | CLI     | —                     | haiku                       | 2026-03-02                                  |
+| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning | 2026-09-28                                  |
+| 4   | API     | `xai-grok-code`       | grok-code-fast-1            | 2026-03-01                                  |
+| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   | 2026-03-02                                  |
+| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             | sampled 51 of 106 (2026-09-28); no full run |
+| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                | 2026-09-28                                  |
+| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            | 2026-03-01                                  |
+| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            | 2026-03-01                                  |
 
 Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `AGENTS.md` for testing commands.
 

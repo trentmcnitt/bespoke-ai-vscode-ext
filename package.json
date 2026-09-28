@@ -284,7 +284,7 @@
               },
               "temperature": {
                 "type": "number",
-                "description": "Sampling temperature (default: 0.2)"
+                "description": "Sampling temperature (default: 0.2). Not sent to models that reject it (Claude Sonnet 5, Opus 4.7 and later)."
               },
               "extraBody": {
                 "type": "object",
