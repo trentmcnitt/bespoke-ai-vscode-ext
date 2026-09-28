@@ -79,7 +79,7 @@ export class AnthropicAdapter implements ApiAdapter {
         finishReason: response.stop_reason ?? undefined,
       };
     } catch (err: unknown) {
-      if (isAbortError(err)) {
+      if (isAbortError(err, options.signal)) {
         return {
           text: null,
           usage: { inputTokens: 0, outputTokens: 0 },
@@ -140,12 +140,13 @@ export class AnthropicAdapter implements ApiAdapter {
   }
 }
 
-function isAbortError(err: unknown): boolean {
-  if (err instanceof Error && err.name === 'AbortError') return true;
-  if (err instanceof DOMException && err.name === 'AbortError') return true;
-  // Anthropic SDK wraps abort errors
-  if (err instanceof Error && err.message?.includes('aborted')) return true;
-  return false;
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  // Our own signal is the source of truth: the SDK throws APIUserAbortError
+  // ("Request was aborted.") only after checking that it was aborted. Matching
+  // on message text also swallowed server errors that merely mention
+  // "aborted", hiding them from the user and from the circuit breaker.
+  if (signal.aborted) return true;
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 // Minimal type definitions for the Anthropic SDK to avoid import-time dependency

@@ -330,6 +330,28 @@ describe('OpenAICompatAdapter', () => {
       expect(result).toMatchObject({ text: null, aborted: true });
     });
 
+    it('treats the SDK "Request was aborted." error as an abort when our signal was aborted', async () => {
+      const ac = new AbortController();
+      ac.abort();
+      mocks.create.mockRejectedValue(new Error('Request was aborted.'));
+      const result = await new OpenAICompatAdapter(makePreset()).complete(
+        'SYS',
+        messages,
+        opts({ signal: ac.signal }),
+      );
+      expect(result).toMatchObject({ text: null, aborted: true });
+    });
+
+    it('does not treat a server error mentioning "aborted" as an abort', async () => {
+      const err = Object.assign(new Error('400 Upstream request was aborted by provider'), {
+        status: 400,
+      });
+      mocks.create.mockRejectedValue(err);
+      await expect(
+        new OpenAICompatAdapter(makePreset()).complete('SYS', messages, opts()),
+      ).rejects.toBe(err);
+    });
+
     it('returns a silent null (not aborted) on HTTP 429', async () => {
       mocks.create.mockRejectedValue(Object.assign(new Error('rate limited'), { status: 429 }));
       const result = await new OpenAICompatAdapter(makePreset()).complete('SYS', messages, opts());

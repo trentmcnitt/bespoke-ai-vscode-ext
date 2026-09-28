@@ -285,10 +285,28 @@ describe('AnthropicAdapter', () => {
       expect(result).toMatchObject({ text: null, aborted: true });
     });
 
-    it('treats the SDK "Request was aborted." wrapper as an abort', async () => {
+    it('treats the SDK "Request was aborted." error as an abort when our signal was aborted', async () => {
+      // The SDK throws APIUserAbortError (no AbortError name) only after checking
+      // signal.aborted, so the signal is what identifies it.
+      const ac = new AbortController();
+      ac.abort();
       mocks.create.mockRejectedValue(new Error('Request was aborted.'));
-      const result = await new AnthropicAdapter(makePreset()).complete('SYS', messages, opts());
+      const result = await new AnthropicAdapter(makePreset()).complete(
+        'SYS',
+        messages,
+        opts({ signal: ac.signal }),
+      );
       expect(result.aborted).toBe(true);
+    });
+
+    it('does not treat a server error mentioning "aborted" as an abort', async () => {
+      const err = Object.assign(new Error('400 Upstream request was aborted by provider'), {
+        status: 400,
+      });
+      mocks.create.mockRejectedValue(err);
+      await expect(
+        new AnthropicAdapter(makePreset()).complete('SYS', messages, opts()),
+      ).rejects.toBe(err);
     });
 
     it.each([429, 529])('returns a silent null (not aborted) on HTTP %i', async (status) => {
