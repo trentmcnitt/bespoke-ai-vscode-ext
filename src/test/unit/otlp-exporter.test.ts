@@ -317,6 +317,14 @@ describe('trace settings (package.json)', () => {
     ]);
     for (const [, v] of trace) expect(v.scope).toBe('application');
   });
+
+  it('bespokeAI.logLevel is application-scoped (trace level logs prompts; a repo cannot turn it on)', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf-8'));
+    const props = pkg.contributes.configuration.properties as Record<string, { scope?: string }>;
+    expect(props['bespokeAI.logLevel'].scope).toBe('application');
+  });
 });
 
 describe('OTLP review fixes', () => {
