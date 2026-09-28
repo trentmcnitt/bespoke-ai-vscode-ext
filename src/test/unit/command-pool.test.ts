@@ -230,6 +230,20 @@ describe('CommandPool', () => {
       expect(sessions[0]).toEqual(['hold']);
     });
 
+    it('a late result for a timed-out turn does not hand the closing session to the next command', async () => {
+      const sessions = cliQuery({ lateResult: true });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const held = pool.sendPrompt('hold', { timeoutMs: 20 });
+      await settle();
+      const next = pool.sendPrompt('two', { timeoutMs: 5_000 });
+      expect(await held).toMatchObject({ text: null, errorType: 'timeout' });
+      expect(await next).toEqual(expect.objectContaining({ text: 'ans:two' }));
+      expect(sessions[0]).toEqual(['hold']);
+    });
+
     it('a signal aborted before sending sends nothing and leaves the warm slot in place', async () => {
       const sessions = cliQuery();
       const pool = new CommandPool('haiku', makeLogger());

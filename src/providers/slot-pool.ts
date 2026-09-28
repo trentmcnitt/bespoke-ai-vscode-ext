@@ -635,6 +635,9 @@ export abstract class SlotPool {
       `waiting for slot (${this.slots.map((s, i) => `slot${i}=${s.state}`).join(', ')})`,
     );
 
+    // An already-aborted signal would never fire its abort listener.
+    if (signal?.aborted) return 'cancelled';
+
     return new Promise<number | SlotDenial>((resolve) => {
       // `signal` aborting while this request is still the waiter ends the wait
       // (`cancelled`); once a slot was handed over the caller owns it.
