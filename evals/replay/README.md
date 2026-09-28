@@ -2,6 +2,8 @@
 
 The replay set is a collection of real model outputs recorded during quality runs. `src/test/unit/replay.test.ts` feeds each one through the **current** client-side pipeline (strategy extraction, then `postProcessCompletion`) and the deterministic checks. It runs under `npm run test:unit`, so CI runs it too. It needs no backend, network or secrets, and it finishes in well under a second.
 
+It is a change detector, not a correctness oracle. Each case pins what the pipeline does today, including any bugs it has today. When the pipeline changes, the test fails and someone has to decide whether the new output is better or worse. For example, the set originally pinned `code-java-mid-file` at `user.isActive(`, the output of a trim bug, and listed the removal of that `)` as a `must_avoid` invariant; when that bug was fixed (`5e2a20e`) the case failed, and its expectation was updated to `user.isActive()` with a drift note.
+
 | File                                          | Role                                                                                        |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `src/test/fixtures/replay/replay-set.json`    | The cases (checked in)                                                                      |
@@ -17,7 +19,7 @@ The replay set is a collection of real model outputs recorded during quality run
    - `tag-leak`: scaffolding such as `<COMPLETION>` or `{{FILL_HERE}}` must not appear in the output.
    - `preamble`: the output must not start with a chat preamble.
    - `prefix-echo`: the output must not start with the echoed line fragment.
-   - `suffix-overlap`: the output must not end with the suffix text that was trimmed off, such as the Java `)`.
+   - `suffix-overlap`: the output must not end with the suffix text that was trimmed off. In `code-py-list-comprehension` the raw output is ` x % 2 == 0]` and the suffix starts with `]`, so the ghost text must be `x % 2 == 0`.
    - `whitespace-final`: whitespace-only output must come back as `null`.
    - `check-stays-failing`: the named check must keep failing.
 
