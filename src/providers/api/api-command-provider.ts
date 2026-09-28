@@ -18,6 +18,13 @@ import {
  *  more than the 200 tokens used for inline completions). */
 const COMMAND_MAX_TOKENS = 4096;
 
+/** Why `ApiCommandProvider.isAvailable()` is false, for a user-facing message. */
+export type ApiCommandUnavailableReason =
+  | { kind: 'no_preset'; presetId: string }
+  | { kind: 'adapter_failed'; presetId: string; displayName: string }
+  | { kind: 'no_key'; presetId: string; displayName: string }
+  | { kind: 'breaker_open'; presetId: string; displayName: string; retryInMs: number };
+
 /**
  * API-based command provider for commit messages and suggest-edits.
  *
@@ -44,6 +51,19 @@ export class ApiCommandProvider {
   isAvailable(): boolean {
     if (this.breaker.isOpen()) return false;
     return this.adapter?.isConfigured() ?? false;
+  }
+
+  /** Why `isAvailable()` is false, or null when available. Read-only: no request is made. */
+  unavailableReason(): ApiCommandUnavailableReason | null {
+    const presetId = this.config.api.preset;
+    const preset = this.activePreset;
+    if (!preset) return { kind: 'no_preset', presetId };
+    const displayName = preset.displayName;
+    if (!this.adapter) return { kind: 'adapter_failed', presetId, displayName };
+    if (!this.adapter.isConfigured()) return { kind: 'no_key', presetId, displayName };
+    const retryInMs = this.breaker.remainingCooldownMs();
+    if (retryInMs > 0) return { kind: 'breaker_open', presetId, displayName, retryInMs };
+    return null;
   }
 
   updateConfig(config: ExtensionConfig): void {

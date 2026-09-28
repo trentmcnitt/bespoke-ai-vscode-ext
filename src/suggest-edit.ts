@@ -5,7 +5,12 @@ import { UsageLedger } from './utils/usage-ledger';
 import { BackendRouter } from './providers/backend-router';
 import { buildFullEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
 import { getWorkspaceRoot } from './utils/workspace';
-import { commandFailureType, describeCommandFailure } from './utils/command-failure';
+import {
+  commandFailureType,
+  commandUnavailableMessage,
+  describeCommandFailure,
+} from './utils/command-failure';
+import type { ApiCommandProvider } from './providers/api/api-command-provider';
 
 const TIMEOUT_MS = 90_000;
 
@@ -30,6 +35,7 @@ export async function suggestEdit(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   if (inFlight) {
     vscode.window.setStatusBarMessage('Bespoke AI: Request already in progress', 2000);
@@ -37,7 +43,7 @@ export async function suggestEdit(
   }
   inFlight = true;
   try {
-    await doSuggestEdit(router, logger, ledger);
+    await doSuggestEdit(router, logger, ledger, apiCommand);
   } catch (err) {
     // Command features are their own entry point (no orchestrator above them),
     // so log and surface errors here. The toast is deliberately not awaited:
@@ -54,12 +60,15 @@ async function doSuggestEdit(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   logger.info('Suggest edit started');
 
-  // Check pool availability
+  // Check backend availability; on the API backend, say why (no key, paused, bad preset)
   if (!router.isCommandAvailable()) {
-    vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
+    const backend = router.getBackend();
+    const reason = backend === 'api' ? apiCommand?.unavailableReason() : null;
+    vscode.window.showWarningMessage(`Bespoke AI: ${commandUnavailableMessage(backend, reason)}`);
     return;
   }
 

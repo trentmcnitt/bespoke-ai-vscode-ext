@@ -30,6 +30,7 @@
 - **Privacy — local files are owner-only:** `~/.bespokeai/` is now created (and tightened, if it is yours) as owner-only, and the usage ledger and trace file are owner-only. Old trace archives are also cleaned up at startup, not only when the file rotates.
 - **Fix — Suggest Edits could close your file:** if the diff preview failed to open, Suggest Edits closed the active editor, which was your own file. It now closes only its own diff tab, and leaves the tab you switched to while the Apply prompt was up alone.
 - **Fix — Claude Code failures on Suggest Edits and Generate Commit Message were silent:** when the Claude Code pool ended the request without a reply (it restarted, a session crashed, the pool was unavailable), nothing happened. You now see why, e.g. `Bespoke AI: Suggest edit failed — Claude Code is crashing repeatedly. Run "Bespoke AI: Restart Pools".` API rate-limit and overload responses are reported the same way. Cancelling stays silent.
+- **Fix — misleading "Command pool not ready" with the API backend:** Suggest Edits and Generate Commit Message now say what is actually wrong: no API key for the preset (run **Bespoke AI: Enter API Key**), paused after repeated API errors (with the seconds until it retries), or a preset that does not exist or could not be loaded.
 
 ## 0.8.15 — Explain / Fix / Do with opencode
 

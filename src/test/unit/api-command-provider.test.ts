@@ -167,6 +167,72 @@ describe('ApiCommandProvider', () => {
     });
   });
 
+  describe('unavailableReason', () => {
+    it('is null when the provider is available', () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      expect(provider.isAvailable()).toBe(true);
+      expect(provider.unavailableReason()).toBeNull();
+    });
+
+    it('reports an unknown preset id', () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'no-such-preset', customPresets: [] } }),
+        makeLogger(),
+      );
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toEqual({
+        kind: 'no_preset',
+        presetId: 'no-such-preset',
+      });
+    });
+
+    it('reports a preset whose adapter could not be built', () => {
+      mocks.createAdapter.mockImplementation(() => {
+        throw new Error('bad baseUrl');
+      });
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toMatchObject({
+        kind: 'adapter_failed',
+        presetId: 'anthropic-haiku',
+      });
+    });
+
+    it('reports a missing API key with the preset display name', () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      lastAdapter().isConfigured.mockReturnValue(false);
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toEqual({
+        kind: 'no_key',
+        presetId: 'anthropic-haiku',
+        displayName: lastAdapter().preset.displayName,
+      });
+    });
+
+    it('reports an open breaker with the time left', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockRejectedValue(new Error('503'));
+      for (let i = 0; i < 5; i++) {
+        await expect(provider.sendPrompt(SYSTEM, USER)).rejects.toThrow('503');
+      }
+      vi.advanceTimersByTime(10_000);
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toMatchObject({
+        kind: 'breaker_open',
+        retryInMs: 20_000,
+      });
+      vi.advanceTimersByTime(20_001);
+      expect(provider.unavailableReason()).toBeNull();
+    });
+  });
+
   describe('circuit breaker', () => {
     beforeEach(() => {
       vi.useFakeTimers();

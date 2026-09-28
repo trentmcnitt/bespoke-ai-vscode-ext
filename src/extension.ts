@@ -723,7 +723,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await generateCommitMessage(backendRouter, logger, usageLedger);
+      await generateCommitMessage(backendRouter, logger, usageLedger, apiCommand);
     }),
   );
 
@@ -744,7 +744,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await suggestEdit(backendRouter, logger, usageLedger);
+      await suggestEdit(backendRouter, logger, usageLedger, apiCommand);
     }),
   );
 

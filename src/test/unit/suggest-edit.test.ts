@@ -60,6 +60,7 @@ import * as vscode from 'vscode';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from '../../suggest-edit';
 import { SYSTEM_PROMPT } from '../../utils/suggest-edit-utils';
 import type { BackendRouter } from '../../providers/backend-router';
+import type { ApiCommandProvider } from '../../providers/api/api-command-provider';
 import type { UsageLedger } from '../../utils/usage-ledger';
 import type { Logger } from '../../utils/logger';
 
@@ -115,6 +116,7 @@ function makeRouter(
 ) {
   return {
     isCommandAvailable: vi.fn(() => true),
+    getBackend: vi.fn((): 'claude-code' | 'api' => 'claude-code'),
     getCurrentModel: vi.fn(() => 'sonnet'),
     sendCommand: vi.fn(async () => {
       if (response instanceof Error) throw response;
@@ -195,6 +197,32 @@ describe('suggestEdit — preconditions', () => {
     });
     await run(router);
     expect(win.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Command pool not ready'),
+    );
+    expect(router.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ kind: 'no_key', presetId: 'xai-grok', displayName: 'Grok' }, 'No API key for Grok'],
+    [
+      { kind: 'breaker_open', presetId: 'x', displayName: 'X', retryInMs: 7_000 },
+      'Paused after repeated API errors — retrying in 7 s',
+    ],
+    [{ kind: 'no_preset', presetId: 'gone' }, 'API preset "gone" is not available'],
+  ])('on the API backend, says why commands are unavailable (%j)', async (reason, expected) => {
+    const router = makeRouter({ text: '<corrected>x</corrected>' });
+    router.isCommandAvailable.mockReturnValue(false);
+    router.getBackend.mockReturnValue('api');
+    const apiCommand = { unavailableReason: vi.fn(() => reason) };
+    await suggestEdit(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledOnce();
+    expect(win.showWarningMessage.mock.calls[0][0]).toContain(`Bespoke AI: ${expected}`);
+    expect(win.showWarningMessage).not.toHaveBeenCalledWith(
       expect.stringContaining('Command pool not ready'),
     );
     expect(router.sendCommand).not.toHaveBeenCalled();

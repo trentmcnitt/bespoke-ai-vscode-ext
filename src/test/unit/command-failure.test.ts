@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { commandFailureType, describeCommandFailure } from '../../utils/command-failure';
+import {
+  commandFailureType,
+  commandUnavailableMessage,
+  describeCommandFailure,
+} from '../../utils/command-failure';
 
 describe('commandFailureType', () => {
   it('is null for a reply, a cancellation, or a bare null', () => {
@@ -45,5 +49,49 @@ describe('describeCommandFailure', () => {
 
   it('falls back to the raw type for anything unknown', () => {
     expect(describeCommandFailure('something_new')).toBe('the request failed (something_new).');
+  });
+});
+
+describe('commandUnavailableMessage', () => {
+  it('keeps the pool message on the Claude Code backend', () => {
+    expect(commandUnavailableMessage('claude-code', null)).toBe(
+      'Command pool not ready. Try again in a moment.',
+    );
+  });
+
+  it('names a missing API key and the command to enter one', () => {
+    expect(
+      commandUnavailableMessage('api', {
+        kind: 'no_key',
+        presetId: 'xai-grok',
+        displayName: 'Grok 4.1 Fast',
+      }),
+    ).toBe('No API key for Grok 4.1 Fast. Run "Bespoke AI: Enter API Key".');
+  });
+
+  it('says the API is paused and when it retries (rounded up to whole seconds)', () => {
+    const reason = { presetId: 'x', displayName: 'X', kind: 'breaker_open' as const };
+    expect(commandUnavailableMessage('api', { ...reason, retryInMs: 12_300 })).toBe(
+      'Paused after repeated API errors — retrying in 13 s.',
+    );
+    expect(commandUnavailableMessage('api', { ...reason, retryInMs: 5 })).toContain('in 1 s');
+  });
+
+  it('names an unknown preset', () => {
+    expect(commandUnavailableMessage('api', { kind: 'no_preset', presetId: 'gone' })).toBe(
+      'API preset "gone" is not available. Check the bespokeAI.api.preset setting.',
+    );
+  });
+
+  it('names a preset that could not be loaded', () => {
+    expect(
+      commandUnavailableMessage('api', { kind: 'adapter_failed', presetId: 'p', displayName: 'P' }),
+    ).toContain('API preset "P" could not be loaded');
+  });
+
+  it('falls back to a generic API message with no reason', () => {
+    expect(commandUnavailableMessage('api', null)).toBe(
+      'API backend not ready. Try again in a moment.',
+    );
   });
 });

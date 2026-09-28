@@ -81,4 +81,14 @@ describe('CircuitBreaker', () => {
     breaker.recordFailure();
     expect(breaker.isOpen()).toBe(false);
   });
+
+  it('remainingCooldownMs is 0 while closed and counts down while open, without closing it', () => {
+    expect(breaker.remainingCooldownMs()).toBe(0);
+    for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure();
+    expect(breaker.remainingCooldownMs()).toBe(COOLDOWN_MS);
+    vi.advanceTimersByTime(12_000);
+    expect(breaker.remainingCooldownMs()).toBe(COOLDOWN_MS - 12_000);
+    vi.advanceTimersByTime(COOLDOWN_MS);
+    expect(breaker.remainingCooldownMs()).toBe(0);
+  });
 });

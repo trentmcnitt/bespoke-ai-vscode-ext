@@ -10,7 +10,12 @@ import {
   MAX_COMMIT_DIFF_CHARS,
 } from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
-import { commandFailureType, describeCommandFailure } from './utils/command-failure';
+import {
+  commandFailureType,
+  commandUnavailableMessage,
+  describeCommandFailure,
+} from './utils/command-failure';
+import type { ApiCommandProvider } from './providers/api/api-command-provider';
 import type { GitExtension, Repository } from './types/git';
 
 const TIMEOUT_MS = 60_000;
@@ -21,6 +26,7 @@ export async function generateCommitMessage(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   if (inFlight) {
     vscode.window.setStatusBarMessage('Bespoke AI: Request already in progress', 2000);
@@ -28,7 +34,7 @@ export async function generateCommitMessage(
   }
   inFlight = true;
   try {
-    await doGenerateCommitMessage(router, logger, ledger);
+    await doGenerateCommitMessage(router, logger, ledger, apiCommand);
   } catch (err) {
     // Command features are their own entry point (no orchestrator above them),
     // so log and surface errors here. The toast is deliberately not awaited:
@@ -45,12 +51,15 @@ async function doGenerateCommitMessage(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   logger.info('Commit message generation started');
 
-  // Check pool availability
+  // Check backend availability; on the API backend, say why (no key, paused, bad preset)
   if (!router.isCommandAvailable()) {
-    vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
+    const backend = router.getBackend();
+    const reason = backend === 'api' ? apiCommand?.unavailableReason() : null;
+    vscode.window.showWarningMessage(`Bespoke AI: ${commandUnavailableMessage(backend, reason)}`);
     return;
   }
 
