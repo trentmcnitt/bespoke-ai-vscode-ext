@@ -60,7 +60,7 @@ npm run test:quality:compare  # A/B/N prompt variant comparison (needs PROMPT_VA
 npm run test:coverage         # Unit tests with v8 coverage (coverage/; CI uploads the HTML report)
 npm run test:quality:rescore  # Re-run deterministic checks over saved quality runs (args: run/results dirs; default test-results/)
 npm run latency-report        # p50/p90/p95 backend latency from ~/.bespokeai/usage-ledger*.jsonl
-npm run judge:sample          # Build the blind judge-validation sample (refuses once labels exist)
+npm run judge:sample          # Build the judge-validation sample (refuses once labels exist)
 npm run judge:score           # Judge TPR/TNR vs human labels per split (needs evals/judge-validation/labels.csv)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
 npm run install-ext      # Compile, package VSIX, and install into VSCodium
@@ -323,6 +323,8 @@ The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bes
 
 `[ERROR]` lines (all errors and failures) are always written, regardless of the level; `error` is not a setting value.
 
+`bespokeAI.logLevel` is application-scoped (user settings only). At `trace` the Output channel receives full prompts, and VS Code persists output logs to disk, so a repository's `.vscode/settings.json` must not be able to turn it on. `trace.captureContent` does not govern this log; it covers trace records only.
+
 Each completion request gets a 4-character hex ID (e.g., `#a7f3`) for log correlation. At debug level, requests show visual separators (`───`) and directional markers (`▶` for request start, `◀` for response end). At trace level, content blocks appear indented under the debug-level log lines, written verbatim (not truncated).
 
 Example:
@@ -485,7 +487,7 @@ To add a scenario, add a `TestScenario` to `scenarios.ts` (for standard scenario
 
 ### Judge Validation
 
-`evals/judge-validation/` — 100 blind items (dev 40 / test 60). Label via `label.html`, export `labels.csv`, run `npm run judge:score`. Tune the judge prompt on dev only; report the test split. Don't claim judge accuracy until the test split has ≥50 labels.
+`evals/judge-validation/` — 100 items (dev 40 / test 60), judge verdicts hidden from the labeller (its README lists what the page still reveals). Label via `label.html`, export `labels.csv`, run `npm run judge:score`. Tune the judge prompt on dev only; report the test split. Don't claim judge accuracy until the test split has ≥50 labels.
 
 ### Error Analysis
 
