@@ -245,9 +245,18 @@ export const SPAN_KIND_CLIENT = 3;
 /** OTLP `Span.SpanKind` — INTERNAL (no model call: cache hit, backend unavailable). */
 export const SPAN_KIND_INTERNAL = 1;
 
-/** False for records that never reached a model (cache hits, unavailable backend). */
+/** Error types for requests that were never sent to a model. */
+const NOT_SENT_ERROR_TYPES = new Set(['backend_unavailable', 'circuit_open']);
+
+/**
+ * False for records that never reached a model (cache hits, unavailable backend, open
+ * breaker). The orchestrator sets `errorType` on the record for its own unavailable check;
+ * a provider that declines to send reports it in `detail.errorType`.
+ */
 export function isModelCall(record: TraceRecord): boolean {
-  return record.outcome !== 'cache_hit' && record.errorType !== 'backend_unavailable';
+  if (record.outcome === 'cache_hit') return false;
+  const type = record.errorType ?? record.detail?.errorType;
+  return !(type && NOT_SENT_ERROR_TYPES.has(type));
 }
 
 export function spanKind(record: TraceRecord): number {

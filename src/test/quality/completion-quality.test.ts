@@ -332,9 +332,8 @@ async function generateWithFreshApiProvider(scenario: TestScenario): Promise<Gen
     const result: GenerationResult = {
       scenario,
       completion: res.text,
-      // From the detail rather than the log: the log line is only written for a
-      // non-empty reply, so an empty reply used to leave no raw-response.txt.
-      // null here means the adapter returned no text at all (see outcome).
+      // null (no raw-response.txt) means the adapter returned no text at all;
+      // metadata.outcome / errorType / provider.finishReason say why.
       rawResponse: content?.rawOutput ?? undefined,
       sentMessage: content?.userMessage ?? capturing.getTrace('api → user'),
       durationMs: Date.now() - start,

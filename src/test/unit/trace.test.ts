@@ -407,6 +407,18 @@ describe('trace — review fixes', () => {
     expect(toSpanJson(makeRecord(), false).kind).toBe(3);
   });
 
+  it('a provider that declined to send (detail.errorType) is INTERNAL too; a swallowed 429 is not', () => {
+    for (const errorType of ['backend_unavailable', 'circuit_open']) {
+      const r = makeRecord({
+        outcome: 'error',
+        detail: { providerName: 'anthropic', requestModel: 'm', errorType },
+      });
+      expect(toSpanJson(r, false).kind).toBe(SPAN_KIND_INTERNAL);
+    }
+    const rateLimited = makeRecord({ outcome: 'error', detail: makeDetail({ errorType: '429' }) });
+    expect(toSpanJson(rateLimited, false).kind).toBe(3);
+  });
+
   it('omits gen_ai.usage.* for requests that did not complete (error / aborted)', () => {
     const zeros = makeDetail({
       inputTokens: 0,
