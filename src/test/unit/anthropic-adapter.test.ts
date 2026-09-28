@@ -114,11 +114,46 @@ describe('AnthropicAdapter', () => {
       expect(requestOpts).toEqual({ signal });
     });
 
+    it('Sonnet 5.5 preset: thinking is turned off with between_tools, never disabled', async () => {
+      const sonnet55 = makePreset({
+        modelId: 'claude-sonnet-5-5',
+        promptStrategy: 'tag-extraction',
+        features: {
+          promptCaching: true,
+          prefill: false,
+          sampling: false,
+          thinkingOff: 'between_tools',
+        },
+      });
+      await new AnthropicAdapter(sonnet55).complete(
+        'SYS',
+        [{ role: 'user', content: '<document>...</document>' }],
+        opts({ temperature: 0.2 }),
+      );
+      const params = mocks.create.mock.calls[0][0];
+      expect(params.thinking).toEqual({ type: 'between_tools' });
+      expect(Object.keys(params)).not.toContain('temperature');
+    });
+
+    it('a preset with no thinkingOff sends no thinking field', async () => {
+      const opus55 = makePreset({
+        modelId: 'claude-opus-5-5',
+        promptStrategy: 'tag-extraction',
+        features: { promptCaching: true, prefill: false, sampling: false },
+      });
+      await new AnthropicAdapter(opus55).complete(
+        'SYS',
+        [{ role: 'user', content: '<document>...</document>' }],
+        opts({}),
+      );
+      expect(Object.keys(mocks.create.mock.calls[0][0])).not.toContain('thinking');
+    });
+
     it('Sonnet 5 preset: no temperature key, and only the user message is sent', async () => {
       const sonnet = makePreset({
         modelId: 'claude-sonnet-5',
         promptStrategy: 'tag-extraction',
-        features: { promptCaching: true, prefill: false, sampling: false, disableThinking: true },
+        features: { promptCaching: true, prefill: false, sampling: false, thinkingOff: 'disabled' },
       });
       await new AnthropicAdapter(sonnet).complete(
         'SYS',

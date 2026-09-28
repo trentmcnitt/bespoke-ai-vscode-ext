@@ -1,36 +1,37 @@
 /**
  * Request features that some Claude models reject.
  *
- * Newer Claude models return HTTP 400 for two things the API presets used to
- * send on every request: an assistant prefill (the last message is from the
- * assistant) and a non-default `temperature`. A preset that sends either to
- * such a model fails every request, so presets for Anthropic models take
- * their prompt strategy and sampling from this table instead of assuming
- * Haiku 4.5 behaviour.
+ * Newer Claude models return HTTP 400 for things the API presets used to send
+ * on every request: an assistant prefill (the last message is from the
+ * assistant), a non-default `temperature`, and — per model — a particular way of
+ * turning thinking off. A preset that sends any of these to a model that rejects
+ * it fails every request, so presets for Anthropic models take their prompt
+ * strategy and request features from this table.
  *
- * Source: Claude API docs, checked 2026-09-28 —
- * https://platform.claude.com/docs/en/models/sonnet-5/migration-guide
- * ("Prefilling assistant messages returns a 400 error on Claude Sonnet 4.6 and
- * later models"; "Sampling parameters (temperature, top_p, top_k) set to a
- * non-default value return a 400 error on Claude Sonnet 5") and the per-model
- * tables in the Claude API skill (prefill removed on the 4.6-and-later family,
- * Opus 5, Fable 5 and Mythos 5; sampling parameters removed on Opus 4.7 and
- * later, Sonnet 5, Fable 5 and Mythos 5). Both Sonnet 5 rejections were also
- * observed directly (evals/2026-09-28-sonnet-preset.md).
+ * Sources: Claude API docs, checked 2026-09-28 —
+ * https://platform.claude.com/docs/en/models/overview ("Every Claude model ID is a
+ * pinned snapshot"), https://platform.claude.com/docs/en/models/sonnet-5/migration-guide
+ * (Sonnet 5: prefill and sampling parameters 400; adaptive thinking on by default,
+ * `thinking: {type: "disabled"}` turns it off),
+ * https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
+ * (Sonnet 5.5: "a request that sends thinking: {type: \"disabled\"} returns a 400";
+ * the lowest setting is `thinking: {type: "between_tools"}`, accepted at low/medium/high
+ * effort; sampling parameters 400), and the per-model tables in the Claude API skill
+ * (prefill removed on the 4.6-and-later family; sampling removed on Opus 4.7+, Sonnet 5,
+ * Fable and Mythos; thinking always on — cannot be turned off — on Opus 5.5, Fable, Mythos).
  *
- * A third difference: Sonnet 5 and Opus 5 run adaptive thinking when the
- * request has no `thinking` field ("Adaptive thinking on by default … To turn
- * thinking off, pass thinking: {type: "disabled"}", same migration guide).
- * Thinking tokens count against `max_tokens`, and with the presets' 200-token
- * cap the model sometimes spent the whole budget thinking and returned no text
- * (3 of 51 scenarios, evals/2026-09-28-sonnet-preset.md), so the adapter turns
- * it off for these models. Opus 5.5 and Fable 5.x reject `disabled` (thinking
- * is always on there); Opus 4.6–4.8 and Sonnet 4.6 run without thinking when
- * the field is omitted. Neither group is sent the field.
+ * Why thinking is turned off where possible: thinking tokens count against the presets'
+ * 200-token `max_tokens`, and a model that thinks first can spend the whole budget and
+ * return no text (3 of 51 scenarios on Sonnet 5, evals/2026-09-28-sonnet-preset.md).
  *
- * Models not listed (Haiku 4.5, Sonnet 4.5, Opus 4.5 and older, and ids this
- * table does not recognise) keep the previous behaviour: prefill and
- * temperature allowed.
+ * Matching is by exact model id (after normalisation), not prefix: `claude-sonnet-5-5`
+ * is a different model from `claude-sonnet-5` and rejects what Sonnet 5 needs. Ids not
+ * in the table are classified by version: pre-4.6 models (Haiku 4.5, Sonnet/Opus 4.5 and
+ * older, Claude 3.x) keep the original behaviour (prefill and temperature allowed); any
+ * other Claude id — including models released after this table — gets the modern safe
+ * shape: no prefill, no sampling parameters, and no `thinking` field. That shape is
+ * accepted by every model since Claude 4.6, so a new model works (possibly thinking
+ * first) instead of failing every request until this table is updated.
  */
 export interface AnthropicModelCapabilities {
   /** The model accepts a final assistant message (prefill). */
@@ -38,51 +39,31 @@ export interface AnthropicModelCapabilities {
   /** The model accepts `temperature` / `top_p` / `top_k`. */
   sampling: boolean;
   /**
-   * The model thinks by default and accepts `thinking: {type: "disabled"}`;
-   * the adapter sends it so thinking cannot use up the small `max_tokens`.
+   * How to turn thinking off, for a model that thinks by default and accepts it:
+   * `"disabled"` (Sonnet 5, Opus 5) or `"between_tools"` (Sonnet 5.5). `null` means
+   * send no `thinking` field (the model does not think unless asked, or thinking
+   * cannot be turned off).
    */
-  disableThinking: boolean;
+  thinkingOff: 'disabled' | 'between_tools' | null;
 }
 
-interface CapabilityRow {
-  /** Normalised id prefix; matches the id itself or the id followed by `-…`. */
-  prefix: string;
-  caps: AnthropicModelCapabilities;
-}
+const MODERN: AnthropicModelCapabilities = { prefill: false, sampling: false, thinkingOff: null };
+const LEGACY: AnthropicModelCapabilities = { prefill: true, sampling: true, thinkingOff: null };
 
-const NO_PREFILL_NO_SAMPLING: AnthropicModelCapabilities = {
-  prefill: false,
-  sampling: false,
-  disableThinking: false,
-};
-const NO_PREFILL_NO_SAMPLING_THINKS: AnthropicModelCapabilities = {
-  prefill: false,
-  sampling: false,
-  disableThinking: true,
-};
-const NO_PREFILL: AnthropicModelCapabilities = {
-  prefill: false,
-  sampling: true,
-  disableThinking: false,
-};
-
-// First match wins: `claude-opus-5-5` must come before `claude-opus-5`.
-const ROWS: CapabilityRow[] = [
-  { prefix: 'claude-sonnet-5', caps: NO_PREFILL_NO_SAMPLING_THINKS },
-  { prefix: 'claude-opus-5-5', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-opus-5', caps: NO_PREFILL_NO_SAMPLING_THINKS },
-  { prefix: 'claude-opus-4-8', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-opus-4-7', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-fable', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-mythos', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-opus-4-6', caps: NO_PREFILL },
-  { prefix: 'claude-sonnet-4-6', caps: NO_PREFILL },
-];
-
-const DEFAULT_CAPS: AnthropicModelCapabilities = {
-  prefill: true,
-  sampling: true,
-  disableThinking: false,
+/** Known models since Claude 4.6, by exact normalised id. */
+const KNOWN: Record<string, AnthropicModelCapabilities> = {
+  'claude-sonnet-5-5': { ...MODERN, thinkingOff: 'between_tools' },
+  'claude-sonnet-5': { ...MODERN, thinkingOff: 'disabled' },
+  'claude-opus-5-5': MODERN, // thinking always on
+  'claude-opus-5': { ...MODERN, thinkingOff: 'disabled' },
+  'claude-opus-4-8': MODERN, // no thinking unless asked
+  'claude-opus-4-7': MODERN,
+  'claude-fable-5-1': MODERN, // thinking always on
+  'claude-fable-5': MODERN,
+  'claude-mythos-5-1': MODERN,
+  'claude-mythos-5': MODERN,
+  'claude-opus-4-6': { ...MODERN, sampling: true },
+  'claude-sonnet-4-6': { ...MODERN, sampling: true },
 };
 
 /**
@@ -97,8 +78,22 @@ export function normalizeAnthropicModelId(modelId: string): string {
     .replace(/\./g, '-');
 }
 
+/**
+ * True for models from before the 4.6 generation, which accept prefill and sampling:
+ * Claude 3.x (`claude-3-5-sonnet-…`), and `claude-<family>-<major>[-<minor>][-<date>]`
+ * with version below 4.6 (e.g. `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514`).
+ */
+function isPreModernId(id: string): boolean {
+  if (/^claude-(instant|[12])(-|$)/.test(id) || /^claude-3(-|$)/.test(id)) return true;
+  const m = /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (!m) return false;
+  const major = Number(m[1]);
+  const minor = m[2] === undefined ? 0 : Number(m[2]);
+  return major < 4 || (major === 4 && minor < 6);
+}
+
 export function anthropicModelCapabilities(modelId: string): AnthropicModelCapabilities {
   const id = normalizeAnthropicModelId(modelId);
-  const row = ROWS.find((r) => id === r.prefix || id.startsWith(`${r.prefix}-`));
-  return { ...(row?.caps ?? DEFAULT_CAPS) };
+  const caps = KNOWN[id] ?? (isPreModernId(id) ? LEGACY : MODERN);
+  return { ...caps };
 }

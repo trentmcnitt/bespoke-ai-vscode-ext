@@ -104,7 +104,7 @@ describe('Presets', () => {
         promptCaching: true,
         prefill: false,
         sampling: false,
-        disableThinking: true,
+        thinkingOff: 'disabled',
       });
     });
 
@@ -120,8 +120,8 @@ describe('Presets', () => {
         expect(p.promptStrategy).toBe(caps.prefill ? 'prefill-extraction' : 'tag-extraction');
         expect(p.features?.prefill).toBe(caps.prefill);
         expect(p.features?.sampling === false).toBe(!caps.sampling);
-        expect(p.features?.disableThinking === true).toBe(
-          caps.disableThinking && p.provider === 'anthropic',
+        expect(p.features?.thinkingOff).toBe(
+          caps.thinkingOff && p.provider === 'anthropic' ? caps.thinkingOff : undefined,
         );
       }
     });
@@ -195,8 +195,31 @@ describe('Presets', () => {
         promptCaching: true,
         prefill: false,
         sampling: false,
-        disableThinking: true,
+        thinkingOff: 'disabled',
       });
+    });
+
+    it('a custom Sonnet 5.5 preset turns thinking off with between_tools (disabled would 400)', () => {
+      registerCustomPresets([
+        { name: 'My Sonnet 55', provider: 'anthropic', modelId: 'claude-sonnet-5-5' },
+      ]);
+      const preset = getPreset('custom-my-sonnet-55');
+      expect(preset?.promptStrategy).toBe('tag-extraction');
+      expect(preset?.features).toEqual({
+        promptCaching: true,
+        prefill: false,
+        sampling: false,
+        thinkingOff: 'between_tools',
+      });
+    });
+
+    it('a custom preset for an unknown newer Claude model gets the safe modern shape', () => {
+      registerCustomPresets([
+        { name: 'Future', provider: 'anthropic', modelId: 'claude-sonnet-6' },
+      ]);
+      const preset = getPreset('custom-future');
+      expect(preset?.promptStrategy).toBe('tag-extraction');
+      expect(preset?.features).toEqual({ promptCaching: true, prefill: false, sampling: false });
     });
 
     it('OpenRouter anthropic/claude-sonnet-5 gets tag-extraction, no prefill, no sampling, no caching', () => {

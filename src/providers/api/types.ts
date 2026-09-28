@@ -27,10 +27,11 @@ export interface Preset {
      */
     sampling?: boolean;
     /**
-     * Direct Anthropic API: send `thinking: {type: "disabled"}` (for models that
-     * think by default, e.g. Sonnet 5). See `model-capabilities.ts`.
+     * Direct Anthropic API: turn thinking off for a model that thinks by default,
+     * with the setting that model accepts — `thinking: {type: "disabled"}` (Sonnet 5,
+     * Opus 5) or `{type: "between_tools"}` (Sonnet 5.5). See `model-capabilities.ts`.
      */
-    disableThinking?: boolean;
+    thinkingOff?: 'disabled' | 'between_tools';
   };
 
   /** Extra parameters merged into the API request body. */
