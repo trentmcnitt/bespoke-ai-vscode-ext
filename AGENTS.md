@@ -238,10 +238,10 @@ Adding or modifying a VS Code setting requires coordinated changes. Steps 1–5 
 | 7   | `src/pool-server/client.ts` | If the setting affects pool behavior: propagate via `PoolClient.updateConfig()`       |
 
 **Scope rule (security):** a setting that selects a backend or endpoint, chooses a model, names an
-environment variable, or affects how the CLI subprocess is invoked MUST declare `"scope": "application"`
+environment variable, affects how the CLI subprocess is invoked, or can write prompt text to disk (`logLevel`), MUST declare `"scope": "application"`
 (or `"machine"` if it legitimately needs to differ per remote host). Without a scope key the default is
 `window`, which means any repository's `.vscode/settings.json` can set it just by being opened. Settings
-that only affect local editing behavior (trigger timing, context size, log level, prose file types) can
+that only affect local editing behavior (trigger timing, context size, prose file types) can
 stay window-scoped.
 
 **Never interpolate a setting value into a shell command string.** VS Code enforces a declared `enum`
