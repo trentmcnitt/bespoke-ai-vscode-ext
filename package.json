@@ -65,6 +65,10 @@
         "title": "Bespoke AI: Clear Completion Cache"
       },
       {
+        "command": "bespoke-ai.showRecentCompletions",
+        "title": "Bespoke AI: Show Recent Completions"
+      },
+      {
         "command": "bespoke-ai.showMenu",
         "title": "Bespoke AI: Show Menu"
       },

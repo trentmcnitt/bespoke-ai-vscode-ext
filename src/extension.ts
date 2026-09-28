@@ -35,6 +35,7 @@ import { explainSelection, fixSelection, doSelection } from './commands/context-
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
 import { TraceFileSink, TraceRecorder } from './utils/trace';
+import { TraceViewPanel } from './trace-view';
 import {
   initSecretStorage,
   loadSecretKey,
@@ -381,6 +382,13 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.showRecentCompletions', () => {
+      TraceViewPanel.show(traceRecorder);
+    }),
+    { dispose: () => TraceViewPanel.disposeCurrent() },
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('bespoke-ai.clearCache', () => {
       completionProvider.clearCache();
     }),
@@ -548,6 +556,15 @@ export function activate(context: vscode.ExtensionContext) {
       items.push(openSettingsItem);
       handlers.set(openSettingsItem, () => {
         vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
+      });
+
+      const recentItem: vscode.QuickPickItem = {
+        label: '$(history) Recent Completions',
+        description: 'what the model saw and returned, timing, tokens',
+      };
+      items.push(recentItem);
+      handlers.set(recentItem, () => {
+        vscode.commands.executeCommand('bespoke-ai.showRecentCompletions');
       });
 
       const openLogItem: vscode.QuickPickItem = {
