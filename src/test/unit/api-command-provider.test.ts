@@ -190,7 +190,7 @@ describe('ApiCommandProvider', () => {
       expect(provider.isAvailable()).toBe(true);
     });
 
-    it('counts empty non-aborted responses as failures but not aborts', async () => {
+    it('counts swallowed failures and malformed empties, not aborts or genuine empties', async () => {
       const provider = new ApiCommandProvider(makeConfig(), makeLogger());
       const adapter = lastAdapter();
 
@@ -198,7 +198,29 @@ describe('ApiCommandProvider', () => {
       for (let i = 0; i < 6; i++) await provider.sendPrompt(SYSTEM, USER);
       expect(provider.isAvailable()).toBe(true);
 
-      adapter.complete.mockResolvedValue(makeResult({ text: null }));
+      // The model replied with nothing, and said why: not a backend failure.
+      adapter.complete.mockResolvedValue(
+        makeResult({
+          text: null,
+          finishReason: 'end_turn',
+          usage: { inputTokens: 9, outputTokens: 2 },
+        }),
+      );
+      for (let i = 0; i < 6; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(true);
+
+      adapter.complete.mockResolvedValue(
+        makeResult({ text: null, errorType: '529', usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+      for (let i = 0; i < 5; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('a malformed empty reply (no output tokens, no finish reason) counts as a failure', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: null, usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
       for (let i = 0; i < 5; i++) await provider.sendPrompt(SYSTEM, USER);
       expect(provider.isAvailable()).toBe(false);
     });

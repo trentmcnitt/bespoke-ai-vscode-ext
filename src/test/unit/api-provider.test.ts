@@ -355,9 +355,64 @@ describe('ApiCompletionProvider', () => {
       expect(provider.isAvailable()).toBe(false);
     });
 
-    it('empty (non-aborted) responses count as failures', async () => {
+    it('a genuinely empty reply does not count as a failure', async () => {
+      // The model closed immediately / was cut by a stop sequence: the backend is fine.
       const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
-      lastAdapter().complete.mockResolvedValue(makeResult({ text: null }));
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({
+          text: null,
+          finishReason: 'end_turn',
+          usage: { inputTokens: 100, outputTokens: 7 },
+        }),
+      );
+      for (let i = 0; i < 10; i++) {
+        await provider.getCompletion(makeProseContext(), signal());
+      }
+      expect(provider.isAvailable()).toBe(true);
+    });
+
+    it('a genuinely empty reply resets a failure streak (the backend answered)', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const adapter = lastAdapter();
+      adapter.complete.mockRejectedValue(new Error('500'));
+      await failN(provider, 4);
+      adapter.complete.mockResolvedValueOnce(
+        makeResult({ text: '', finishReason: 'stop_sequence' }),
+      );
+      await provider.getCompletion(makeProseContext(), signal());
+      await failN(provider, 4);
+      expect(provider.isAvailable()).toBe(true);
+    });
+
+    it('a reply that post-processing trims to nothing does not count', async () => {
+      // Suffix echo: the model returned exactly the text after the cursor.
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const ctx = makeProseContext({ prefix: 'The cat ', suffix: 'sat on the mat.' });
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: '<COMPLETION>sat on the mat.</COMPLETION>', finishReason: 'end_turn' }),
+      );
+      for (let i = 0; i < 10; i++) {
+        expect(await provider.getCompletion(ctx, signal())).toBeNull();
+      }
+      expect(provider.isAvailable()).toBe(true);
+    });
+
+    it('swallowed provider failures (429/529, connection refused) count as failures', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: null, errorType: '429', usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+      for (let i = 0; i < 5; i++) {
+        await provider.getCompletion(makeProseContext(), signal());
+      }
+      expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('a malformed empty reply (no output tokens, no finish reason) counts as a failure', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: null, usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
       for (let i = 0; i < 5; i++) {
         await provider.getCompletion(makeProseContext(), signal());
       }
