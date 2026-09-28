@@ -22,11 +22,13 @@ TPR and TNR are reported separately, not only agreement, because the two errors 
 
 - **Only judged items.** An item needs a `validation.md` whose verdict parses, or there is nothing to compare.
 - **Only synthetic scenarios.** Every `regression-*` scenario is excluded, because those were captured from real use.
+- **Only healthy runs.** The `quality-2026-03-04T01-22-51-api-ollama-qwen35-9b` run is left out of the pool (`EXCLUDED_RUNS` in `build-sample.ts`). It was half-broken, with 54 of 97 completions empty, and its judged items were mostly trivial.
 - **Deduplicated** on (scenario, completion text). When the same completion was judged in several runs, the most recent verdict is the primary one. All verdicts are kept in `judge-verdicts.json`, and `judge_disagreement` marks the ones where runs disagreed.
-- **Stratified.** Items are spread across the six models, prose and code, twelve scenario categories, and at most two items per scenario. Null completions are capped at six. They are easy to label and say little about the judge.
+- **Stratified.** Items are spread across the five models, prose and code, twelve scenario categories, and at most two items per scenario.
+- **A small, deliberate "empty" category.** Null or whitespace-only completions are capped at three (`MAX_NULLS`). They are easy to label and say little about the judge, but three keeps the case covered.
 - **Enriched for failures.** A random draw would be about 80% judge passes. The sample instead takes 30 judge fails, 25 judge passes that a deterministic check fails, and 45 judge passes where every check passes, which aims for a roughly even human pass/fail split. This oversamples the cases where the judge is most likely wrong, so **the rates describe the judge on this sample, not the judge's error rate on a typical run.** A population estimate would need reweighting by bucket.
 
-The build prints the composition. The current sample:
+The build prints the composition. The current sample (seed 20260927, drawn from 500 candidates):
 
 | Bucket                         | dev | test | total |
 | ------------------------------ | --- | ---- | ----- |
@@ -34,6 +36,19 @@ The build prints the composition. The current sample:
 | judge pass, a det. check fails | 10  | 15   | 25    |
 | judge pass, all checks pass    | 18  | 27   | 45    |
 | **total**                      | 40  | 60   | 100   |
+
+| Also by                                | dev | test | total |
+| -------------------------------------- | --- | ---- | ----- |
+| empty completion (all in "judge fail") | 2   | 1    | 3     |
+| prose                                  | 27  | 40   | 67    |
+| code                                   | 13  | 20   | 33    |
+| api/openai-gpt-4.1-nano                | 9   | 16   | 25    |
+| api/xai-grok                           | 10  | 13   | 23    |
+| claude-code/haiku                      | 7   | 14   | 21    |
+| claude-code/sonnet                     | 10  | 10   | 20    |
+| claude-code/opus                       | 4   | 7    | 11    |
+
+This table is copied from the build output. Update it if the sample is rebuilt.
 
 ## Why a held-out split
 

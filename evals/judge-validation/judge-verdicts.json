@@ -5,24 +5,28 @@
     "n": 100,
     "dev": 40,
     "test": 60,
-    "candidates": 533,
-    "source": "test-results/quality-* (judged folders only; regression-* excluded)"
+    "candidates": 500,
+    "source": "test-results/quality-* (judged folders only; regression-* and EXCLUDED_RUNS excluded)",
+    "excluded_runs": [
+      "/-api-ollama-qwen35-9b$/"
+    ],
+    "max_nulls": 3
   },
   "verdicts": {
-    "jv-05fadc02": {
-      "split": "dev",
-      "scenario_id": "ci-adversarial-answer-question",
-      "model": "api/xai-grok",
+    "jv-a65e1f9a": {
+      "split": "test",
+      "scenario_id": "ci-prose-terse",
+      "model": "api/openai-gpt-4.1-nano",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
+      "judge_score": 8,
+      "primary_run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
       "instances": [
         {
-          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
+          "run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
           "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/xai-grok"
+          "judge_score": 8,
+          "model": "api/openai-gpt-4.1-nano"
         }
       ],
       "judge_disagreement": false,
@@ -37,6 +41,643 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-beccf8db": {
+      "split": "test",
+      "scenario_id": "prose-bridge-small-clause",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" low-traffic window,\" + \"we should schedule t…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-8ca5f5c0": {
+      "split": "test",
+      "scenario_id": "code-mid-file-ts-handler-full",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-3943f5cd": {
+      "split": "test",
+      "scenario_id": "code-full-py-pipeline-flush",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 7,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-277aea0a": {
+      "split": "test",
+      "scenario_id": "code-mid-file-py-module-full",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-bcd480f6": {
+      "split": "test",
+      "scenario_id": "code-full-py-pipeline-dispatch",
+      "model": "api/xai-grok",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 4,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": false,
+          "judge_score": 4,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-912d9f41": {
+      "split": "dev",
+      "scenario_id": "code-mid-file-py-flask-full",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-b5a19a88": {
+      "split": "test",
+      "scenario_id": "code-go-goroutine",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-b9edb6b1": {
+      "split": "dev",
+      "scenario_id": "ci-noop-irrelevant-js",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T18-53-30-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/openai-gpt-4.1-nano"
+        },
+        {
+          "run": "quality-2026-07-10T18-53-33-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/xai-grok"
+        },
+        {
+          "run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/openai-gpt-4.1-nano"
+        },
+        {
+          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ]
+    },
+    "jv-e29ac8fa": {
+      "split": "test",
+      "scenario_id": "prose-after-heading",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-036343d1": {
+      "split": "test",
+      "scenario_id": "prose-prompt-short-question-continue",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"end switch, or maybe\" + \"key the cache by bac…\""
+        }
+      ]
+    },
+    "jv-56a829c6": {
+      "split": "dev",
+      "scenario_id": "prose-full-api-versioning",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" you think carefully\" + \"careful planning and…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "over-length",
+          "pass": false,
+          "detail": "315 chars > max 120"
+        }
+      ]
+    },
+    "jv-1e88047f": {
+      "split": "dev",
+      "scenario_id": "code-long-prefix-ts",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-ee95416a": {
+      "split": "test",
+      "scenario_id": "prose-long-both",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"ce suggests that our\" + \"product positioning …\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-604d6906": {
+      "split": "test",
+      "scenario_id": "prose-journal-full-mid-entry",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"y bugs hiding behind\" + \"inadequate error han…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": true,
+          "detail": "dates consistent (desc): 02-07-26 → 02-06-26"
+        }
+      ]
+    },
+    "jv-1afa7813": {
+      "split": "dev",
+      "scenario_id": "edge-short-prefix",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-51434318": {
+      "split": "test",
+      "scenario_id": "prose-bridge-small-clause",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 7,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" low-traffic window,\" + \"which aligns perfect…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-7443c96d": {
+      "split": "dev",
+      "scenario_id": "prose-bridge-large-detail",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"contract discipline,\" + \"treating the expand-…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-c4f3d513": {
+      "split": "test",
+      "scenario_id": "code-mid-file-py-module-full",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-92887e51": {
+      "split": "dev",
+      "scenario_id": "reuse-code-after-priming",
+      "model": "claude-code/opus",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": true,
+          "judge_score": 7,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
         }
       ]
     },
@@ -71,104 +712,6 @@
         }
       ]
     },
-    "jv-68b210ad": {
-      "split": "dev",
-      "scenario_id": "code-ts-interface",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-a041dfcb": {
-      "split": "dev",
-      "scenario_id": "code-full-react-select-all",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-811b1d23": {
-      "split": "test",
-      "scenario_id": "prose-journal-jnl-full-window",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 7,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "journal-date",
-          "pass": true,
-          "detail": "dates consistent (desc): 02-04-26 → 02-03-26 → 02-02-26"
-        }
-      ]
-    },
     "jv-0b6ab433": {
       "split": "dev",
       "scenario_id": "code-java-mid-file",
@@ -192,6 +735,243 @@
         }
       ],
       "judge_disagreement": true,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-5b3de729": {
+      "split": "test",
+      "scenario_id": "prose-bridge-small-sentence",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-56058718": {
+      "split": "dev",
+      "scenario_id": "prose-medium-prefix-with-suffix",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"all dependencies and\" + \"configure the enviro…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-acba123e": {
+      "split": "dev",
+      "scenario_id": "prose-mid-doc-mixed-structure",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"ectly you'll need to\" + \"handle that conversi…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-e1d16b71": {
+      "split": "test",
+      "scenario_id": "code-mid-file-go-full",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-25da1f44": {
+      "split": "dev",
+      "scenario_id": "code-mid-file-rs-full",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-320ad381": {
+      "split": "test",
+      "scenario_id": "prose-mid-doc-design-full",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"most common case and\" + \"reduces boilerplate …\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-abf94b19": {
+      "split": "dev",
+      "scenario_id": "code-long-prefix-ts",
+      "model": "claude-code/opus",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 10,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": true,
+          "judge_score": 10,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
       "det_pass": true,
       "checks": [
         {
@@ -242,20 +1022,20 @@
         }
       ]
     },
-    "jv-92887e51": {
+    "jv-b8bcb6ef": {
       "split": "dev",
-      "scenario_id": "reuse-code-after-priming",
-      "model": "claude-code/opus",
+      "scenario_id": "prose-mid-doc-multi-topic",
+      "model": "claude-code/sonnet",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-02-11T19-48-20",
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
       "instances": [
         {
-          "run": "quality-2026-02-11T19-48-20",
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
           "judge_pass": true,
-          "judge_score": 7,
-          "model": "claude-code/opus"
+          "judge_score": 8,
+          "model": "claude-code/sonnet"
         }
       ],
       "judge_disagreement": false,
@@ -265,23 +1045,33 @@
           "id": "non-empty",
           "pass": true,
           "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
         }
       ]
     },
-    "jv-18aedecb": {
+    "jv-60f386d1": {
       "split": "test",
       "scenario_id": "prose-prompt-with-code-context",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "model": "claude-code/haiku",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
       "instances": [
         {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "claude-code/haiku"
         }
       ],
       "judge_disagreement": false,
@@ -299,29 +1089,92 @@
         }
       ]
     },
-    "jv-298490b0": {
-      "split": "dev",
-      "scenario_id": "prose-journal-chronological-notes",
-      "model": "claude-code/opus",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 0,
-      "primary_run": "quality-2026-02-11T19-48-20",
+    "jv-c0d5c593": {
+      "split": "test",
+      "scenario_id": "prose-prompt-instructions-mid",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
       "instances": [
         {
-          "run": "quality-2026-02-11T19-48-20",
+          "run": "quality-2026-02-28T02-59-49",
           "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/opus"
+          "judge_score": 3,
+          "model": "claude-code/haiku"
+        },
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
         }
       ],
-      "judge_disagreement": false,
-      "det_pass": false,
+      "judge_disagreement": true,
+      "det_pass": true,
       "checks": [
         {
           "id": "non-empty",
-          "pass": false,
-          "detail": "empty completion (empty after post-processing)"
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-d20c0622": {
+      "split": "test",
+      "scenario_id": "code-rust-match",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ]
+    },
+    "jv-419cc1d8": {
+      "split": "test",
+      "scenario_id": "code-full-react-select-all",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
         },
         {
           "id": "suffix-echo",
@@ -330,24 +1183,24 @@
         }
       ]
     },
-    "jv-e0419aab": {
+    "jv-157dc99a": {
       "split": "test",
-      "scenario_id": "edge-short-prefix",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "scenario_id": "prose-journal-full-between-topics",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
       "instances": [
         {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
         }
       ],
       "judge_disagreement": false,
-      "det_pass": false,
+      "det_pass": true,
       "checks": [
         {
           "id": "non-empty",
@@ -356,25 +1209,35 @@
         },
         {
           "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"results suggest that\" + \"our initial assumpti…\""
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": true,
+          "detail": "dates consistent (desc): 02-09-26 → 02-08-26"
         }
       ]
     },
-    "jv-11448791": {
+    "jv-6f0e2bc4": {
       "split": "dev",
-      "scenario_id": "prose-full-essay-presence",
-      "model": "api/xai-grok",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 3,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "scenario_id": "prose-journal-chronological-notes",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
       "instances": [
         {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": false,
-          "judge_score": 3,
-          "model": "api/xai-grok"
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
         }
       ],
       "judge_disagreement": false,
@@ -388,7 +1251,184 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\" describe as quietly\" + \"ly\""
+          "detail": "missing separator at start: …\"and share an updated\" + \"a revised project sc…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-eb798ad6": {
+      "split": "dev",
+      "scenario_id": "prose-prompt-mixed-questions-instructions",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"cover both orderings\" + \"to ensure the functi…\""
+        }
+      ]
+    },
+    "jv-1890d679": {
+      "split": "dev",
+      "scenario_id": "prose-prompt-after-pasted-content",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-8c080086": {
+      "split": "dev",
+      "scenario_id": "edge-empty-suffix-code",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ]
+    },
+    "jv-112b7861": {
+      "split": "test",
+      "scenario_id": "prose-long-prefix-technical",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 3,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": false,
+          "judge_score": 2,
+          "model": "claude-code/haiku"
+        },
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        },
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": false,
+          "judge_score": 3,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": true,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" a no-op. This means\" + \"that\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-bef7cfca": {
+      "split": "dev",
+      "scenario_id": "prose-mid-doc-multi-topic",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
         },
         {
           "id": "suffix-echo",
@@ -398,7 +1438,7 @@
       ]
     },
     "jv-9b27d671": {
-      "split": "test",
+      "split": "dev",
       "scenario_id": "prose-bridge-medium-transition",
       "model": "claude-code/sonnet",
       "bucket": "judge-fail",
@@ -446,86 +1486,19 @@
         }
       ]
     },
-    "jv-5b72c987": {
+    "jv-7a1f4ef9": {
       "split": "test",
-      "scenario_id": "prose-journal-chronological-notes",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 6,
-      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 6,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"and share an updated\" + \"Gantt chart and revi…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-5bfc4a63": {
-      "split": "dev",
-      "scenario_id": "prose-casual-blog",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"get past the initial\" + \"friction of configur…\""
-        }
-      ]
-    },
-    "jv-d277407b": {
-      "split": "test",
-      "scenario_id": "edge-empty-suffix-code",
+      "scenario_id": "code-full-py-pipeline-dispatch",
       "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 4,
+      "primary_run": "quality-2026-02-28T02-59-49",
       "instances": [
         {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": false,
+          "judge_score": 4,
           "model": "claude-code/haiku"
         }
       ],
@@ -536,73 +1509,11 @@
           "id": "non-empty",
           "pass": true,
           "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-51434318": {
-      "split": "dev",
-      "scenario_id": "prose-bridge-small-clause",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 7,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\" low-traffic window,\" + \"which aligns perfect…\""
         },
         {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-f31e85c2": {
-      "split": "test",
-      "scenario_id": "prose-journal-jnl-personal-mix",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"de.js polyfills that\" + \"aren't necessary in …\""
         }
       ]
     },
@@ -642,199 +1553,98 @@
         }
       ]
     },
-    "jv-005e9136": {
-      "split": "test",
-      "scenario_id": "prose-mid-doc-multi-topic",
-      "model": "claude-code/opus",
+    "jv-ee986ac5": {
+      "split": "dev",
+      "scenario_id": "code-full-react-select-all",
+      "model": "claude-code/sonnet",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
       "judge_score": 9,
-      "primary_run": "quality-2026-02-11T19-48-20",
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/sonnet"
+        },
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-b9fcd1ba": {
+      "split": "dev",
+      "scenario_id": "prose-bridge-small-sentence",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"rther investigation,\" + \"as the cost-benefit …\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-02f6ce0c": {
+      "split": "dev",
+      "scenario_id": "code-ts-function-body",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 10,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
       "instances": [
         {
           "run": "quality-2026-02-11T19-48-20",
           "judge_pass": true,
-          "judge_score": 9,
+          "judge_score": 10,
           "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
         },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-35616983": {
-      "split": "dev",
-      "scenario_id": "prose-long-prefix-narrative",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 2,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-          "judge_pass": false,
-          "judge_score": 2,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": false,
-          "detail": "raw output contains suffix head \"so pale on such a fine morning\" at char 2 of 1985"
-        }
-      ]
-    },
-    "jv-94b3bba6": {
-      "split": "test",
-      "scenario_id": "code-full-py-pipeline-flush",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 1,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": false,
-          "judge_score": 1,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-5cf8cbaa": {
-      "split": "dev",
-      "scenario_id": "prose-journal-jnl-new-date",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "journal-date",
-          "pass": true,
-          "detail": "dates consistent (desc): 02-10-26 → 02-11-26 → 02-09-26 → 02-08-26"
-        }
-      ]
-    },
-    "jv-45f59bc8": {
-      "split": "test",
-      "scenario_id": "prose-bridge-small-sentence",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"rther investigation,\" + \"but we're deprioriti…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-3b084d92": {
-      "split": "test",
-      "scenario_id": "prose-full-essay-parallels",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
         {
           "run": "quality-2026-02-28T02-59-49",
           "judge_pass": true,
-          "judge_score": 9,
+          "judge_score": 10,
           "model": "claude-code/haiku"
         },
         {
@@ -844,623 +1654,57 @@
           "model": "claude-code/haiku"
         },
         {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        },
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/xai-grok"
+        },
+        {
           "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-          "judge_pass": false,
-          "judge_score": 4,
+          "judge_pass": true,
+          "judge_score": 10,
           "model": "claude-code/sonnet"
         },
         {
           "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
           "judge_pass": true,
-          "judge_score": 7,
+          "judge_score": 10,
           "model": "claude-code/sonnet"
         }
       ],
-      "judge_disagreement": true,
-      "det_pass": false,
+      "judge_disagreement": false,
+      "det_pass": true,
       "checks": [
         {
           "id": "non-empty",
           "pass": true,
           "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"nd some of them have\" + \"actually\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
         }
       ]
     },
-    "jv-5b6abea7": {
+    "jv-5b9c0046": {
       "split": "dev",
-      "scenario_id": "code-full-react-select-all",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 3,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": false,
-          "judge_score": 3,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-bef7cfca": {
-      "split": "test",
-      "scenario_id": "prose-mid-doc-multi-topic",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-320ad381": {
-      "split": "test",
-      "scenario_id": "prose-mid-doc-design-full",
+      "scenario_id": "prose-prompt-short-question-continue",
       "model": "claude-code/haiku",
       "bucket": "judge-pass-det-fail",
       "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"most common case and\" + \"reduces boilerplate …\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-84214d91": {
-      "split": "dev",
-      "scenario_id": "prose-full-essay-parallels",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 7,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-7fd51181": {
-      "split": "test",
-      "scenario_id": "edge-empty-suffix-code",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 10,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 10,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-e62c7e53": {
-      "split": "test",
-      "scenario_id": "code-mid-file-ts-class-full",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
       "judge_score": 9,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-2b6b62e7": {
-      "split": "test",
-      "scenario_id": "prose-journal-full-mid-entry",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 1,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": false,
-          "judge_score": 1,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"y bugs hiding behind\" + \"docs/adr/` directory…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "journal-date",
-          "pass": true,
-          "detail": "dates consistent (desc): 02-07-26 → 02-06-26"
-        }
-      ]
-    },
-    "jv-d359d512": {
-      "split": "test",
-      "scenario_id": "prose-prompt-questions-no-suffix",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-8236a8e7": {
-      "split": "test",
-      "scenario_id": "code-mid-file-py-module-full",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-3ff0141d": {
-      "split": "test",
-      "scenario_id": "ci-prose-terse",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-07-10T18-53-33-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T18-53-33-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-157dc99a": {
-      "split": "dev",
-      "scenario_id": "prose-journal-full-between-topics",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "journal-date",
-          "pass": true,
-          "detail": "dates consistent (desc): 02-09-26 → 02-08-26"
-        }
-      ]
-    },
-    "jv-7691bb98": {
-      "split": "dev",
-      "scenario_id": "prose-long-prefix-technical",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\" a no-op. This means\" + \"they can be safely r…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-8b868bd2": {
-      "split": "test",
-      "scenario_id": "prose-prompt-mixed-questions-instructions",
-      "model": "claude-code/haiku",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 2,
       "primary_run": "quality-2026-02-28T02-59-49",
       "instances": [
         {
           "run": "quality-2026-02-28T02-59-49",
-          "judge_pass": false,
-          "judge_score": 2,
+          "judge_pass": true,
+          "judge_score": 9,
           "model": "claude-code/haiku"
         }
       ],
       "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-5f3cfd03": {
-      "split": "test",
-      "scenario_id": "ci-prose-british-spelling",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-912d9f41": {
-      "split": "test",
-      "scenario_id": "code-mid-file-py-flask-full",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-252c2b49": {
-      "split": "test",
-      "scenario_id": "prose-journal-medium-current",
-      "model": "claude-code/opus",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 0,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
-          "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": false,
-          "detail": "empty completion (empty after post-processing)"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-f8b36e95": {
-      "split": "test",
-      "scenario_id": "ci-code-misra-no-malloc",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T18-53-33-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        },
-        {
-          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-beccf8db": {
-      "split": "test",
-      "scenario_id": "prose-bridge-small-clause",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
       "det_pass": false,
       "checks": [
         {
@@ -1471,59 +1715,23 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\" low-traffic window,\" + \"we should schedule t…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
+          "detail": "missing separator at start: …\"end switch, or maybe\" + \"namespace the cache …\""
         }
       ]
     },
-    "jv-c9955b34": {
-      "split": "dev",
-      "scenario_id": "prose-bridge-medium-paragraph",
-      "model": "claude-code/opus",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 0,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
-          "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": false,
-          "detail": "empty completion (empty after post-processing)"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-8ca5f5c0": {
-      "split": "dev",
-      "scenario_id": "code-mid-file-ts-handler-full",
+    "jv-0666d40a": {
+      "split": "test",
+      "scenario_id": "prose-journal-jnl-short-entry",
       "model": "claude-code/haiku",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-28T02-59-49",
       "instances": [
         {
-          "run": "quality-2026-03-01T19-57-09",
+          "run": "quality-2026-02-28T02-59-49",
           "judge_pass": true,
-          "judge_score": null,
+          "judge_score": 8,
           "model": "claude-code/haiku"
         }
       ],
@@ -1536,330 +1744,9 @@
           "detail": "completion has content"
         },
         {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-a0513d27": {
-      "split": "dev",
-      "scenario_id": "prose-numbered-list-continuation",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-6f619726": {
-      "split": "dev",
-      "scenario_id": "prose-formal-legal",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"ive immediately upon\" + \"posting on the Servi…\""
-        }
-      ]
-    },
-    "jv-8a84b361": {
-      "split": "dev",
-      "scenario_id": "code-ts-empty-body",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-5f686f19": {
-      "split": "test",
-      "scenario_id": "prose-prompt-short-question-continue",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"end switch, or maybe\" + \"use a cache key that…\""
-        }
-      ]
-    },
-    "jv-0c424bea": {
-      "split": "dev",
-      "scenario_id": "code-full-py-pipeline-flush",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-498b673a": {
-      "split": "dev",
-      "scenario_id": "prose-bridge-small-sentence",
-      "model": "claude-code/opus",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-56058718": {
-      "split": "test",
-      "scenario_id": "prose-medium-prefix-with-suffix",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"all dependencies and\" + \"configure the enviro…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-781d5781": {
-      "split": "test",
-      "scenario_id": "code-mid-file-ts-handler-full",
-      "model": "api/xai-grok",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 4,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": false,
-          "judge_score": 4,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-307bbe72": {
-      "split": "test",
-      "scenario_id": "code-full-py-pipeline-dispatch",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 0,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
-          "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/sonnet"
-        },
-        {
-          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-          "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "empty (model returned whitespace only (inside tags)); scenario allows empty"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-2725635e": {
-      "split": "dev",
-      "scenario_id": "prose-prompt-instructions-mid",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"e know what you find\" + \"and update the type …\""
         }
       ]
     },
@@ -1936,20 +1823,210 @@
         }
       ]
     },
-    "jv-d03aa49f": {
+    "jv-b507f4de": {
       "split": "test",
-      "scenario_id": "reuse-code-after-priming",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-02-28T02-59-49",
+      "scenario_id": "code-mid-file-rs-full",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
       "instances": [
         {
-          "run": "quality-2026-02-28T02-59-49",
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-3b223896": {
+      "split": "test",
+      "scenario_id": "prose-journal-full-between-topics",
+      "model": "claude-code/opus",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 4,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": false,
+          "judge_score": 4,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "duplicate 02-08-26 (×2)"
+        }
+      ]
+    },
+    "jv-1b0ec717": {
+      "split": "test",
+      "scenario_id": "prose-journal-jnl-after-bold-heading",
+      "model": "api/xai-grok",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 3,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": false,
+          "judge_score": 3,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": true,
+          "detail": "dates consistent (desc): 02-07-26 → 02-06-26 → 02-05-26 → 02-04-26"
+        }
+      ]
+    },
+    "jv-811b1d23": {
+      "split": "dev",
+      "scenario_id": "prose-journal-jnl-full-window",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
           "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/haiku"
+          "judge_score": 7,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": true,
+          "detail": "dates consistent (desc): 02-04-26 → 02-03-26 → 02-02-26"
+        }
+      ]
+    },
+    "jv-482cf2f0": {
+      "split": "test",
+      "scenario_id": "prose-mid-doc-design-full",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"most common case and\" + \"eliminates the risk …\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-21311501": {
+      "split": "test",
+      "scenario_id": "reuse-code-after-priming",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/sonnet"
         }
       ],
       "judge_disagreement": false,
@@ -1993,6 +2070,37 @@
         }
       ]
     },
+    "jv-56516c8f": {
+      "split": "dev",
+      "scenario_id": "ci-prose-terse",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
     "jv-c7f30140": {
       "split": "test",
       "scenario_id": "code-ts-interface",
@@ -2019,46 +2127,20 @@
         }
       ]
     },
-    "jv-abfebf87": {
+    "jv-b22eaf82": {
       "split": "dev",
-      "scenario_id": "code-rust-match",
+      "scenario_id": "prose-journal-jnl-new-date",
       "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 3,
       "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
       "instances": [
         {
           "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-b0b04e66": {
-      "split": "test",
-      "scenario_id": "code-mid-file-ts-class-full",
-      "model": "claude-code/opus",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 0,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
           "judge_pass": false,
-          "judge_score": 0,
-          "model": "claude-code/opus"
+          "judge_score": 3,
+          "model": "api/xai-grok"
         }
       ],
       "judge_disagreement": false,
@@ -2066,30 +2148,40 @@
       "checks": [
         {
           "id": "non-empty",
-          "pass": false,
-          "detail": "empty completion (empty after post-processing)"
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
         },
         {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "duplicate 02-10-26 (×2)"
         }
       ]
     },
-    "jv-6dfdfe45": {
-      "split": "dev",
-      "scenario_id": "ci-adversarial-answer-question",
-      "model": "claude-code/sonnet",
+    "jv-222de457": {
+      "split": "test",
+      "scenario_id": "prose-journal-full-new-entry",
+      "model": "claude-code/opus",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+      "judge_score": 5,
+      "primary_run": "quality-2026-02-11T19-48-20",
       "instances": [
         {
-          "run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+          "run": "quality-2026-02-11T19-48-20",
           "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
+          "judge_score": 5,
+          "model": "claude-code/opus"
         }
       ],
       "judge_disagreement": false,
@@ -2104,109 +2196,16 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-bda71f1d": {
-      "split": "test",
-      "scenario_id": "code-mid-file-rs-full",
-      "model": "claude-code/opus",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
         },
         {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-d2033123": {
-      "split": "test",
-      "scenario_id": "prose-full-api-pagination",
-      "model": "api/xai-grok",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 4,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": false,
-          "judge_score": 4,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
         },
         {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"f those changes that\" + \"looked simple on pap…\""
-        },
-        {
-          "id": "suffix-echo",
+          "id": "journal-date",
           "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-306a6fc4": {
-      "split": "dev",
-      "scenario_id": "prose-mid-doc-boundary-prefix",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"TLY`, which meant it\" + \"held an exclusive lo…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
+          "detail": "dates consistent (desc): 02-08-26 → 02-07-26 → 02-06-26 → 02-05-26"
         }
       ]
     },
@@ -2246,8 +2245,119 @@
         }
       ]
     },
-    "jv-6bd7a5d6": {
+    "jv-43242cd0": {
+      "split": "dev",
+      "scenario_id": "code-html-tag",
+      "model": "api/xai-grok",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 4,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": false,
+          "judge_score": 4,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ]
+    },
+    "jv-3b084d92": {
       "split": "test",
+      "scenario_id": "prose-full-essay-parallels",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/haiku"
+        },
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        },
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "judge_pass": false,
+          "judge_score": 4,
+          "model": "claude-code/sonnet"
+        },
+        {
+          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 7,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": true,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"nd some of them have\" + \"actually\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-5f3cfd03": {
+      "split": "test",
+      "scenario_id": "ci-prose-british-spelling",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-6bd7a5d6": {
+      "split": "dev",
       "scenario_id": "prose-mid-doc-boundary-suffix",
       "model": "claude-code/sonnet",
       "bucket": "judge-fail",
@@ -2282,45 +2392,9 @@
         }
       ]
     },
-    "jv-8d2f1728": {
+    "jv-f62eff84": {
       "split": "test",
-      "scenario_id": "prose-mid-doc-blog-full",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\" 4 minutes in CI and\" + \"the full rebuild for…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-85cc601a": {
-      "split": "dev",
-      "scenario_id": "prose-full-api-rest-graphql",
+      "scenario_id": "prose-journal-medium-current",
       "model": "claude-code/haiku",
       "bucket": "judge-pass-det-fail",
       "judge_pass": true,
@@ -2345,7 +2419,7 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\"stom Accept headers.\" + \"The bigger problem i…\""
+          "detail": "missing separator at start: …\"queried in 90+ days.\" + \"We can likely reclai…\""
         },
         {
           "id": "suffix-echo",
@@ -2354,20 +2428,154 @@
         }
       ]
     },
-    "jv-54304c91": {
+    "jv-13585969": {
+      "split": "test",
+      "scenario_id": "prose-narrative-mid-sentence",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"utside, rattling the\" + \"weathered shutters a…\""
+        }
+      ]
+    },
+    "jv-cebaccf4": {
+      "split": "test",
+      "scenario_id": "prose-full-api-pagination",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"f those changes that\" + \"challenging but ulti…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-70ffa791": {
+      "split": "test",
+      "scenario_id": "prose-full-essay-presence",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" describe as quietly\" + \"calm and focused, fu…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-f00bc030": {
+      "split": "test",
+      "scenario_id": "ci-adversarial-answer-question",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-78a458cd": {
       "split": "dev",
-      "scenario_id": "prose-bridge-medium-paragraph",
-      "model": "claude-code/sonnet",
+      "scenario_id": "edge-short-prefix",
+      "model": "api/openai-gpt-4.1-nano",
       "bucket": "judge-pass-det-fail",
       "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
       "instances": [
         {
-          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
           "judge_pass": true,
-          "judge_score": 8,
-          "model": "claude-code/sonnet"
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
         }
       ],
       "judge_disagreement": false,
@@ -2381,54 +2589,13 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\"conflict resolution.\" + \"Brainstorming sessio…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
+          "detail": "missing separator at start: …\"results suggest that\" + \"additional factors s…\""
         }
       ]
     },
-    "jv-482cf2f0": {
+    "jv-053833e5": {
       "split": "test",
-      "scenario_id": "prose-mid-doc-design-full",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"most common case and\" + \"eliminates the risk …\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-d04a6ba9": {
-      "split": "test",
-      "scenario_id": "prose-mid-doc-tutorial-full",
+      "scenario_id": "code-ts-error-handling",
       "model": "claude-code/opus",
       "bucket": "judge-pass-det-pass",
       "judge_pass": true,
@@ -2451,6 +2618,166 @@
           "detail": "completion has content"
         },
         {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-2fa5dead": {
+      "split": "test",
+      "scenario_id": "ci-code-misra-no-malloc",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 10,
+      "primary_run": "quality-2026-07-10T18-53-23-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T18-53-23-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 10,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-ccfee19c": {
+      "split": "dev",
+      "scenario_id": "ci-prose-british-spelling",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 7,
+      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 7,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-c9955b34": {
+      "split": "dev",
+      "scenario_id": "prose-bridge-medium-paragraph",
+      "model": "claude-code/opus",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 0,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": false,
+          "judge_score": 0,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (empty after post-processing)"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-71f152df": {
+      "split": "test",
+      "scenario_id": "prose-mid-paragraph-with-suffix",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"orkers migrated from\" + \"rural villages to bu…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-45fc52ce": {
+      "split": "dev",
+      "scenario_id": "prose-bridge-medium-transition",
+      "model": "claude-code/haiku",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": false,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
@@ -2459,6 +2786,135 @@
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-6dfdfe45": {
+      "split": "test",
+      "scenario_id": "ci-adversarial-answer-question",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 9,
+      "primary_run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
+          "judge_pass": true,
+          "judge_score": 9,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-b0b04e66": {
+      "split": "test",
+      "scenario_id": "code-mid-file-ts-class-full",
+      "model": "claude-code/opus",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 0,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": false,
+          "judge_score": 0,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (empty after post-processing)"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-9ab8a37f": {
+      "split": "test",
+      "scenario_id": "prose-mid-doc-readme-full",
+      "model": "claude-code/sonnet",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 3,
+      "primary_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "instances": [
+        {
+          "run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+          "judge_pass": false,
+          "judge_score": 3,
+          "model": "claude-code/sonnet"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"e cursor approach is\" + \"more efficient for d…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-1bf30773": {
+      "split": "test",
+      "scenario_id": "prose-prompt-questions-no-suffix",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
         }
       ]
     },
@@ -2498,373 +2954,6 @@
         }
       ]
     },
-    "jv-9518e9a7": {
-      "split": "dev",
-      "scenario_id": "code-go-goroutine",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-59cc3ed8": {
-      "split": "dev",
-      "scenario_id": "prose-prompt-after-pasted-content",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-ecb8875e": {
-      "split": "dev",
-      "scenario_id": "ci-prose-terse",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T19-14-18-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-1e88047f": {
-      "split": "dev",
-      "scenario_id": "code-long-prefix-ts",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-78a458cd": {
-      "split": "dev",
-      "scenario_id": "edge-short-prefix",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"results suggest that\" + \"additional factors s…\""
-        }
-      ]
-    },
-    "jv-50e5f432": {
-      "split": "test",
-      "scenario_id": "prose-conversational-dialogue",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-409bd2f5": {
-      "split": "test",
-      "scenario_id": "ci-prose-british-spelling",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T18-53-30-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/openai-gpt-4.1-nano"
-        },
-        {
-          "run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-7a1f4ef9": {
-      "split": "test",
-      "scenario_id": "code-full-py-pipeline-dispatch",
-      "model": "claude-code/haiku",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 4,
-      "primary_run": "quality-2026-02-28T02-59-49",
-      "instances": [
-        {
-          "run": "quality-2026-02-28T02-59-49",
-          "judge_pass": false,
-          "judge_score": 4,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-0225c39b": {
-      "split": "dev",
-      "scenario_id": "prose-full-api-versioning",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 2,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": false,
-          "judge_score": 2,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\" you think carefully\" + \"rate limiting is tri…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "over-length",
-          "pass": false,
-          "detail": "741 chars > max 120"
-        }
-      ]
-    },
-    "jv-6d06df71": {
-      "split": "test",
-      "scenario_id": "code-mid-file-go-full",
-      "model": "claude-code/opus",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-02-11T19-48-20",
-      "instances": [
-        {
-          "run": "quality-2026-02-11T19-48-20",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/opus"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-7bfd148b": {
-      "split": "test",
-      "scenario_id": "prose-bridge-large-detail",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"contract discipline,\" + \"it's often best to c…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
     "jv-9d947a0d": {
       "split": "test",
       "scenario_id": "ci-adversarial-break-format",
@@ -2891,19 +2980,112 @@
         }
       ]
     },
-    "jv-036343d1": {
+    "jv-be34713b": {
       "split": "test",
-      "scenario_id": "prose-prompt-short-question-continue",
-      "model": "api/xai-grok",
+      "scenario_id": "prose-full-api-rest-graphql",
+      "model": "claude-code/haiku",
       "bucket": "judge-pass-det-fail",
       "judge_pass": true,
-      "judge_score": 8,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"stom Accept headers.\" + \"The real challenge w…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-d277407b": {
+      "split": "test",
+      "scenario_id": "edge-empty-suffix-code",
+      "model": "claude-code/haiku",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T19-57-09",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T19-57-09",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ]
+    },
+    "jv-8b868bd2": {
+      "split": "test",
+      "scenario_id": "prose-prompt-mixed-questions-instructions",
+      "model": "claude-code/haiku",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 2,
+      "primary_run": "quality-2026-02-28T02-59-49",
+      "instances": [
+        {
+          "run": "quality-2026-02-28T02-59-49",
+          "judge_pass": false,
+          "judge_score": 2,
+          "model": "claude-code/haiku"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-11448791": {
+      "split": "test",
+      "scenario_id": "prose-full-essay-presence",
+      "model": "api/xai-grok",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 3,
       "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
       "instances": [
         {
           "run": "quality-2026-03-01T22-27-06-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 8,
+          "judge_pass": false,
+          "judge_score": 3,
           "model": "api/xai-grok"
         }
       ],
@@ -2918,77 +3100,7 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\"end switch, or maybe\" + \"key the cache by bac…\""
-        }
-      ]
-    },
-    "jv-b9edb6b1": {
-      "split": "test",
-      "scenario_id": "ci-noop-irrelevant-js",
-      "model": "api/xai-grok",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-07-10T19-14-28-api-xai-grok",
-      "instances": [
-        {
-          "run": "quality-2026-07-10T18-53-30-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/openai-gpt-4.1-nano"
-        },
-        {
-          "run": "quality-2026-07-10T18-53-33-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/xai-grok"
-        },
-        {
-          "run": "quality-2026-07-10T19-14-24-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/openai-gpt-4.1-nano"
-        },
-        {
-          "run": "quality-2026-07-10T19-14-28-api-xai-grok",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "api/xai-grok"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-e1d16b71": {
-      "split": "test",
-      "scenario_id": "code-mid-file-go-full",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
+          "detail": "missing separator at start: …\" describe as quietly\" + \"ly\""
         },
         {
           "id": "suffix-echo",
@@ -2997,9 +3109,112 @@
         }
       ]
     },
-    "jv-43242cd0": {
+    "jv-f024f73e": {
       "split": "dev",
-      "scenario_id": "code-html-tag",
+      "scenario_id": "prose-mid-doc-blog-full",
+      "model": "claude-code/opus",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-9f4d7c49": {
+      "split": "test",
+      "scenario_id": "prose-list-continuation",
+      "model": "claude-code/opus",
+      "bucket": "judge-pass-det-pass",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-02-11T19-48-20",
+      "instances": [
+        {
+          "run": "quality-2026-02-11T19-48-20",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "claude-code/opus"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        }
+      ]
+    },
+    "jv-593ebdad": {
+      "split": "test",
+      "scenario_id": "prose-mid-doc-boundary-prefix",
+      "model": "api/openai-gpt-4.1-nano",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": null,
+      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+          "judge_pass": true,
+          "judge_score": null,
+          "model": "api/openai-gpt-4.1-nano"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"TLY`, which meant it\" + \"index rebuilds on la…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-781d5781": {
+      "split": "dev",
+      "scenario_id": "code-mid-file-ts-handler-full",
       "model": "api/xai-grok",
       "bucket": "judge-fail",
       "judge_pass": false,
@@ -3020,243 +3235,11 @@
           "id": "non-empty",
           "pass": true,
           "detail": "completion has content"
-        }
-      ]
-    },
-    "jv-d3bba80e": {
-      "split": "test",
-      "scenario_id": "code-ts-error-handling",
-      "model": "claude-code/sonnet",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-      "instances": [
-        {
-          "run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/sonnet"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
         },
         {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-9939712c": {
-      "split": "test",
-      "scenario_id": "prose-instructional-recipe",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": 9,
-      "primary_run": "quality-2026-02-28T02-59-49",
-      "instances": [
-        {
-          "run": "quality-2026-02-28T02-59-49",
-          "judge_pass": true,
-          "judge_score": 9,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-dd2c256e": {
-      "split": "dev",
-      "scenario_id": "prose-full-essay-presence",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
-      "judge_score": 7,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": true,
-          "judge_score": 7,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\" describe as quietly\" + \"not thinking about t…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-b507f4de": {
-      "split": "test",
-      "scenario_id": "code-mid-file-rs-full",
-      "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "api/openai-gpt-4.1-nano"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-a7e31e93": {
-      "split": "test",
-      "scenario_id": "prose-mid-doc-mixed-structure",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": 1,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-      "instances": [
-        {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
-          "judge_pass": false,
-          "judge_score": 1,
-          "model": "api/ollama-qwen35-9b"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": false,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"ectly you'll need to\" + \"with a `Retry-After`…\""
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        }
-      ]
-    },
-    "jv-60f386d1": {
-      "split": "dev",
-      "scenario_id": "prose-prompt-with-code-context",
-      "model": "claude-code/haiku",
-      "bucket": "judge-fail",
-      "judge_pass": false,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": false,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        }
-      ]
-    },
-    "jv-e19337f8": {
-      "split": "test",
-      "scenario_id": "prose-journal-jnl-after-bold-heading",
-      "model": "claude-code/haiku",
-      "bucket": "judge-pass-det-pass",
-      "judge_pass": true,
-      "judge_score": null,
-      "primary_run": "quality-2026-03-01T19-57-09",
-      "instances": [
-        {
-          "run": "quality-2026-03-01T19-57-09",
-          "judge_pass": true,
-          "judge_score": null,
-          "model": "claude-code/haiku"
-        }
-      ],
-      "judge_disagreement": false,
-      "det_pass": true,
-      "checks": [
-        {
-          "id": "non-empty",
-          "pass": true,
-          "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": true,
-          "detail": "both seams separated"
-        },
-        {
-          "id": "suffix-echo",
-          "pass": true,
-          "detail": "suffix head not in raw output"
-        },
-        {
-          "id": "journal-date",
-          "pass": true,
-          "detail": "dates consistent (desc): 02-07-26 → 02-06-26 → 02-05-26 → 02-04-26"
         }
       ]
     },
@@ -3296,34 +3279,29 @@
         }
       ]
     },
-    "jv-c9b69031": {
+    "jv-1d6210a8": {
       "split": "test",
-      "scenario_id": "prose-mid-paragraph-with-suffix",
+      "scenario_id": "code-full-py-pipeline-flush",
       "model": "api/openai-gpt-4.1-nano",
-      "bucket": "judge-pass-det-fail",
-      "judge_pass": true,
+      "bucket": "judge-fail",
+      "judge_pass": false,
       "judge_score": null,
       "primary_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
       "instances": [
         {
           "run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
-          "judge_pass": true,
+          "judge_pass": false,
           "judge_score": null,
           "model": "api/openai-gpt-4.1-nano"
         }
       ],
       "judge_disagreement": false,
-      "det_pass": false,
+      "det_pass": true,
       "checks": [
         {
           "id": "non-empty",
           "pass": true,
           "detail": "completion has content"
-        },
-        {
-          "id": "boundary-whitespace",
-          "pass": false,
-          "detail": "missing separator at start: …\"orkers migrated from\" + \"rural areas to citie…\""
         },
         {
           "id": "suffix-echo",
@@ -3332,20 +3310,51 @@
         }
       ]
     },
-    "jv-110001de": {
+    "jv-35d75dad": {
       "split": "test",
-      "scenario_id": "prose-journal-jnl-short-entry",
-      "model": "api/ollama-qwen35-9b",
-      "bucket": "judge-pass-det-fail",
+      "scenario_id": "code-mid-file-py-flask-full",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-pass",
       "judge_pass": true,
-      "judge_score": 8,
-      "primary_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "judge_score": 9,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
       "instances": [
         {
-          "run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
           "judge_pass": true,
-          "judge_score": 8,
-          "model": "api/ollama-qwen35-9b"
+          "judge_score": 9,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": true,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-d2033123": {
+      "split": "dev",
+      "scenario_id": "prose-full-api-pagination",
+      "model": "api/xai-grok",
+      "bucket": "judge-fail",
+      "judge_pass": false,
+      "judge_score": 4,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": false,
+          "judge_score": 4,
+          "model": "api/xai-grok"
         }
       ],
       "judge_disagreement": false,
@@ -3359,7 +3368,79 @@
         {
           "id": "boundary-whitespace",
           "pass": false,
-          "detail": "missing separator at start: …\"tus indicators and a\" + \"custom theme with a …\""
+          "detail": "missing separator at start: …\"f those changes that\" + \"looked simple on pap…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ]
+    },
+    "jv-d62a3afb": {
+      "split": "dev",
+      "scenario_id": "prose-journalistic-news",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"e opponents vowed to\" + \"continue the fight i…\""
+        }
+      ]
+    },
+    "jv-b8b7eefb": {
+      "split": "dev",
+      "scenario_id": "prose-long-prefix-narrative",
+      "model": "api/xai-grok",
+      "bucket": "judge-pass-det-fail",
+      "judge_pass": true,
+      "judge_score": 8,
+      "primary_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "instances": [
+        {
+          "run": "quality-2026-03-01T22-27-06-api-xai-grok",
+          "judge_pass": true,
+          "judge_score": 8,
+          "model": "api/xai-grok"
+        }
+      ],
+      "judge_disagreement": false,
+      "det_pass": false,
+      "checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"y ask why she looked\" + \"like she'd seen a gh…\""
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
         }
       ]
     }

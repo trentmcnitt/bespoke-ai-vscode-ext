@@ -53,8 +53,17 @@ const NULL_SENTINEL = '(null — provider returned no completion)';
 /** Context shown to the human around the completion. */
 const PREFIX_CHARS = 600;
 const SUFFIX_CHARS = 300;
-/** Nulls are trivial to label and say little about the judge. */
-const MAX_NULLS = 6;
+/**
+ * Null/empty completions are a deliberate small "empty" category: trivial to
+ * label and say little about the judge, so capped.
+ */
+export const MAX_NULLS = 3;
+/**
+ * Runs left out of the candidate pool entirely. qwen35-9b (03-04) was
+ * half-broken (54 of 97 completions empty) and its judged items are mostly
+ * trivial.
+ */
+export const EXCLUDED_RUNS: readonly RegExp[] = [/-api-ollama-qwen35-9b$/];
 /** Spread across scenarios: at most this many items per scenario id. */
 const MAX_PER_SCENARIO = 2;
 
@@ -189,7 +198,12 @@ const itemId = (scenarioId: string, completion: string | null): string =>
 export function collectCandidates(resultsDir: string): Candidate[] {
   const runs = fs
     .readdirSync(resultsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && d.name.startsWith('quality-'))
+    .filter(
+      (d) =>
+        d.isDirectory() &&
+        d.name.startsWith('quality-') &&
+        !EXCLUDED_RUNS.some((re) => re.test(d.name)),
+    )
     .map((d) => d.name)
     .sort(); // timestamp-named → chronological
 
@@ -261,6 +275,10 @@ export function collectCandidates(resultsDir: string): Candidate[] {
   return out;
 }
 
+/** Null or whitespace-only completion (the capped "empty" category). */
+export const isEmpty = (c: { completion: string | null }): boolean =>
+  c.completion === null || c.completion.trim() === '';
+
 export function bucketOf(judgePass: boolean, checks: CheckResult[]): Bucket {
   if (!judgePass) return 'judge-fail';
   return checks.every((c) => c.pass) ? 'judge-pass-det-pass' : 'judge-pass-det-fail';
@@ -296,7 +314,7 @@ function pickFromBucket(
       const eligible = group.filter(
         (c) =>
           (state.perScenario.get(c.scenarioId) ?? 0) < MAX_PER_SCENARIO &&
-          (c.completion !== null || state.nulls < MAX_NULLS),
+          (!isEmpty(c) || state.nulls < MAX_NULLS),
       );
       if (eligible.length === 0) continue;
       eligible.sort(
@@ -309,7 +327,7 @@ function pickFromBucket(
       picked.push(c);
       state.perCategory.set(c.category, (state.perCategory.get(c.category) ?? 0) + 1);
       state.perScenario.set(c.scenarioId, (state.perScenario.get(c.scenarioId) ?? 0) + 1);
-      if (c.completion === null) state.nulls++;
+      if (isEmpty(c)) state.nulls++;
       progress = true;
     }
   }
@@ -478,7 +496,9 @@ function main(argv: string[]): void {
     dev: sample.filter((s) => s.split === 'dev').length,
     test: sample.filter((s) => s.split === 'test').length,
     candidates: all.length,
-    source: 'test-results/quality-* (judged folders only; regression-* excluded)',
+    source: 'test-results/quality-* (judged folders only; regression-* and EXCLUDED_RUNS excluded)',
+    excluded_runs: EXCLUDED_RUNS.map(String),
+    max_nulls: MAX_NULLS,
   };
   fs.writeFileSync(
     path.join(OUT_DIR, 'sample.json'),
@@ -528,6 +548,7 @@ function printComposition(
   for (const [title, key] of [
     ['bucket', (c: Candidate) => c.bucket],
     ['mode', (c: Candidate) => c.mode],
+    ['completion', (c: Candidate) => (isEmpty(c) ? 'empty (null/whitespace)' : 'non-empty')],
     ['model', (c: Candidate) => c.model],
     ['category', (c: Candidate) => c.category],
   ] as Array<[string, (c: Candidate) => string]>) {
@@ -536,10 +557,10 @@ function printComposition(
       console.log(`| ${k} | ${v.dev} | ${v.test} | ${v.dev + v.test} |`);
     console.log('');
   }
-  const nulls = items.filter((c) => c.completion === null).length;
+  const nulls = items.filter((c) => isEmpty(c)).length;
   const disagree = items.filter((c) => new Set(c.instances.map((i) => i.judge_pass)).size > 1);
   console.log(
-    `null completions: ${nulls}; judge disagreed across runs on ${disagree.length} item(s)`,
+    `empty completions: ${nulls}; judge disagreed across runs on ${disagree.length} item(s)`,
   );
 }
 
