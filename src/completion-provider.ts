@@ -190,7 +190,8 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     const startTime = Date.now();
 
     // Check provider availability
-    if (!this.provider.isAvailable()) {
+    // Mode-aware: a code-override preset has its own backend/breaker.
+    if (!this.provider.isAvailable(mode)) {
       this.recordTrace(reqId, completionContext, 'error', receivedAtMs, startTime, {
         errorType: 'backend_unavailable',
       });

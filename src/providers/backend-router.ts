@@ -45,9 +45,25 @@ export class BackendRouter implements CompletionProvider {
 
   // --- CompletionProvider interface ---
 
-  isAvailable(): boolean {
-    if (this.config.backend === 'api') {
-      return this.apiCompletion?.isAvailable() ?? false;
+  /**
+   * Without `mode`: the primary backend. With `mode`: whatever that mode routes to
+   * (`resolveEffectiveBackend`), so an open main-preset breaker does not block a
+   * healthy code-override preset, and an open override breaker blocks only code.
+   */
+  isAvailable(mode?: 'prose' | 'code'): boolean {
+    if (!mode) {
+      if (this.config.backend === 'api') {
+        return this.apiCompletion?.isAvailable() ?? false;
+      }
+      return this.poolClient.isAvailable();
+    }
+    const effective = this.resolveEffectiveBackend(mode);
+    if (effective.backend === 'api') {
+      if (!this.apiCompletion) return false;
+      if (effective.model && effective.model !== this.config.api.preset) {
+        return this.apiCompletion.isPresetAvailable(effective.model);
+      }
+      return this.apiCompletion.isAvailable();
     }
     return this.poolClient.isAvailable();
   }
@@ -162,8 +178,17 @@ export class BackendRouter implements CompletionProvider {
         COMMAND_SYSTEM_PROMPT,
         message,
         options?.onCancel,
+        options?.timeoutMs,
       );
-      return { text, meta: null, detail };
+      // Same fields the CLI path reports, so callers can tell a timeout or a
+      // swallowed failure from a cancel without reading trace detail.
+      return {
+        text,
+        meta: null,
+        detail,
+        ...(!text && detail?.errorType ? { errorType: detail.errorType } : {}),
+        ...(!text && detail?.aborted ? { aborted: true } : {}),
+      };
     }
     return this.poolClient.sendCommand(message, options);
   }
@@ -228,11 +253,14 @@ export class BackendRouter implements CompletionProvider {
         outcome = 'ok';
       } else if (cancelled) {
         outcome = 'aborted';
+      } else if (detail?.errorType) {
+        // The backend's own reason (e.g. `timeout`, `pool_recycled`) wins over the
+        // wall-clock guess below, which could mislabel a slow pool failure.
+        outcome = 'error';
+        errorType = detail.errorType;
       } else if (timedOut) {
         outcome = 'error';
         errorType = 'timeout';
-      } else if (detail?.errorType) {
-        outcome = 'error';
       } else {
         outcome = 'empty';
       }

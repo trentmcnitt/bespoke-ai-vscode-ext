@@ -676,6 +676,45 @@ describe('ApiCompletionProvider', () => {
       expect(override.complete).toHaveBeenCalledTimes(6);
     });
 
+    it('reports override breaker open and close through its own callback, naming the preset', async () => {
+      vi.useFakeTimers();
+      const onOpen = vi.fn();
+      const onClose = vi.fn();
+      const onOverride = vi.fn();
+      const provider = new ApiCompletionProvider(
+        makeConfig(),
+        makeLogger(),
+        undefined,
+        onOpen,
+        onClose,
+        onOverride,
+      );
+      installPerPresetFactory(() => () => Promise.reject(new Error('boom')));
+
+      for (let i = 0; i < 5; i++) {
+        await provider
+          .getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal())
+          .catch(() => null);
+      }
+      expect(onOverride).toHaveBeenCalledTimes(1);
+      expect(onOverride).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 'anthropic-haiku' }),
+        true,
+      );
+
+      // Cooldown over: the next availability check closes it.
+      vi.advanceTimersByTime(30_001);
+      expect(provider.isPresetAvailable('anthropic-haiku')).toBe(true);
+      expect(onOverride).toHaveBeenCalledTimes(2);
+      expect(onOverride).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 'anthropic-haiku' }),
+        false,
+      );
+      // The main preset's (status-bar) callbacks never fired.
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
     it('healthy override traffic does not reset the main preset failure count', async () => {
       const onOpen = vi.fn();
       const provider = new ApiCompletionProvider(makeConfig(), makeLogger(), undefined, onOpen);

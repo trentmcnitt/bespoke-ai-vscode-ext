@@ -40,6 +40,23 @@ const CONNECT_TIMEOUT_MS = 2000;
 const RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_ATTEMPTS = 3;
 
+/** How long a follower waits for the leader to answer a request. */
+const IPC_REQUEST_TIMEOUT_MS = 60_000;
+/** Extra wait past a command's own `timeoutMs`, so the leader's timeout answers first. */
+const IPC_COMMAND_TIMEOUT_MARGIN_MS = 5_000;
+
+/**
+ * The follower-side wait for a request. A command with its own `timeoutMs`
+ * (Suggest Edits uses 90 s) waits past it, so the leader's CommandPool reports
+ * `timeout` instead of the follower giving up first with `pool_error`.
+ */
+export function ipcTimeoutFor(request: PoolRequest): number {
+  if (request.type === 'command' && request.timeoutMs) {
+    return Math.max(IPC_REQUEST_TIMEOUT_MS, request.timeoutMs + IPC_COMMAND_TIMEOUT_MARGIN_MS);
+  }
+  return IPC_REQUEST_TIMEOUT_MS;
+}
+
 export type PoolRole = 'server' | 'client';
 
 export interface PoolClientOptions {
@@ -388,7 +405,7 @@ export class PoolClient implements ICompletionProvider {
       pending.timer = setTimeout(() => {
         this.pendingRequests.delete(request.id);
         reject(new Error('Request timed out'));
-      }, 60_000);
+      }, ipcTimeoutFor(request));
 
       this.pendingRequests.set(request.id, pending);
       this.socket.write(serializeMessage(request));

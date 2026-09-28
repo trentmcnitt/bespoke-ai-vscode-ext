@@ -174,6 +174,7 @@ vi.mock('../../providers/command-pool', () => ({
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
       if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
       if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
+      if (message === 'TIMED_OUT') return { text: null, meta: null, errorType: 'timeout' };
       if (message === 'OLD_SERVER_COST') {
         // A server from before the per-turn fix: costUsd is the SDK's cumulative
         // session total, turnCostUsd the real per-turn cost.
@@ -227,7 +228,7 @@ vi.mock('../../providers/command-pool', () => ({
   },
 }));
 
-import { PoolClient, PoolRole } from '../../pool-server/client';
+import { PoolClient, PoolRole, ipcTimeoutFor } from '../../pool-server/client';
 import { acquireLock } from '../../pool-server/server';
 import { STATE_DIR, LOCK_PATH, getIpcPath } from '../../pool-server/ipc-path';
 import { UsageLedger } from '../../utils/usage-ledger';
@@ -521,7 +522,21 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
           meta: null,
           aborted: true,
         });
+        expect(await c.sendCommand('TIMED_OUT')).toEqual({
+          text: null,
+          meta: null,
+          errorType: 'timeout',
+        });
       }
+    });
+
+    it("a follower waits past a command's own timeoutMs, so the leader reports the timeout", () => {
+      const cmd = (timeoutMs?: number) =>
+        ({ type: 'command', id: 'x', message: 'm', timeoutMs }) as const;
+      expect(ipcTimeoutFor(cmd())).toBe(60_000);
+      expect(ipcTimeoutFor(cmd(30_000))).toBe(60_000);
+      expect(ipcTimeoutFor(cmd(90_000))).toBe(95_000); // Suggest Edits
+      expect(ipcTimeoutFor({ type: 'status', id: 'y' } as any)).toBe(60_000);
     });
 
     it('follower returns null and logs when the leader reports the completion pool unavailable', async () => {

@@ -825,6 +825,56 @@ describe('CompletionProvider — trace outcomes', () => {
     provider.dispose();
   });
 
+  describe('availability is checked for the request mode (code override)', () => {
+    async function invokeIn(provider: CompletionProvider, languageId: string) {
+      const text = 'const x = foo';
+      const p = provider.provideInlineCompletionItems(
+        createMockDocument(text, languageId) as any,
+        { line: 0, character: text.length } as any,
+        createMockInlineContext(TriggerKind.Invoke),
+        createMockToken() as any,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      return p;
+    }
+
+    it('main unavailable, override healthy: code proceeds, prose is blocked', async () => {
+      const { mockProvider, provider, recorder } = setup(async () => ({ text: ' + 1' }));
+      (mockProvider.isAvailable as any).mockImplementation((mode?: string) => mode === 'code');
+      await invokeIn(provider, 'typescript');
+      expect(mockProvider.isAvailable).toHaveBeenLastCalledWith('code');
+      expect(mockProvider.getCompletionWithDetail).toHaveBeenCalledTimes(1);
+      expect(recorder.getRecent()[0].outcome).toBe('ok');
+
+      await invokeIn(provider, 'markdown');
+      expect(mockProvider.isAvailable).toHaveBeenLastCalledWith('prose');
+      expect(mockProvider.getCompletionWithDetail).toHaveBeenCalledTimes(1);
+      expect(recorder.getRecent()[0]).toMatchObject({
+        outcome: 'error',
+        errorType: 'backend_unavailable',
+        mode: 'prose',
+      });
+      provider.dispose();
+    });
+
+    it('override unavailable: code is blocked, prose proceeds', async () => {
+      const { mockProvider, provider, recorder } = setup(async () => ({ text: ' more' }));
+      (mockProvider.isAvailable as any).mockImplementation((mode?: string) => mode !== 'code');
+      await invokeIn(provider, 'typescript');
+      expect(mockProvider.getCompletionWithDetail).not.toHaveBeenCalled();
+      expect(recorder.getRecent()[0]).toMatchObject({
+        outcome: 'error',
+        errorType: 'backend_unavailable',
+        mode: 'code',
+      });
+
+      await invokeIn(provider, 'markdown');
+      expect(mockProvider.getCompletionWithDetail).toHaveBeenCalledTimes(1);
+      expect(recorder.getRecent()[0].outcome).toBe('ok');
+      provider.dispose();
+    });
+  });
+
   it('does not record debounce-cancelled requests', async () => {
     const { provider, recorder } = setup(async () => ({ text: 'x' }));
     const token = createMockToken();

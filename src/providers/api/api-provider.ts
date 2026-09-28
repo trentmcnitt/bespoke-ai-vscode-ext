@@ -92,15 +92,23 @@ export class ApiCompletionProvider implements CompletionProvider {
    * the registered one is evicted.
    */
   private overrides = new Map<string, PresetSlot>();
+  private onOverrideBreakerChange?: (preset: Preset, open: boolean) => void;
 
+  /**
+   * `onBreakerOpen` / `onBreakerClose` follow the main preset's breaker (they drive
+   * the status bar). `onOverrideBreakerChange` follows each code-override preset's
+   * breaker, so the extension can tell the user an override is paused.
+   */
   constructor(
     config: ExtensionConfig,
     logger: Logger,
     ledger?: UsageLedger,
     onBreakerOpen?: () => void,
     onBreakerClose?: () => void,
+    onOverrideBreakerChange?: (preset: Preset, open: boolean) => void,
   ) {
     this.config = config;
+    this.onOverrideBreakerChange = onOverrideBreakerChange;
     this.logger = logger;
     this.ledger = ledger;
     this.breaker = new CircuitBreaker(5, 30_000, logger, 'API', onBreakerOpen, onBreakerClose);
@@ -110,6 +118,21 @@ export class ApiCompletionProvider implements CompletionProvider {
   isAvailable(): boolean {
     if (this.breaker.isOpen()) return false;
     return this.adapter?.isConfigured() ?? false;
+  }
+
+  /**
+   * Availability of a code-override preset: its own slot and breaker, independent
+   * of the main preset's. Creates the slot if needed (the request that follows
+   * would create it anyway). Unknown preset or unbuildable adapter → false.
+   *
+   * A missing API key is deliberately not checked: the request then throws "API
+   * key invalid or missing", which the orchestrator shows the user. The main
+   * preset has the status bar's setup state for that; the override has nothing else.
+   */
+  isPresetAvailable(presetId: string): boolean {
+    const slot = this.getOverrideSlot(presetId);
+    if ('unavailable' in slot) return false;
+    return !slot.breaker.isOpen();
   }
 
   updateConfig(config: ExtensionConfig): void {
@@ -402,13 +425,15 @@ export class ApiCompletionProvider implements CompletionProvider {
       preset,
       strategy: getPromptStrategy(preset.promptStrategy),
       adapter,
-      // No open/close callbacks: those drive the status bar, which describes
-      // the main preset. An open override breaker is logged only.
+      // Its own callback, not the main breaker's: those drive the status bar,
+      // which describes the main preset.
       breaker: new CircuitBreaker(
         5,
         30_000,
         this.logger,
         `API code override (${preset.displayName})`,
+        () => this.onOverrideBreakerChange?.(preset, true),
+        () => this.onOverrideBreakerChange?.(preset, false),
       ),
     };
     this.overrides.set(presetId, slot);

@@ -22,9 +22,13 @@ export interface SendPromptOptions {
 export interface SendPromptResult {
   text: string | null;
   meta: ResultMetadata | null;
-  /** CLI: why the pool returned no text (a `SlotFailure`, e.g. `pool_recycled`). */
+  /**
+   * Why no text came back: a `SlotFailure` (e.g. `pool_recycled`) on the CLI, the
+   * adapter's `errorType` (e.g. `429`) on the API; `timeout` on both when the
+   * command ran past its `timeoutMs`.
+   */
   errorType?: string;
-  /** CLI: the request was superseded or the pool shut down before it was answered. */
+  /** The request was cancelled, superseded, or the pool shut down before it was answered. */
   aborted?: boolean;
   /** Generation detail (API backend). The CLI path's detail is rebuilt from `meta`. */
   detail?: GenerationDetail;
@@ -137,11 +141,13 @@ export class CommandPool extends SlotPool {
 
     // Optional timeout
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     if (options?.timeoutMs) {
       const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => {
           if (resolved) return;
           resolved = true;
+          timedOut = true;
           this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
           // Timeout: deliver null to unblock, close channel to force recycle
           this.settleResult(slot, { text: null });
@@ -198,6 +204,7 @@ export class CommandPool extends SlotPool {
       raw ?? (failure ? `(null: ${failure})` : '(null)'),
     );
 
+    if (timedOut) return { text: null, meta, errorType: 'timeout' };
     return raw === null && failure
       ? { text: null, meta, ...denialFields(failure) }
       : { text: raw, meta };

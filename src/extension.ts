@@ -276,6 +276,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Create API providers (lightweight — no subprocess, just hold config)
+  const overridePauseNotified = new Set<string>();
   const apiCompletion = new ApiCompletionProvider(
     config,
     logger,
@@ -290,6 +291,20 @@ export function activate(context: vscode.ExtensionContext) {
       // Circuit breaker recovered
       setupReason = null;
       updateStatusBar(lastConfig, 'ready');
+    },
+    (preset, open) => {
+      // Code-override preset breaker. The status bar describes the main preset, so
+      // say it once per preset per session (it can re-open every 30 s while the
+      // preset keeps failing; the breaker logs each time).
+      if (!open) {
+        logger.info(`API code override (${preset.displayName}): resumed`);
+        return;
+      }
+      if (overridePauseNotified.has(preset.id)) return;
+      overridePauseNotified.add(preset.id);
+      void vscode.window.showWarningMessage(
+        `Bespoke AI: code completions paused for 30 s — the code override preset "${preset.displayName}" failed 5 times in a row. Prose completions are unaffected. See the Bespoke AI output for the errors.`,
+      );
     },
   );
   const apiCommand = new ApiCommandProvider(config, logger, usageLedger);
