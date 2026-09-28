@@ -520,6 +520,7 @@ Results go to `test-results/compare-{timestamp}/`. `test-results/latest-compare`
 
 These are deliberate trade-offs. Do not attempt to fix them unless explicitly asked.
 
+- **Prefill extraction treats an unclosed block two ways.** If the model never writes `</COMPLETION>`, the raw output is shown as-is, including text cut off by `maxTokens` (200). If the model closes a blank first block and its retry block is cut off by `maxTokens`, nothing is shown — using the truncated retry would show truncated code, so it is left alone. The lever is `maxTokens` on the Anthropic presets. Separately, anything haiku writes before its first `</COMPLETION>` is shown, so an echoed prompt line or reasoning written before the answer can reach the ghost text (2 of 24 mid-word samples under the current prompt). The "Wait, let me reconsider…" detour is specific to the prefill path; 14 prompt variants could not remove it without breaking mid-word completions (`evals/2026-09-28-reasoning-leakage.md`).
 - Cache keys do not include the document URI, so identical prefix/suffix text in different files can return a cached completion that was generated for a different file.
 - The cache does not clear automatically on individual setting changes. Until entries expire (5-minute TTL) or are evicted, cached completions may reflect previous settings. Use the "Bespoke AI: Clear Completion Cache" command to manually clear it.
 - The extension does not validate config values. Invalid settings pass through to the backend as-is.

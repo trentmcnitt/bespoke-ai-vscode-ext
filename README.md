@@ -120,7 +120,7 @@ CI replays 52 recorded model outputs through the current extraction and cleanup 
 
 - **GPT-4.1 Nano often glues the completion to the previous word** (no leading space). Prompting did not fix it; prefer another model for prose.
 - **Models sometimes copy the text after the cursor.** The copy is trimmed, which can leave no suggestion at all. xAI Grok does this more often since the whitespace fix.
-- **The `anthropic-haiku` API preset sometimes returns nothing.** In one test (348 requests per arm), 16–17% of requests produced no suggestion, often because the model returned only whitespace. This is being looked into.
+- **The `anthropic-haiku` API preset sometimes returns nothing, and occasionally shows its own reasoning.** In one test (348 requests per arm), 16–17% of requests produced no suggestion, mostly because the model closed its answer immediately or ran out of room while second-guessing itself. Rarely, text the model writes before its answer (such as a repeated line of the instruction) reaches the ghost text. Fourteen prompt variants did not fix this without breaking other completions ([details](evals/2026-09-28-reasoning-leakage.md)); the Claude Code backend and the other presets are not affected in the same way.
 - **Cost is only shown for the Claude Code backend**, where the CLI reports it; the API backend shows tokens only.
 
 <a id="available-models"></a>
