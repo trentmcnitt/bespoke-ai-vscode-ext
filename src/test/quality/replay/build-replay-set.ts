@@ -291,6 +291,17 @@ function classifyDrift(r: Row): string | null {
       "count as substantive, post-processing stripped the marker, and the retry's text was lost."
     );
   }
+  if (
+    r.prefill &&
+    /^\s*\{\{FILL_HERE\}\}/.test(r.raw) &&
+    (rec.includes('</document>') || rec.includes('Fill the  marker.'))
+  ) {
+    return (
+      'prefill-echo-rejected: prefill extraction now treats a block that echoes the user ' +
+      'message (the {{FILL_HERE}} marker through </document>, or an appended instruction ' +
+      'sentence) as not an answer; the recorded output showed that echo as ghost text.'
+    );
+  }
   if (r.prefill && rec.includes('</COMPLETION>')) {
     return (
       'prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST ' +

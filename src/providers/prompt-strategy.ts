@@ -146,18 +146,36 @@ export function buildFillMessage(
   const doc = suffix.trim()
     ? `<document language="${languageId}">\n${prefix}{{FILL_HERE}}${suffix}\n</document>`
     : `<document language="${languageId}">\n${prefix}{{FILL_HERE}}\n</document>`;
-  // Whitespace cue. The completion is inserted verbatim, but models often cannot
-  // tell that the marker sits flush against the preceding word and drop the
-  // leading space ("behind" + "inadequate" -> "behindinadequate"). State it
-  // explicitly. Only word-like tails get the cue, so code positions such as
-  // `href="` or `foo(` are left alone.
+  return `${doc}\n\n${fillInstructionSentences(prefix).join(' ')}`;
+}
+
+/** The fixed instruction line appended after the document. */
+export const FILL_INSTRUCTION = 'Fill the {{FILL_HERE}} marker.';
+/** Whitespace cue sent when the prefix ends in a non-word character plus one space. */
+export const ENDS_WITH_SPACE_CUE = 'The text before it already ends with a space.';
+
+/**
+ * The sentences appended after the document, in order. Shared by
+ * buildFillMessage() and the prefill echo check, so the check keys on exactly
+ * the text that was sent.
+ *
+ * Whitespace cue: the completion is inserted verbatim, but models often cannot
+ * tell that the marker sits flush against the preceding word and drop the
+ * leading space ("behind" + "inadequate" -> "behindinadequate"). State it
+ * explicitly. Only word-like tails get the cue, so code positions such as
+ * `href="` or `foo(` are left alone.
+ */
+export function fillInstructionSentences(prefix: string): string[] {
   const lastWord = /[\p{L}\p{N}][\p{L}\p{N}_'’-]{0,29}[,.;:!?)]?$/u.exec(prefix)?.[0];
-  const hint = lastWord
-    ? ` There is no space between "${lastWord}" and the marker. If "${lastWord}" is a complete word or ends in punctuation and your output starts a new word, begin with a space. If you are finishing "${lastWord}" itself, do not.`
-    : /\S $/.test(prefix)
-      ? ' The text before it already ends with a space.'
-      : '';
-  return `${doc}\n\nFill the {{FILL_HERE}} marker.${hint}`;
+  if (lastWord) {
+    return [
+      FILL_INSTRUCTION,
+      `There is no space between "${lastWord}" and the marker.`,
+      `If "${lastWord}" is a complete word or ends in punctuation and your output starts a new word, begin with a space.`,
+      `If you are finishing "${lastWord}" itself, do not.`,
+    ];
+  }
+  return /\S $/.test(prefix) ? [FILL_INSTRUCTION, ENDS_WITH_SPACE_CUE] : [FILL_INSTRUCTION];
 }
 
 /**
@@ -193,10 +211,11 @@ export interface PromptStrategy {
   /** Build the full message set from document context. */
   buildMessages(prefix: string, suffix: string, languageId: string): PromptMessages;
   /**
-   * Extract the completion text from the model's raw response. `prefix` is the
-   * document text before the cursor, for strategies whose prompt altered it.
+   * Extract the completion text from the model's raw response. `prefix` and
+   * `suffix` are the document text around the cursor as sent, for strategies
+   * that need to tell the model's text apart from the prompt's.
    */
-  extractCompletion(raw: string, prefix?: string): string | null;
+  extractCompletion(raw: string, prefix?: string, suffix?: string): string | null;
 }
 
 // ─── Strategy implementations ────────────────────────────────────
@@ -236,8 +255,8 @@ export const prefillExtraction: PromptStrategy = {
       assistantPrefill: `<COMPLETION>${anchor}`,
     };
   },
-  extractCompletion(raw: string, prefix?: string): string | null {
-    const content = extractPrefillContent(raw);
+  extractCompletion(raw: string, prefix?: string, suffix?: string): string | null {
+    const content = extractPrefillContent(raw, prefix, suffix);
     if (content === null || prefix === undefined) return content;
     // The anchor had the prefix's trailing whitespace trimmed, so the model
     // continues from e.g. "behind" and often re-emits that whitespace
@@ -261,7 +280,7 @@ function prefillAnchor(prefix: string): string {
   return prefix.slice(-PREFILL_ANCHOR_CHARS).trimEnd();
 }
 
-function extractPrefillContent(raw: string): string | null {
+function extractPrefillContent(raw: string, prefix?: string, suffix?: string): string | null {
   // With prefill, the model's response continues from the prefill.
   // The raw text is what the model returned AFTER the prefill
   // (which already includes the opening <COMPLETION> tag + anchor).
@@ -280,10 +299,16 @@ function extractPrefillContent(raw: string): string | null {
   // {{FILL_HERE}} marker (the model echoing the placeholder, then retrying)
   // counts as empty, so the retry is used. Otherwise the marker was returned,
   // post-processing stripped it, and the retry's real text was lost.
+  //
+  // A block that echoes the user message back (see echoesUserMessage) is not an
+  // answer either: it is treated like a blank block, so the retry is used if
+  // there is a closed one, and otherwise nothing is shown.
+  const isAnswer = (block: string) =>
+    !isScaffoldOnly(block) && !echoesUserMessage(block, prefix, suffix);
   const close = raw.indexOf('</COMPLETION>');
   if (close !== -1) {
     const content = raw.slice(0, close);
-    if (!isScaffoldOnly(content)) {
+    if (isAnswer(content)) {
       return content;
     }
     // Immediate close — model may have started thinking then retried.
@@ -294,7 +319,7 @@ function extractPrefillContent(raw: string): string | null {
       const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
       if (secondClose !== -1) {
         const retryContent = raw.slice(afterOpen, secondClose);
-        if (!isScaffoldOnly(retryContent)) {
+        if (isAnswer(retryContent)) {
           return retryContent;
         }
       }
@@ -302,7 +327,52 @@ function extractPrefillContent(raw: string): string | null {
     // No usable content found
     return null;
   }
-  return raw; // fallback: no closing tag, use raw text
+  // Fallback: no closing tag (stop sequence or a max_tokens cut), use raw text.
+  return echoesUserMessage(raw, prefix, suffix) ? null : raw;
+}
+
+/**
+ * True when a prefill-path block contains the user message's own scaffolding,
+ * copied back by the model rather than written as an answer.
+ *
+ * Problem: haiku sometimes continues past the prefill anchor by re-typing the
+ * rest of the user message — `{{FILL_HERE}}`, the suffix, `</document>`, the
+ * "Fill the {{FILL_HERE}} marker." line and the whitespace cue — then reasons
+ * and only then answers, all before its first `</COMPLETION>`. Everything
+ * before that tag was the ghost text (2 of 24 mid-word samples on
+ * `the deploym`, and `code-html-tag` at `href="`; see
+ * evals/2026-09-28-reasoning-leakage.md).
+ *
+ * Why it is safe: each signal is text this extension writes, never text the
+ * author wrote.
+ *  - The block starts with the `{{FILL_HERE}}` marker and also contains
+ *    `</document>`: the model is copying the document from the marker to the
+ *    wrapper's closing tag. Neither alone is enough — `</document>` is a real
+ *    closing tag in XML, and a leading marker followed by a real answer is
+ *    handled by stripLeakedTags() as before.
+ *  - The block contains one of the exact sentences appended after the
+ *    document for this request (fillInstructionSentences(prefix)), including
+ *    the whitespace cue that quotes the author's last word.
+ * A signal that also appears in the document text sent (prefix + suffix) is
+ * ignored: someone editing this very file, or a document that mentions the
+ * marker, can legitimately produce it.
+ *
+ * Not covered, on purpose: reasoning that quotes nothing from the prompt
+ * ("Wait, let me reconsider…") is still shown. That wording can be legitimate
+ * prose, so it is not a safe trigger.
+ */
+function echoesUserMessage(block: string, prefix?: string, suffix?: string): boolean {
+  const docText = (prefix ?? '') + (suffix ?? '');
+  const fromPrompt = (s: string) => block.includes(s) && !docText.includes(s);
+  if (
+    /^\s*\{\{FILL_HERE\}\}/.test(block) &&
+    fromPrompt('{{FILL_HERE}}') &&
+    fromPrompt('</document>')
+  ) {
+    return true;
+  }
+  const sentences = prefix === undefined ? [FILL_INSTRUCTION] : fillInstructionSentences(prefix);
+  return sentences.some(fromPrompt);
 }
 
 /** True when `text` is blank once prompt scaffolding tags / the fill marker are removed. */

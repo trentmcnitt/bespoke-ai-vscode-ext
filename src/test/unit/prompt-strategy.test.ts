@@ -10,6 +10,9 @@ import {
   prefillExtraction,
   instructionExtraction,
   getPromptStrategy,
+  fillInstructionSentences,
+  FILL_INSTRUCTION,
+  ENDS_WITH_SPACE_CUE,
 } from '../../providers/prompt-strategy';
 
 describe('Shared prompt components', () => {
@@ -241,6 +244,130 @@ describe('PrefillExtraction strategy', () => {
     expect(prefillExtraction.extractCompletion('raw text without tags')).toBe(
       'raw text without tags',
     );
+  });
+
+  // Haiku sometimes re-types the rest of the user message (marker, suffix,
+  // </document>, the appended instruction and whitespace cue) and reasons before
+  // its first </COMPLETION>. That block is not an answer. Shapes reduced from
+  // claude-haiku-4-5 raw outputs, evals/2026-09-28-reasoning-leakage.md.
+  describe('rejects a block that echoes the user message', () => {
+    it('the shared sentences are exactly what buildFillMessage appends', () => {
+      expect(buildFillMessage('We pushed the deploym', '', 'markdown')).toBe(
+        '<document language="markdown">\nWe pushed the deploym{{FILL_HERE}}\n</document>\n\n' +
+          'Fill the {{FILL_HERE}} marker. There is no space between "deploym" and the marker. ' +
+          'If "deploym" is a complete word or ends in punctuation and your output starts a new word, ' +
+          'begin with a space. If you are finishing "deploym" itself, do not.',
+      );
+      expect(buildFillMessage('Total: 5 ', 'x', 'plaintext')).toBe(
+        '<document language="plaintext">\nTotal: 5 {{FILL_HERE}}x\n</document>\n\n' +
+          'Fill the {{FILL_HERE}} marker. The text before it already ends with a space.',
+      );
+    });
+
+    const extract = (raw: string, prefix: string, suffix = '') =>
+      prefillExtraction.extractCompletion(raw, prefix, suffix);
+    const midWordPrefix = 'Friday was rough. We pushed the deploym';
+    const hrefPrefix = '<nav>\n  <ul>\n    <li><a href="/about">About</a></li>\n    <li><a href="';
+    const hrefSuffix = '</a></li>\n  </ul>\n</nav>';
+
+    describe('activation', () => {
+      it('mid-word: echoed marker, </document>, instruction and cue, then the answer, one close', () => {
+        const raw =
+          '{{FILL_HERE}}\n</document>\n\n' +
+          fillInstructionSentences(midWordPrefix).join(' ') +
+          '\n\n<COMPLETION>ent to production.</COMPLETION>';
+        expect(extract(raw, midWordPrefix)).toBeNull();
+        // Same, without the inner <COMPLETION> (the model just kept writing).
+        const raw2 = raw.replace('<COMPLETION>', '');
+        expect(extract(raw2, midWordPrefix)).toBeNull();
+      });
+
+      it('href: echoed suffix and </document>, reasoning, then the answer, one close', () => {
+        const raw =
+          '{{FILL_HERE}}</a></li>\n  </ul>\n</nav>\n</document>\n\n' +
+          'I need to see the actual content after the marker. A typical third link would be:\n\n' +
+          '<COMPLETION>/contact">Contact</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('uses a closed retry block after a first block that echoes the document', () => {
+        const raw =
+          '{{FILL_HERE}}</a></li>\n  </ul>\n</nav>\n</document>\n</COMPLETION>\n\n' +
+          'I need to reconsider.\n\n<COMPLETION>/contact">Contact</COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBe('/contact">Contact');
+      });
+
+      it('rejects a retry block that itself echoes the user message', () => {
+        const raw =
+          '</COMPLETION>\nWait.\n<COMPLETION>{{FILL_HERE}}</a></li>\n</document></COMPLETION>';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('rejects an unclosed block (max_tokens) that echoes the document', () => {
+        const raw =
+          '{{FILL_HERE}}</a></li>\n  </ul>\n</nav>\n</document>\n\nI need to see the actual';
+        expect(extract(raw, hrefPrefix, hrefSuffix)).toBeNull();
+      });
+
+      it('fires on each appended sentence alone', () => {
+        for (const sentence of fillInstructionSentences(midWordPrefix)) {
+          expect(extract(`ent. ${sentence}</COMPLETION>`, midWordPrefix)).toBeNull();
+        }
+        const spacePrefix = 'Total: 5 ';
+        expect(fillInstructionSentences(spacePrefix)).toContain(ENDS_WITH_SPACE_CUE);
+        expect(extract(`items. ${ENDS_WITH_SPACE_CUE}</COMPLETION>`, spacePrefix)).toBeNull();
+      });
+
+      it('checks the fixed instruction line even without a prefix', () => {
+        expect(
+          prefillExtraction.extractCompletion(`x ${FILL_INSTRUCTION}</COMPLETION>`),
+        ).toBeNull();
+      });
+    });
+
+    describe('no-op', () => {
+      it('keeps a leading marker followed by a real answer (stripLeakedTags handles it)', () => {
+        expect(extract('{{FILL_HERE}}ent to production.</COMPLETION>', midWordPrefix)).toBe(
+          '{{FILL_HERE}}ent to production.',
+        );
+      });
+
+      it('keeps a completion that closes </document> in an XML file', () => {
+        const prefix = '<document>\n  <title>Report</title>\n  <body>Q3 results';
+        const raw = ' are attached.</body>\n</document></COMPLETION>';
+        expect(extract(raw, prefix, '')).toBe(' are attached.</body>\n</document>');
+      });
+
+      it('keeps prose that talks about filling a marker in a document', () => {
+        const prefix = 'For the form, ';
+        const raw = 'fill the marker field in the document before you submit it.</COMPLETION>';
+        expect(extract(raw, prefix)).toBe(raw.replace('</COMPLETION>', ''));
+      });
+
+      it('keeps a cue-like sentence about a different word', () => {
+        // Only the cue actually sent for this prefix counts.
+        const raw = ' There is no space between "foo" and the marker.</COMPLETION>';
+        expect(extract(raw, midWordPrefix)).toBe(
+          ' There is no space between "foo" and the marker.',
+        );
+      });
+
+      it('ignores a signal that is already in the document (editing this extension)', () => {
+        // Completing the template line in prompt-strategy.ts itself.
+        const prefix = 'const doc = `<document language="${languageId}">\\n${prefix}';
+        const suffix =
+          "`;\nexport const FILL_INSTRUCTION = 'Fill the {{FILL_HERE}} marker.';\n// </document>";
+        const raw = '{{FILL_HERE}}\\n</document>`;</COMPLETION>';
+        expect(extract(raw, prefix, suffix)).toBe('{{FILL_HERE}}\\n</document>`;');
+        const raw2 = `Fill the {{FILL_HERE}} marker.</COMPLETION>`;
+        expect(extract(raw2, "x = '", suffix)).toBe('Fill the {{FILL_HERE}} marker.');
+      });
+
+      it('keeps reasoning that quotes nothing from the prompt (deliberate residual risk)', () => {
+        const raw = ' Wait, let me reconsider the plan.</COMPLETION>';
+        expect(extract(raw, 'We shipped it.')).toBe(' Wait, let me reconsider the plan.');
+      });
+    });
   });
 
   // The prefill anchor has the prefix's trailing whitespace trimmed (the API
