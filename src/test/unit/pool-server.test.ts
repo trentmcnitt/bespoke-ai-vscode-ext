@@ -33,6 +33,9 @@ vi.mock('../../pool-server/ipc-path', async () => {
   };
 });
 
+// These suites bind a Unix socket path; Windows uses named pipes (covered by ipc-path tests).
+const IS_WINDOWS = process.platform === 'win32';
+
 // ---------------------------------------------------------------------------
 // Fake pools — stand in for the Claude Code CLI subprocess pools.
 // ---------------------------------------------------------------------------
@@ -239,7 +242,7 @@ afterAll(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('PoolServer — lifecycle', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — lifecycle', () => {
   it('uses a socket path short enough for macOS', () => {
     expect(ipcState.sock.length).toBeLessThan(100);
   });
@@ -323,7 +326,7 @@ describe('PoolServer — lifecycle', () => {
   });
 });
 
-describe('PoolServer — framing', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — framing', () => {
   it('reassembles a request split across multiple writes', async () => {
     await startServer();
     const client = await connect();
@@ -401,7 +404,7 @@ describe('PoolServer — framing', () => {
   });
 });
 
-describe('PoolServer — request dispatch', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — request dispatch', () => {
   const completionReq = (id: string, extra: Record<string, unknown> = {}) => ({
     type: 'completion',
     id,
@@ -605,7 +608,7 @@ describe('PoolServer — request dispatch', () => {
   });
 });
 
-describe('PoolServer — config-update', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — config-update', () => {
   it('is a no-op when neither model nor instructions changed', async () => {
     await startServer({ customInstructions: 'be terse' });
     const client = await connect();
@@ -661,7 +664,7 @@ describe('PoolServer — config-update', () => {
   });
 });
 
-describe('PoolServer — server-pushed events', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — server-pushed events', () => {
   it('broadcasts pool-degraded to every client and notifies the host callback', async () => {
     await startServer();
     const a = await connect();
@@ -707,7 +710,7 @@ describe('PoolServer — server-pushed events', () => {
   });
 });
 
-describe('PoolServer — local fast path', () => {
+describe.skipIf(IS_WINDOWS)('PoolServer — local fast path', () => {
   it('exposes pool operations directly without IPC', async () => {
     const s = await startServer({ claudeCode: { model: 'haiku', models: [] } });
     expect(s.getModel()).toBe('haiku');
