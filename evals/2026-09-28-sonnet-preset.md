@@ -104,6 +104,7 @@ Sonnet 5 at $2 / $10 per MTok in / out, cache reads $0.20, cache writes $2.50. S
 | Recheck of the 3 empties | 3     | ≈ $0.016                                                                              |
 | Sample at `ac1cf3f`      | 51    | ≈ $0.147                                                                              |
 | Whitespace harness       | 192   | ≈ $0.55 (estimated: the harness does not record usage; per-call cost from the sample) |
-| **Total**                | 300   | **≈ $0.88**                                                                           |
+| Command smoke            | 1     | < $0.001                                                                              |
+| **Total**                | 301   | **≈ $0.88**                                                                           |
 
 About $0.003 per completion. The run folders and harness results are not committed (they contain full prompts, including private regression scenarios).
