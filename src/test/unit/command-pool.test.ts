@@ -82,6 +82,52 @@ describe('CommandPool', () => {
     });
   });
 
+  describe('why a command got no result', () => {
+    /** Sessions answer warmup, then hold every command until the test settles it. */
+    function holdingQuery() {
+      let calls = 0;
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        calls++;
+        async function* gen() {
+          const it = prompt[Symbol.asyncIterator]();
+          await it.next();
+          yield { type: 'result', subtype: 'success', result: 'READY' };
+          while (!(await it.next()).done) {
+            await new Promise(() => {}); // never answers
+          }
+        }
+        return gen();
+      });
+      return () => calls;
+    }
+    const settle = () => new Promise((r) => setTimeout(r, 10));
+
+    it('a recycle ends the held command as pool_recycled and a superseded one as aborted', async () => {
+      holdingQuery();
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const held = pool.sendPrompt('one');
+      const superseded = pool.sendPrompt('two');
+      const waiting = pool.sendPrompt('three');
+      expect(await superseded).toEqual({ text: null, meta: null, aborted: true });
+      await settle();
+      await pool.recycleAll();
+      expect(await held).toMatchObject({ text: null, errorType: 'pool_recycled' });
+      expect(await waiting).toMatchObject({ text: null, errorType: 'pool_recycled' });
+    });
+
+    it('an unavailable pool reports slot_unavailable', async () => {
+      const pool = new CommandPool('haiku', makeLogger());
+      expect(await pool.sendPrompt('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'slot_unavailable',
+      });
+    });
+  });
+
   describe('sendPrompt', () => {
     it('returns result text from pool', async () => {
       const fakeStream = createFakeStream(['This is the response']);

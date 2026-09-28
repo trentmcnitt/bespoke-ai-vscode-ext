@@ -196,6 +196,8 @@ export class BackendRouter implements CompletionProvider {
           costUsd: meta?.turnCostUsd,
           durationApiMs: meta?.durationApiMs,
           finishReason: meta?.stopReason,
+          ...(result?.errorType ? { errorType: result.errorType } : {}),
+          ...(result?.aborted ? { aborted: true } : {}),
         };
       }
       if (detail && this.config.trace.captureContent) {

@@ -160,6 +160,8 @@ vi.mock('../../providers/command-pool', () => ({
     }
     async sendPrompt(message: string) {
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
+      if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
+      if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
       return {
         text: `cmd:${this.model}:${message}`,
         meta: {
@@ -455,6 +457,26 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       expect((await b.client.sendCommand('NO_META')).meta).toBeNull();
     });
 
+    it('a command the pool ended reaches the requester with its reason on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const c of [a.client, b.client]) {
+        expect(await c.sendCommand('RECYCLED')).toEqual({
+          text: null,
+          meta: null,
+          errorType: 'pool_recycled',
+        });
+        expect(await c.sendCommand('SUPERSEDED')).toEqual({
+          text: null,
+          meta: null,
+          aborted: true,
+        });
+      }
+    });
+
     it('follower returns null and logs when the leader reports the completion pool unavailable', async () => {
       const a = makeClient('A');
       const b = makeClient('B');
@@ -571,7 +593,11 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
 
       // Every public request method honors the null-on-error contract
       expect(await a.client.getCompletion(makeProseContext(), signal())).toBeNull();
-      expect(await a.client.sendCommand('x')).toEqual({ text: null, meta: null });
+      expect(await a.client.sendCommand('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_error',
+      });
       expect(await a.client.getPoolStatus()).toBeNull();
       await expect(a.client.recycleAll()).resolves.toBeUndefined();
       await expect(a.client.restart()).resolves.toBeUndefined();

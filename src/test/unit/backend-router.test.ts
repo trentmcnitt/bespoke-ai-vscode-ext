@@ -343,6 +343,19 @@ describe('BackendRouter — command trace records', () => {
     expect(JSON.stringify(r)).not.toContain('FIX THIS');
   });
 
+  it('records a CLI command the pool ended as error with its type, or aborted', async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'pool_recycled' });
+    await router.sendCommand('x');
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('error');
+    expect(r.detail?.errorType).toBe('pool_recycled');
+
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, aborted: true });
+    await router.sendCommand('x');
+    expect(recorder.getRecent()[0].outcome).toBe('aborted');
+  });
+
   it('classifies cancelled, timed-out, and thrown commands', async () => {
     const { router, recorder, pool } = build('claude-code');
     pool.sendCommand.mockResolvedValue({ text: null, meta: null });

@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import { ClaudeCodeProvider } from '../providers/claude-code';
-import { CommandPool } from '../providers/command-pool';
+import { CommandPool, SendPromptResult } from '../providers/command-pool';
 import { ResultMetadata, PoolStats } from '../providers/slot-pool';
 import { ExtensionConfig, CompletionContext } from '../types';
 import {
@@ -27,10 +27,22 @@ import {
 } from './protocol';
 import { LOCK_PATH, getIpcPath, cleanupStaleEndpoint, ensureStateDir } from './ipc-path';
 
-/** Whitelist slot-pool command metadata onto the wire shape (shared with the local fast path). */
-export function commandMetaToWire(meta: ResultMetadata | null): ProtocolResultMetadata | undefined {
-  if (!meta) return undefined;
+/**
+ * Whitelist slot-pool command metadata onto the wire shape (shared with the local fast path).
+ * `outcome` carries why the pool returned no text; with no model metadata it goes out alone
+ * (no usage fields, so the requester does not invent zero usage).
+ */
+export function commandMetaToWire(
+  meta: ResultMetadata | null,
+  outcome?: { errorType?: string; aborted?: boolean },
+): ProtocolResultMetadata | undefined {
+  const why = {
+    ...(outcome?.errorType ? { errorType: outcome.errorType } : {}),
+    ...(outcome?.aborted ? { aborted: true } : {}),
+  };
+  if (!meta) return Object.keys(why).length > 0 ? { model: '', ...why } : undefined;
   return {
+    ...why,
     durationMs: meta.durationMs,
     durationApiMs: meta.durationApiMs,
     costUsd: meta.costUsd,
@@ -188,10 +200,7 @@ export class PoolServer {
     return { text, meta: detailToWireMeta(detail, fallbackModel, captureContent) };
   }
 
-  async sendCommand(
-    message: string,
-    options?: { timeoutMs?: number },
-  ): Promise<{ text: string | null; meta: ResultMetadata | null }> {
+  async sendCommand(message: string, options?: { timeoutMs?: number }): Promise<SendPromptResult> {
     return this.commandPool.sendPrompt(message, options);
   }
 
@@ -447,7 +456,7 @@ export class PoolServer {
         id: request.id,
         success: true,
         text: result.text,
-        meta: commandMetaToWire(result.meta),
+        meta: commandMetaToWire(result.meta, result),
       };
     } catch (err) {
       return {
