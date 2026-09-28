@@ -41,6 +41,10 @@ describe('describeCommandFailure', () => {
     expect(describeCommandFailure(type)).toContain(phrase);
   });
 
+  it('says a command timed out instead of showing the raw type', () => {
+    expect(describeCommandFailure('timeout')).toMatch(/did not answer in time/);
+  });
+
   it('surfaces the CLI result subtype', () => {
     expect(describeCommandFailure('cli_error_max_turns')).toBe(
       'Claude Code returned an error (error_max_turns).',

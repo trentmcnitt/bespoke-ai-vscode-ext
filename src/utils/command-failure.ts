@@ -39,6 +39,8 @@ export function describeCommandFailure(errorType: string): string {
       return 'the API is overloaded (HTTP 529). Try again shortly.';
     case 'connection_refused':
       return 'could not connect to Ollama. Is it running?';
+    case 'timeout':
+      return 'the model did not answer in time. Try again, or check the Bespoke AI output log.';
   }
   if (errorType.startsWith('cli_')) {
     return `Claude Code returned an error (${errorType.slice(4)}).`;
