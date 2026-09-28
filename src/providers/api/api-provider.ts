@@ -92,15 +92,23 @@ export class ApiCompletionProvider implements CompletionProvider {
    * the registered one is evicted.
    */
   private overrides = new Map<string, PresetSlot>();
+  private onOverrideBreakerChange?: (preset: Preset, open: boolean) => void;
 
+  /**
+   * `onBreakerOpen` / `onBreakerClose` follow the main preset's breaker (they drive
+   * the status bar). `onOverrideBreakerChange` follows each code-override preset's
+   * breaker, so the extension can tell the user an override is paused.
+   */
   constructor(
     config: ExtensionConfig,
     logger: Logger,
     ledger?: UsageLedger,
     onBreakerOpen?: () => void,
     onBreakerClose?: () => void,
+    onOverrideBreakerChange?: (preset: Preset, open: boolean) => void,
   ) {
     this.config = config;
+    this.onOverrideBreakerChange = onOverrideBreakerChange;
     this.logger = logger;
     this.ledger = ledger;
     this.breaker = new CircuitBreaker(5, 30_000, logger, 'API', onBreakerOpen, onBreakerClose);
@@ -417,13 +425,15 @@ export class ApiCompletionProvider implements CompletionProvider {
       preset,
       strategy: getPromptStrategy(preset.promptStrategy),
       adapter,
-      // No open/close callbacks: those drive the status bar, which describes
-      // the main preset. An open override breaker is logged only.
+      // Its own callback, not the main breaker's: those drive the status bar,
+      // which describes the main preset.
       breaker: new CircuitBreaker(
         5,
         30_000,
         this.logger,
         `API code override (${preset.displayName})`,
+        () => this.onOverrideBreakerChange?.(preset, true),
+        () => this.onOverrideBreakerChange?.(preset, false),
       ),
     };
     this.overrides.set(presetId, slot);
