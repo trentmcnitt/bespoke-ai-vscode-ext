@@ -784,4 +784,16 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
       expect(res.detail?.errorType).toBeUndefined();
     }
   });
+
+  it('a request after dispose is aborted, not sdk_unavailable', async () => {
+    controlledQuery();
+    const disposed = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await disposed.activate();
+    disposed.dispose();
+
+    const res = await disposed.getCompletionWithDetail(makeProseContext(), signal());
+    expect(res.text).toBeNull();
+    expect(res.detail?.aborted).toBe(true);
+    expect(res.detail?.errorType).toBeUndefined();
+  });
 });

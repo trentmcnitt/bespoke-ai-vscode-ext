@@ -66,6 +66,11 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       providerName: 'anthropic',
       requestModel: this.config.claudeCode.model,
     };
+    // Disposed (shutting down) is a cancellation; checked first because dispose()
+    // also clears queryFn.
+    if (this.unavailableReason() === 'disposed') {
+      return { text: null, detail: withDenial(detail, 'disposed') };
+    }
     if (!this.queryFn) {
       return { text: null, detail: { ...detail, errorType: 'sdk_unavailable' } };
     }

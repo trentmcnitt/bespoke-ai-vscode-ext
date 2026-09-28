@@ -323,5 +323,19 @@ describe('CommandPool', () => {
       activePool = null;
       expect(pool.isAvailable()).toBe(false);
     });
+
+    it('a command sent after dispose is aborted (shutting down), not slot_unavailable', async () => {
+      const fakeStream = createFakeStream([]);
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        consumeIterable(prompt, fakeStream);
+        return fakeStream.stream;
+      });
+
+      const pool = new CommandPool('haiku', makeLogger());
+      await pool.activate();
+      pool.dispose();
+
+      expect(await pool.sendPrompt('x')).toEqual({ text: null, meta: null, aborted: true });
+    });
   });
 });

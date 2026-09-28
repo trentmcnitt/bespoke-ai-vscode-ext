@@ -98,6 +98,8 @@ export class CommandPool extends SlotPool {
     message: string,
     options?: SendPromptOptions,
   ): Promise<SendPromptResult> {
+    const denied = this.unavailableReason();
+    if (denied) return { text: null, meta: null, ...denialFields(denied) };
     if (!this.queryFn || !this.isAvailable()) {
       return { text: null, meta: null, errorType: 'slot_unavailable' };
     }

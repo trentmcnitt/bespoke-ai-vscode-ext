@@ -232,6 +232,8 @@ export abstract class SlotPool {
   private _cliConfigCorrupted = false;
   /** Set when warmup returns the API "Credit balance is too low" error (see consumeStream). */
   private _cliBillingError = false;
+  /** Set by dispose(); a disposed pool never hands out a slot again. */
+  private _disposed = false;
   /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
   private _resolvedModel: string | null = null;
 
@@ -284,14 +286,26 @@ export abstract class SlotPool {
   }
 
   isAvailable(): boolean {
-    return this.sdkAvailable === true;
+    return this.sdkAvailable === true && !this._disposed;
+  }
+
+  /**
+   * Why a request arriving now cannot get a slot, or null if it may acquire one
+   * (possibly after waiting for a slot that is busy or warming up).
+   * `disposed` is a cancellation (the window is shutting down); the rest are failures.
+   */
+  protected unavailableReason(): SlotDenial | null {
+    if (this._disposed) return 'disposed';
+    // Degraded (warmup retries exhausted): no slot will ever come.
+    if (this.sdkAvailable === false) return 'slot_unavailable';
+    return null;
   }
 
   /** Get pool statistics for status display. */
   getStats(): PoolStats {
     return {
       label: this.getPoolLabel(),
-      available: this.sdkAvailable === true,
+      available: this.isAvailable(),
       slots: this.slots.map((slot) => ({
         state: slot.state,
         requestCount: slot.resultCount,
@@ -368,6 +382,7 @@ export abstract class SlotPool {
   }
 
   dispose(): void {
+    this._disposed = true;
     this.killAllSlots('disposed');
     this.sdkAvailable = false;
     this.queryFn = null;
@@ -551,10 +566,9 @@ export abstract class SlotPool {
    * waiter ('superseded'), so only the most recent request waits.
    */
   protected async acquireSlotOrDenial(): Promise<number | SlotDenial> {
-    // Degraded (warmup retries exhausted) or disposed: no slot will ever come.
-    if (this.sdkAvailable === false) {
-      return 'slot_unavailable';
-    }
+    // Disposed or degraded: no slot will ever come, so don't park as a waiter.
+    const denied = this.unavailableReason();
+    if (denied) return denied;
 
     // Fast path: find an available slot
     for (let i = 0; i < this.slots.length; i++) {

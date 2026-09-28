@@ -622,8 +622,10 @@ export class PoolClient implements ICompletionProvider {
   // --- Command interface for commit-message and suggest-edit ---
 
   async sendCommand(message: string, options?: SendPromptOptions): Promise<SendPromptResult> {
+    // The window is shutting down: cancelled, as for a completion after dispose and a
+    // command whose client is disposed mid-request — not an empty model reply.
     if (this.disposed) {
-      return { text: null, meta: null };
+      return { text: null, meta: null, aborted: true };
     }
 
     try {

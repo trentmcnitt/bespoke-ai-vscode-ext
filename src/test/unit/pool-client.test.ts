@@ -289,6 +289,12 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
     expect(res.detail?.aborted).toBe(true);
   });
 
+  it('a disposed client reports a command as aborted, not empty', async () => {
+    const h = makeClient('disposed-cmd');
+    h.client.dispose();
+    expect(await h.client.sendCommand('x')).toEqual({ text: null, meta: null, aborted: true });
+  });
+
   describe('leader election', () => {
     it('first client becomes server, writes lockfile with its pid, and binds the socket', async () => {
       const a = makeClient('A');
@@ -787,7 +793,8 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       expect(registry.completion).toHaveLength(1);
       expect(fs.existsSync(LOCK_PATH)).toBe(false);
       expect(await b.client.getCompletion(makeProseContext(), signal())).toBeNull();
-      expect(await b.client.sendCommand('x')).toEqual({ text: null, meta: null });
+      // Disposed = the window is shutting down: aborted, like a completion after dispose.
+      expect(await b.client.sendCommand('x')).toEqual({ text: null, meta: null, aborted: true });
       expect(await b.client.getPoolStatus()).toBeNull();
       expect(b.client.isAvailable()).toBe(false);
       expect(b.client.isCommandPoolAvailable()).toBe(false);
