@@ -26,7 +26,14 @@ import {
   wireMetaToDetail,
 } from './protocol';
 import type { CompletionWithDetail, GenerationOptions } from '../utils/trace';
-import { PoolServer, acquireLock, commandMetaToWire, isProcessAlive, readLockfile } from './server';
+import {
+  PoolServer,
+  acquireLock,
+  commandMetaToWire,
+  isProcessAlive,
+  readLockfile,
+  releaseLock,
+} from './server';
 import { getIpcPath, ipcEndpointMayExist } from './ipc-path';
 
 const CONNECT_TIMEOUT_MS = 2000;
@@ -180,6 +187,12 @@ export class PoolClient implements ICompletionProvider {
         })
           .then((response) => {
             if (response.type === 'client-hello' && response.success) {
+              // Disposed while connecting: don't keep a socket open to the leader.
+              if (this.disposed) {
+                socket.destroy();
+                cleanup();
+                return;
+              }
               this.serverModel = response.model;
               resolved = true;
               this.connecting = false;
@@ -271,7 +284,7 @@ export class PoolClient implements ICompletionProvider {
     if (this.disposed) return;
 
     this.logger.info('Pool: disconnected from server');
-    this.attemptTakeOver();
+    this.attemptTakeOver().catch((err) => this.logger.error('Pool: takeover failed', err));
   }
 
   private async attemptTakeOver(): Promise<void> {
@@ -311,6 +324,12 @@ export class PoolClient implements ICompletionProvider {
   }
 
   private async becomeServer(): Promise<void> {
+    // Every path to leadership comes through here, after the caller took the lock.
+    // If the window was disabled meanwhile, give the lock back instead of serving.
+    if (this.disposed) {
+      releaseLock(process.pid);
+      return;
+    }
     this.logger.info('Pool: becoming server');
 
     this.server = new PoolServer({
@@ -321,7 +340,16 @@ export class PoolClient implements ICompletionProvider {
       onPoolDegraded: this.onPoolDegraded,
     });
 
-    await this.server.start();
+    try {
+      await this.server.start();
+    } catch (err) {
+      // Don't leave a failed server behind for dispose() to clean up later.
+      this.server = null;
+      throw err;
+    }
+
+    // Disposed during warmup: dispose() already shut the server down.
+    if (this.disposed) return;
 
     this.role = 'server';
     // Forget the previous leader's model so getCurrentModel() reports our own.
@@ -543,6 +571,8 @@ export class PoolClient implements ICompletionProvider {
     const modelChanged = config.claudeCode.model !== this.config.claudeCode.model;
     const instructionsChanged = config.customInstructions !== this.config.customInstructions;
     this.config = config;
+    // The cached leader model is stale once the model changes.
+    if (modelChanged) this.serverModel = null;
 
     // Only the CLI backend runs a pool server. In API mode the client is never
     // connected, so sending a config-update would reject and log a spurious

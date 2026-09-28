@@ -868,3 +868,37 @@ describe('lockfile', () => {
     expect(isProcessAlive(DEAD_PID)).toBe(false);
   });
 });
+
+describe.skipIf(IS_WINDOWS)('PoolServer — failed start with a connected follower', () => {
+  // Regression: close() waits for open connections, and followers can connect during
+  // warmup, so start() used to hang until every follower left.
+  it('start() settles when activation fails after a client connected', async () => {
+    const s = new PoolServer({
+      config: makeConfig(),
+      logger: makeLogger(),
+      ledger: {} as UsageLedger,
+      serverId: 'x',
+    });
+    server = s;
+    let rejectActivate!: (e: Error) => void;
+    commandPool().activate.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, rej) => {
+          rejectActivate = rej;
+        }),
+    );
+    const startP = s.start();
+    let settled = false;
+    startP.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    const c = await connect();
+    rejectActivate(new Error('boom'));
+    await new Promise((r) => setTimeout(r, 300));
+    const settledWhileClientOpen = settled;
+    c.socket.destroy();
+    expect(settledWhileClientOpen).toBe(true);
+  });
+});

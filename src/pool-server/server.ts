@@ -130,7 +130,14 @@ export class PoolServer {
       // server whose pools never started, then release the lockfile.
       const server = this.server;
       this.server = null;
+      // This instance is dead; a later dispose() must not clean up paths that a
+      // newer leader may own by then.
+      this.disposed = true;
       if (server?.listening) {
+        // close() waits for every open connection to end, and followers can connect
+        // as soon as listen() succeeds — destroy them first or start() never settles.
+        for (const client of this.clients.values()) client.socket.destroy();
+        this.clients.clear();
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
       try {
@@ -563,6 +570,15 @@ export function isProcessAlive(pid: number): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Delete the lockfile only if it names `pid`, so we never remove another process's lock. */
+export function releaseLock(pid: number): void {
+  try {
+    if (readLockfile()?.pid === pid) fs.unlinkSync(LOCK_PATH);
+  } catch {
+    // Ignore — another process may have removed or replaced it
   }
 }
 

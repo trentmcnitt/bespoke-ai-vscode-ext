@@ -825,3 +825,69 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
     });
   });
 });
+
+describe.skipIf(IS_WINDOWS)('PoolClient — disposal and model reporting', () => {
+  // Regression: the activate() retry loop never checked `disposed`, so disabling the
+  // extension during startup could still end with this window running a pool server.
+  it('dispose during the activate() retry loop does not end with a live server', async () => {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.ppid, timestamp: Date.now() }));
+    const a = makeClient('A');
+    const p = a.client.activate();
+    await new Promise((r) => setTimeout(r, 200));
+    a.client.dispose();
+    await p;
+    expect({
+      role: a.client.getRole(),
+      socketOnDisk: fs.existsSync(SOCK_PATH),
+      pools: registry.completion.length,
+    }).toEqual({ role: 'client', socketOnDisk: false, pools: 0 });
+  });
+
+  // The disposal guard runs after the caller took the lock; it must hand the lock back,
+  // or re-enabling waits out the retry loop and comes up as a forced server.
+  it('dispose in the retry loop does not leave a lock naming our own pid', async () => {
+    const { spawn } = await import('node:child_process');
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(()=>{},60000)']);
+    try {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: holder.pid, timestamp: Date.now() }));
+      const a = makeClient('A');
+      const p = a.client.activate();
+      await new Promise((r) => setTimeout(r, 200));
+      a.client.dispose();
+      holder.kill('SIGKILL');
+      await p;
+      const leakedLockPid = fs.existsSync(LOCK_PATH)
+        ? JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid
+        : null;
+      const t0 = Date.now();
+      await a.client.activate();
+      const reactivateMs = Date.now() - t0;
+      const forced = a.errors.some((e: string) => e.includes('forcing lock acquisition'));
+      a.client.dispose();
+      expect({
+        leakedLockPid: leakedLockPid === process.pid,
+        forced,
+        slow: reactivateMs > 1400,
+      }).toEqual({ leakedLockPid: false, forced: false, slow: false });
+    } finally {
+      holder.kill('SIGKILL');
+    }
+  }, 15000);
+
+  // Regression: the leader model cached at hello went stale when this window changed model.
+  it('follower getCurrentModel follows its own model change', async () => {
+    const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+    const b = makeClient('B', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+    await a.client.activate();
+    await b.client.activate();
+    b.client.updateConfig(makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+    await new Promise((r) => setTimeout(r, 100));
+    const status = await b.client.getPoolStatus();
+    expect({ server: status?.model, reported: b.client.getCurrentModel() }).toEqual({
+      server: 'haiku',
+      reported: 'haiku',
+    });
+  });
+});
