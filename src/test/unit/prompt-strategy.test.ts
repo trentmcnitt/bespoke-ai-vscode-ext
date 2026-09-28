@@ -25,6 +25,13 @@ describe('Shared prompt components', () => {
     it('contains the anti-assistant rules', () => {
       expect(SYSTEM_PROMPT).toContain('You are NOT a conversational assistant');
     });
+
+    it('demonstrates both word-boundary shapes', () => {
+      // Marker flush against a finished word: the completion carries the space.
+      expect(SYSTEM_PROMPT).toContain('tighter but{{FILL_HERE}}\n<COMPLETION> the scope');
+      // Marker inside a partly typed word: no space.
+      expect(SYSTEM_PROMPT).toContain('new onboar{{FILL_HERE}}\n<COMPLETION>ding flow');
+    });
   });
 
   describe('composeSystemPrompt', () => {
@@ -75,6 +82,50 @@ describe('Shared prompt components', () => {
     it('defaults languageId to plaintext', () => {
       const msg = buildFillMessage('a', 'b');
       expect(msg).toContain('language="plaintext"');
+    });
+
+    describe('whitespace cue', () => {
+      it('names the preceding word when the marker is flush against it', () => {
+        const msg = buildFillMessage('changes that', ' seemed simple', 'markdown');
+        expect(msg).toContain('There is no space between "that" and the marker.');
+        expect(msg).toContain('begin with a space');
+        expect(msg).toContain('If you are finishing "that" itself, do not.');
+      });
+
+      it('treats trailing punctuation as part of the preceding token', () => {
+        const msg = buildFillMessage('It worked.', '');
+        expect(msg).toContain('There is no space between "worked." and the marker.');
+      });
+
+      it('caps the quoted token at 30 characters', () => {
+        const msg = buildFillMessage(`see ${'x'.repeat(50)}`, '');
+        expect(msg).toContain(`between "${'x'.repeat(30)}" and`);
+      });
+
+      it('handles non-ASCII words', () => {
+        const msg = buildFillMessage('un café', '');
+        expect(msg).toContain('There is no space between "café" and the marker.');
+      });
+
+      it('adds no cue after code punctuation like a quote or open paren', () => {
+        for (const prefix of ['<a href="', 'foo(', 'x = {']) {
+          const msg = buildFillMessage(prefix, '', 'html');
+          expect(msg.endsWith('Fill the {{FILL_HERE}} marker.')).toBe(true);
+        }
+      });
+
+      it('says a space is already present when the prefix ends with one', () => {
+        const msg = buildFillMessage('hello ', ' world');
+        expect(msg).toContain('The text before it already ends with a space.');
+        expect(msg).not.toContain('There is no space between');
+      });
+
+      it('adds no cue after a line break, indentation, or an empty prefix', () => {
+        for (const prefix of ['line one\n', 'if (x) {\n    ', '']) {
+          const msg = buildFillMessage(prefix, 'next');
+          expect(msg.endsWith('Fill the {{FILL_HERE}} marker.')).toBe(true);
+        }
+      });
     });
   });
 

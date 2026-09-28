@@ -16,6 +16,9 @@ The user sends text containing a {{FILL_HERE}} marker. Output ONLY the replaceme
 Core rules:
 - Match the voice, style, tone, and formatting of the surrounding text exactly
 - Preserve indentation, whitespace, and structural patterns (bullet markers, heading levels, comment prefixes)
+- Your output is inserted at {{FILL_HERE}} exactly as written, and the text on both sides stays unchanged. In prose, check the character just before the marker:
+  - A letter, digit, or punctuation mark, and your output starts a new word: begin your output with a space (see the examples).
+  - A space or line break, or a partly typed word you are finishing: do not begin with a space.
 - NEVER repeat text that appears immediately before or after the marker
 - NEVER include {{FILL_HERE}} in your response
 - Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere in the document
@@ -40,8 +43,8 @@ Examples:
 The 5th {{FILL_HERE}} is Jupiter.
 <COMPLETION>planet from the Sun</COMPLETION>
 
-I think we should use option B. The timeline is tighter but {{FILL_HERE}}
-<COMPLETION>the scope is much more reasonable. We can always extend the deadline if needed, but cutting features later is harder.</COMPLETION>
+I think we should use option B. The timeline is tighter but{{FILL_HERE}}
+<COMPLETION> the scope is much more reasonable. We can always extend the deadline if needed, but cutting features later is harder.</COMPLETION>
 
 ## Getting {{FILL_HERE}}
 
@@ -49,6 +52,9 @@ I think we should use option B. The timeline is tighter but {{FILL_HERE}}
 <COMPLETION>Started
 
 This guide walks you through the initial setup process.</COMPLETION>
+
+We finally shipped the new onboar{{FILL_HERE}}
+<COMPLETION>ding flow last week.</COMPLETION>
 
 When choosing a data format, consider your {{FILL_HERE}}
 <COMPLETION>use case. JSON is widely supported and ideal for web applications, YAML offers better readability for configuration files, and TOML provides a clean syntax for simpler settings.</COMPLETION>
@@ -61,8 +67,8 @@ I want the dashboard to show daily totals at the top. Below that, a weekly trend
 Can you check if the migration handles nullable columns? Also {{FILL_HERE}}
 <COMPLETION>verify that the rollback script actually restores the previous schema — last time it silently dropped the index on user_id.</COMPLETION>
 
-The build was taking 4 minutes on every push. {{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
-<COMPLETION>That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>
+The build was taking 4 minutes on every push.{{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
+<COMPLETION> That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>
 
 Code examples — suffix delimiters are already in the document, never repeat them:
 
@@ -140,7 +146,18 @@ export function buildFillMessage(
   const doc = suffix.trim()
     ? `<document language="${languageId}">\n${prefix}{{FILL_HERE}}${suffix}\n</document>`
     : `<document language="${languageId}">\n${prefix}{{FILL_HERE}}\n</document>`;
-  return `${doc}\n\nFill the {{FILL_HERE}} marker.`;
+  // Whitespace cue. The completion is inserted verbatim, but models often cannot
+  // tell that the marker sits flush against the preceding word and drop the
+  // leading space ("behind" + "inadequate" -> "behindinadequate"). State it
+  // explicitly. Only word-like tails get the cue, so code positions such as
+  // `href="` or `foo(` are left alone.
+  const lastWord = /[\p{L}\p{N}][\p{L}\p{N}_'’-]{0,29}[,.;:!?)]?$/u.exec(prefix)?.[0];
+  const hint = lastWord
+    ? ` There is no space between "${lastWord}" and the marker. If "${lastWord}" is a complete word or ends in punctuation and your output starts a new word, begin with a space. If you are finishing "${lastWord}" itself, do not.`
+    : /\S $/.test(prefix)
+      ? ' The text before it already ends with a space.'
+      : '';
+  return `${doc}\n\nFill the {{FILL_HERE}} marker.${hint}`;
 }
 
 /**
