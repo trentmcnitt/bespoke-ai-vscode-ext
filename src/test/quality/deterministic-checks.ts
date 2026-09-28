@@ -19,6 +19,7 @@ import type { TestScenario } from './judge';
 export type CheckId =
   | 'non-empty'
   | 'boundary-whitespace'
+  | 'double-space'
   | 'suffix-echo'
   | 'journal-date'
   | 'over-length'
@@ -27,6 +28,7 @@ export type CheckId =
 export const CHECK_IDS: readonly CheckId[] = [
   'non-empty',
   'boundary-whitespace',
+  'double-space',
   'suffix-echo',
   'journal-date',
   'over-length',
@@ -89,12 +91,24 @@ export function checkNonEmpty(input: CheckInput): CheckResult {
 
 // ─── boundary-whitespace ────────────────────────────────────────────
 
-const PREFIX_END_JOINS = /[A-Za-z0-9,;:.!?]$/;
-const WORD_START = /^[A-Za-z0-9]/;
-const WORD_END = /[A-Za-z0-9]$/;
+/**
+ * Scripts written without spaces between words. Two letters from these meeting at a seam is
+ * normal text (`我喜欢` + `吃饭`), so they never count as a word character here.
+ */
+const NO_SPACE_SCRIPT =
+  '\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}';
+/** A letter or digit from a space-delimited script. */
+const WORD_CHAR = `(?![${NO_SPACE_SCRIPT}])[\\p{L}\\p{N}]`;
+/** A word char at the end of text, allowing trailing combining marks (`है`, NFD `café`). */
+const WORD_END_CHAR = `${WORD_CHAR}\\p{M}*`;
+const PREFIX_END_JOINS = new RegExp(`(?:${WORD_END_CHAR}|[,;:.!?])$`, 'u');
+const WORD_START = new RegExp(`^${WORD_CHAR}`, 'u');
+const WORD_END = new RegExp(`${WORD_END_CHAR}$`, 'u');
 
 /**
- * Prose only. Fails when the inserted text would run two words together:
+ * Prose only. Fails when the inserted text would run two words together.
+ * Word characters are Unicode letters/digits (\p{L}, \p{N}), except in scripts
+ * written without word spaces (Han, kana, Thai, …):
  *  - start seam: prefix ends in a word char or punctuation with no trailing
  *    whitespace, and the completion starts with a word char
  *    (`behind` + `inadequate` → `behindinadequate`);
@@ -123,6 +137,35 @@ export function checkBoundaryWhitespace(input: CheckInput): CheckResult | null {
     pass: false,
     detail: `missing separator at ${seams.join('; ')}`,
   };
+}
+
+// ─── double-space ───────────────────────────────────────────────────
+
+/**
+ * Prose only. The opposite seam error to boundary-whitespace: a separator
+ * supplied twice. Exact and narrow on purpose — only the ASCII space:
+ *  - start seam: prefix ends in ' ' and the completion starts with ' '
+ *    (`it already looks ` + ` great` → `looks  great`);
+ *  - end seam: completion ends in ' ' and the suffix starts with ' '.
+ * Returns null (not applicable) for code — indentation and alignment are
+ * legitimately multi-space — and for empty completions.
+ */
+export function checkDoubleSpace(input: CheckInput): CheckResult | null {
+  if (input.mode !== 'prose') return null;
+  const c = input.completion;
+  if (c === null || c.trim() === '') return null;
+
+  const seams: string[] = [];
+  if (input.prefix.endsWith(' ') && c.startsWith(' ')) {
+    seams.push(`start: …${clip(input.prefix.slice(-20))} + ${clip(c, 20)}`);
+  }
+  if (c.endsWith(' ') && input.suffix.startsWith(' ')) {
+    seams.push(`end: ${clip(c.slice(-20))} + ${clip(input.suffix, 20)}…`);
+  }
+  if (seams.length === 0) {
+    return { id: 'double-space', pass: true, detail: 'no doubled space at either seam' };
+  }
+  return { id: 'double-space', pass: false, detail: `doubled space at ${seams.join('; ')}` };
 }
 
 // ─── suffix-echo ────────────────────────────────────────────────────
@@ -286,6 +329,7 @@ export function runDeterministicChecks(input: CheckInput): CheckResult[] {
   return [
     checkNonEmpty(input),
     checkBoundaryWhitespace(input),
+    checkDoubleSpace(input),
     checkSuffixEcho(input),
     checkJournalDates(input),
     checkOverLength(input),

@@ -413,6 +413,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -524,6 +529,11 @@
           "detail": "missing separator at start: …\" low-traffic window,\" + \"which gives us plent…\""
         },
         {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
@@ -560,6 +570,11 @@
           "id": "boundary-whitespace",
           "pass": false,
           "detail": "missing separator at start: …\"ive immediately upon\" + \"publication on the w…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -593,6 +608,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -680,6 +700,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -796,6 +821,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -829,6 +859,11 @@
           "id": "boundary-whitespace",
           "pass": false,
           "detail": "missing separator at start: …\"contract discipline,\" + \"ideally with a time …\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -930,6 +965,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -965,6 +1005,11 @@
           "id": "boundary-whitespace",
           "pass": false,
           "detail": "missing separator at start: …\" you think carefully\" + \"carefully consider h…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -1010,6 +1055,11 @@
           "detail": "both seams separated"
         },
         {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
@@ -1051,6 +1101,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": [
@@ -1208,6 +1263,11 @@
           "id": "boundary-whitespace",
           "pass": false,
           "detail": "missing separator at start: …\"results suggest that\" + \"the initial hypothes…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": [
@@ -1246,6 +1306,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": [],
@@ -1359,6 +1424,11 @@
           "detail": "missing separator at start: …\" low-traffic window,\" + \"then switch the read…\""
         },
         {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
           "id": "suffix-echo",
           "pass": false,
           "detail": "raw output contains suffix head \"before switching the read path\" at char 185 of 345"
@@ -1405,6 +1475,11 @@
           "id": "boundary-whitespace",
           "pass": false,
           "detail": "missing separator at start: …\"nd some of them have\" + \"genuinely\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -1533,6 +1608,11 @@
           "detail": "both seams separated"
         },
         {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
           "id": "suffix-echo",
           "pass": false,
           "detail": "raw output contains suffix head \"so pale on such a fine morning\" at char 0 of 907"
@@ -1641,6 +1721,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -1674,6 +1759,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -1740,6 +1830,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         }
       ],
       "must_avoid": []
@@ -1775,6 +1870,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -1820,6 +1920,11 @@
           "detail": "both seams separated"
         },
         {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
           "id": "suffix-echo",
           "pass": true,
           "detail": "suffix head not in raw output"
@@ -1861,6 +1966,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",
@@ -1977,6 +2087,11 @@
           "id": "boundary-whitespace",
           "pass": true,
           "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
         },
         {
           "id": "suffix-echo",

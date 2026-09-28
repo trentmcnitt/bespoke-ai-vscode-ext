@@ -190,6 +190,7 @@ export function scoreRun(runDir: string, writeArtifacts = false): RunScore {
 const SHORT: Record<CheckId, string> = {
   'non-empty': 'non-empty',
   'boundary-whitespace': 'boundary-ws',
+  'double-space': 'double-space',
   'suffix-echo': 'suffix-echo',
   'journal-date': 'journal-date',
   'over-length': 'over-length',

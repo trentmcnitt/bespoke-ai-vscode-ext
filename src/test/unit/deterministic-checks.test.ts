@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   CheckInput,
   checkBoundaryWhitespace,
+  checkDoubleSpace,
   checkJournalDates,
   checkMustNotStartWith,
   checkNonEmpty,
@@ -120,6 +121,101 @@ describe('checkBoundaryWhitespace', () => {
 
   it('does not apply to empty completions', () => {
     expect(checkBoundaryWhitespace(prose({ prefix: 'word', completion: null }))).toBeNull();
+  });
+
+  it('fails on non-ASCII letters and digits at either seam', () => {
+    expect(
+      checkBoundaryWhitespace(
+        prose({ prefix: 'Wir trafen uns im Café', completion: 'über Mittag' }),
+      )?.pass,
+    ).toBe(false);
+    expect(
+      checkBoundaryWhitespace(prose({ prefix: 'Мы обсудили', completion: 'бюджет' }))?.pass,
+    ).toBe(false);
+    expect(
+      checkBoundaryWhitespace(prose({ prefix: 'Ya ', completion: 'está', suffix: 'ñandú' }))?.pass,
+    ).toBe(false);
+    // Arabic-Indic digit at the start of the completion.
+    expect(checkBoundaryWhitespace(prose({ prefix: 'rooms', completion: '٣ left' }))?.pass).toBe(
+      false,
+    );
+    // Word ending in a combining mark (NFD "café", Devanagari vowel sign).
+    expect(checkBoundaryWhitespace(prose({ prefix: 'cafe\u0301', completion: 'noir' }))?.pass).toBe(
+      false,
+    );
+    expect(checkBoundaryWhitespace(prose({ prefix: 'यह है', completion: 'अच्छा' }))?.pass).toBe(
+      false,
+    );
+  });
+
+  it('passes separated non-ASCII seams', () => {
+    expect(
+      checkBoundaryWhitespace(
+        prose({ prefix: 'Wir trafen uns im Café', completion: ' über Mittag', suffix: ' — ja.' }),
+      )?.pass,
+    ).toBe(true);
+  });
+
+  it('does not flag scripts written without word spaces (CJK, Thai)', () => {
+    expect(checkBoundaryWhitespace(prose({ prefix: '我喜欢', completion: '吃饭' }))?.pass).toBe(
+      true,
+    );
+    expect(
+      checkBoundaryWhitespace(prose({ prefix: '今日は', completion: 'いい天気です' }))?.pass,
+    ).toBe(true);
+    expect(checkBoundaryWhitespace(prose({ prefix: 'ฉันชอบ', completion: 'กินข้าว' }))?.pass).toBe(
+      true,
+    );
+  });
+
+  it('still skips non-ASCII mid_word scenarios', () => {
+    expect(
+      checkBoundaryWhitespace(
+        prose({
+          prefix: 'Die Zusammenarb',
+          completion: 'eit war gut.',
+          scenario: { mid_word: true },
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('checkDoubleSpace', () => {
+  it('fails when prefix ends in a space and the completion starts with one', () => {
+    const r = checkDoubleSpace(prose({ prefix: 'it already looks ', completion: ' great' }));
+    expect(r?.pass).toBe(false);
+    expect(r?.detail).toContain('start');
+  });
+
+  it('fails when the completion ends in a space and the suffix starts with one', () => {
+    const r = checkDoubleSpace(
+      prose({ prefix: 'it ', completion: 'already looks ', suffix: ' great.' }),
+    );
+    expect(r?.pass).toBe(false);
+    expect(r?.detail).toContain('end');
+  });
+
+  it('passes single separators and newline/space combinations', () => {
+    expect(checkDoubleSpace(prose({ prefix: 'looks ', completion: 'great' }))?.pass).toBe(true);
+    expect(checkDoubleSpace(prose({ prefix: 'looks', completion: ' great' }))?.pass).toBe(true);
+    expect(checkDoubleSpace(prose({ prefix: 'a', completion: ' b ', suffix: 'c' }))?.pass).toBe(
+      true,
+    );
+    // Only the exact ASCII space pair counts.
+    expect(checkDoubleSpace(prose({ prefix: 'end.\n', completion: ' next' }))?.pass).toBe(true);
+    expect(checkDoubleSpace(prose({ prefix: 'end. ', completion: '\tnext' }))?.pass).toBe(true);
+    expect(checkDoubleSpace(prose({ prefix: 'x ', completion: 'y\n', suffix: ' z' }))?.pass).toBe(
+      true,
+    );
+  });
+
+  it('does not apply to code or empty completions', () => {
+    expect(
+      checkDoubleSpace({ mode: 'code', prefix: 'const x = ', completion: ' 1', suffix: '' }),
+    ).toBeNull();
+    expect(checkDoubleSpace(prose({ prefix: 'a ', completion: null }))).toBeNull();
+    expect(checkDoubleSpace(prose({ prefix: 'a ', completion: '   ' }))).toBeNull();
   });
 });
 
@@ -357,11 +453,12 @@ describe('runDeterministicChecks / summarizeChecks', () => {
       suffix: '',
       completion: 'y',
     });
-    expect(a.map((c) => c.id)).toEqual(['non-empty', 'boundary-whitespace']);
+    expect(a.map((c) => c.id)).toEqual(['non-empty', 'boundary-whitespace', 'double-space']);
     expect(b.map((c) => c.id)).toEqual(['non-empty']);
     const counts = summarizeChecks([a, b]);
     expect(counts['non-empty']).toEqual({ applied: 2, failed: 0 });
     expect(counts['boundary-whitespace']).toEqual({ applied: 1, failed: 1 });
+    expect(counts['double-space']).toEqual({ applied: 1, failed: 0 });
     expect(counts['suffix-echo']).toEqual({ applied: 0, failed: 0 });
   });
 });
