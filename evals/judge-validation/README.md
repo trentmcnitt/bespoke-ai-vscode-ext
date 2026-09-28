@@ -14,6 +14,8 @@ For each item, a human (Trent) answers one question without seeing the judge's v
 
 Each metric is reported twice: once for the judge alone, and once for "judge AND every applicable deterministic check" (`src/test/quality/deterministic-checks.ts`), which is how Layer 1 + Layer 2 now combine. Each rate has a 95% Wilson interval.
 
+**The combined TNR is inflated by construction.** All 25 items in the "judge pass, a det. check fails" bucket fail the same check, `boundary-whitespace`. Any of those the human fails is automatically a true negative for "judge AND checks", because the check already failed it. The combined TNR should therefore be reported twice: over the whole sample, and with that bucket left out. (`score.ts` does not do this split yet.)
+
 TPR and TNR are reported separately, not only agreement, because the two errors cost different things. A low TNR means bad completions pass (the eval flatters the model). A low TPR means good completions fail (prompt changes get rejected for no reason).
 
 ## The sample
@@ -26,6 +28,7 @@ TPR and TNR are reported separately, not only agreement, because the two errors 
 - **Deduplicated** on (scenario, completion text). When the same completion was judged in several runs, the most recent verdict is the primary one. All verdicts are kept in `judge-verdicts.json`, and `judge_disagreement` marks the ones where runs disagreed.
 - **Stratified.** Items are spread across the five models, prose and code, twelve scenario categories, and at most two items per scenario.
 - **A small, deliberate "empty" category.** Null or whitespace-only completions are capped at three (`MAX_NULLS`). They are easy to label and say little about the judge, but three keeps the case covered.
+- **Overlap with the March analysis.** 17 of the 100 items come from the two 2026-03-26 sonnet runs that the [error analysis](../error-analysis-2026-03-sonnet.md) already read. The labeller may have seen those outputs and the analysis's verdicts on them.
 - **Enriched for failures.** A random draw would be about 80% judge passes. The sample instead takes 30 judge fails, 25 judge passes that a deterministic check fails, and 45 judge passes where every check passes, which aims for a roughly even human pass/fail split. This oversamples the cases where the judge is most likely wrong, so **the rates describe the judge on this sample, not the judge's error rate on a typical run.** A population estimate would need reweighting by bucket.
 
 The build prints the composition. The current sample (seed 20260927, drawn from 500 candidates):
@@ -62,7 +65,7 @@ Each item is assigned to `dev` (40) or `test` (60), stratified by bucket, mode a
 4. Click **Export labels.csv** and save it over `evals/judge-validation/labels.csv`.
 5. Run `npm run judge:score`.
 
-The page does not show the judge's verdict, the check results or the run. Those are in `judge-verdicts.json`, which should stay unopened until labeling is done. The page also hides the model name. The "Intent" line is the scenario's `quality_notes`, which is what the judge was also given.
+The page does not show the judge's verdict or the check results. Those are in `judge-verdicts.json`, which should stay unopened until labeling is done. The page does show each item's scenario id, which can hint at the run era, and the page's embedded data includes the `model` field even though the model is not displayed; a labeller who opens the page source can see it. The "Intent" line is the scenario's `quality_notes`, which is what the judge was also given.
 
 Judge each completion as ghost text you would accept with Tab. Invented names, dates and code are expected, so judge whether they fit, not whether they are true. Budget about 20 minutes for 100 items.
 
