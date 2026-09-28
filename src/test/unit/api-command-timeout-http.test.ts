@@ -71,6 +71,9 @@ describe('BackendRouter.sendCommand timeoutMs on the API backend', () => {
     });
     expect(Date.now() - start).toBeLessThan(5000);
     expect(result.text).toBeNull();
+    // On the result itself, as the CLI path reports it, not only in trace detail.
+    expect(result.errorType).toBe('timeout');
+    expect(result.aborted).toBeUndefined();
     expect(result.detail?.aborted).toBeUndefined();
     const [r] = recorder.getRecent();
     expect(r).toMatchObject({ outcome: 'error', errorType: 'timeout' });
@@ -82,7 +85,9 @@ describe('BackendRouter.sendCommand timeoutMs on the API backend', () => {
     for (let i = 0; i < 4; i++) {
       const cancel = new AbortController();
       setTimeout(() => cancel.abort(), 50);
-      await router.sendCommand('diff', { timeoutMs: 5000, onCancel: cancel.signal });
+      const r = await router.sendCommand('diff', { timeoutMs: 5000, onCancel: cancel.signal });
+      expect(r).toMatchObject({ text: null, aborted: true });
+      expect(r.errorType).toBeUndefined();
       expect(recorder.getRecent()[0].outcome).toBe('aborted');
     }
     expect(router.isCommandAvailable()).toBe(true);

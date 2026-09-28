@@ -180,7 +180,15 @@ export class BackendRouter implements CompletionProvider {
         options?.onCancel,
         options?.timeoutMs,
       );
-      return { text, meta: null, detail };
+      // Same fields the CLI path reports, so callers can tell a timeout or a
+      // swallowed failure from a cancel without reading trace detail.
+      return {
+        text,
+        meta: null,
+        detail,
+        ...(!text && detail?.errorType ? { errorType: detail.errorType } : {}),
+        ...(!text && detail?.aborted ? { aborted: true } : {}),
+      };
     }
     return this.poolClient.sendCommand(message, options);
   }
