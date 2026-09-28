@@ -401,7 +401,7 @@ npm run test:quality:rescore      # Re-run the deterministic checks over saved e
 npm run latency-report            # p50/p90/p95 from your local usage ledger
 ```
 
-**CI** runs on every push and pull request to `main`: lint, type-check, Prettier, the unit suite with coverage on Ubuntu, macOS, and Windows (the pool IPC is platform-specific), and a VSIX build for pull requests. The unit suite is ~1,280 tests at ~67% line coverage; most of what is uncovered is VS Code wiring in `extension.ts`. Tests that call real models (`test:api`, `test:quality`) need keys or a Claude subscription and run locally, not in CI.
+**CI** runs on every push and pull request to `main`: lint, type-check, Prettier, the unit suite with coverage on Ubuntu, macOS, and Windows (the pool IPC is platform-specific), and a VSIX build for pull requests. The unit suite is ~1,540 tests at ~71% line coverage; most of what is uncovered is VS Code wiring in `extension.ts`. Tests that call real models (`test:api`, `test:quality`) need keys or a Claude subscription and run locally, not in CI.
 
 **Model choice for code.** Dedicated autocomplete products mostly use small models trained for fill-in-the-middle (FIM). This extension sends the same instruction-style prompt to general chat models for both prose and code, because prose is its main use and FIM models are trained mostly on code. For code, a FIM-trained model may well be faster and more accurate; that comparison has not been run yet. Any OpenAI-compatible or Ollama model can be added as a custom preset, and `bespokeAI.codeOverride` can route code to it.
 
