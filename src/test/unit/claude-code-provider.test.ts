@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClaudeCodeProvider, WARMUP_PREFIX, WARMUP_SUFFIX } from '../../providers/claude-code';
 import { extractCompletion, buildFillMessage } from '../../providers/prompt-strategy';
+import type { UsageLedger } from '../../utils/usage-ledger';
 import {
   makeConfig,
   makeProseContext,
@@ -614,6 +615,133 @@ describe('ClaudeCodeProvider — generation detail', () => {
       new AbortController().signal,
     );
     expect(res).toMatchObject({ text: null, detail: { errorType: 'sdk_unavailable' } });
+  });
+});
+
+describe('ClaudeCodeProvider — per-turn cost and API time in the ledger', () => {
+  let provider: ClaudeCodeProvider | null = null;
+  afterEach(() => {
+    provider?.dispose();
+    provider = null;
+  });
+
+  type Turn = { text: string; cost?: number; apiMs?: number };
+
+  /**
+   * Each query() call is one SDK session. The SDK reports `total_cost_usd` and
+   * `duration_api_ms` cumulatively within a session; the first entry is the warmup.
+   */
+  function scriptSessions(sessions: Turn[][]) {
+    let n = 0;
+    mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      const turns = sessions[n++] ?? [];
+      async function* gen() {
+        const it = prompt[Symbol.asyncIterator]();
+        for (const turn of turns) {
+          if ((await it.next()).done) return;
+          yield { type: 'assistant', message: { model: 'claude-sonnet-4-5' } };
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: turn.text,
+            duration_ms: 100,
+            ...(turn.cost !== undefined ? { total_cost_usd: turn.cost } : {}),
+            ...(turn.apiMs !== undefined ? { duration_api_ms: turn.apiMs } : {}),
+            session_id: `sess-${n}`,
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        }
+        await it.next();
+      }
+      return gen();
+    });
+  }
+
+  const warmup = (cost?: number, apiMs?: number): Turn => ({
+    text: '<COMPLETION>four</COMPLETION>',
+    cost,
+    apiMs,
+  });
+
+  function makeLedgerSpy() {
+    const record = vi.fn();
+    return {
+      ledger: { record } as unknown as UsageLedger,
+      rows: () => record.mock.calls.map((c) => c[0]),
+    };
+  }
+
+  it('records per-turn deltas (not session totals) for warmup and completion rows, and sums them in pool stats', async () => {
+    scriptSessions([
+      [
+        warmup(0.01, 900),
+        { text: '<COMPLETION> a</COMPLETION>', cost: 0.03, apiMs: 3000 },
+        { text: '<COMPLETION> b</COMPLETION>', cost: 0.06, apiMs: 5000 },
+      ],
+    ]);
+    const { ledger, rows } = makeLedgerSpy();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    provider.setLedger(ledger);
+    await provider.activate();
+    const ctx = makeProseContext({ prefix: 'x', suffix: '' });
+    await provider.getCompletion(ctx, new AbortController().signal);
+    await provider.getCompletion(ctx, new AbortController().signal);
+
+    const byRow = rows()
+      .filter((r) => r.source === 'warmup' || r.source === 'completion')
+      .map((r) => [r.source, r.costUsd, r.durationApiMs]);
+    expect(byRow).toHaveLength(3);
+    expect(byRow[0]).toEqual(['warmup', 0.01, 900]);
+    expect(byRow[1][0]).toBe('completion');
+    expect(byRow[1][1]).toBeCloseTo(0.02, 10);
+    expect(byRow[1][2]).toBe(2100);
+    expect(byRow[2][1]).toBeCloseTo(0.03, 10);
+    expect(byRow[2][2]).toBe(2000);
+    // Pool stats count served requests only (warmup excluded): 0.02 + 0.03.
+    expect(provider.getStats().totalCostUsd).toBeCloseTo(0.05, 10);
+  });
+
+  it('a new session (recycle) starts its deltas from zero again', async () => {
+    scriptSessions([
+      [warmup(0.01, 900), { text: '<COMPLETION> a</COMPLETION>', cost: 0.06, apiMs: 5000 }],
+      // New session after recycle: its totals restart below the old session's.
+      [warmup(0.004, 400), { text: '<COMPLETION> b</COMPLETION>', cost: 0.024, apiMs: 1400 }],
+    ]);
+    const { ledger, rows } = makeLedgerSpy();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    provider.setLedger(ledger);
+    await provider.activate();
+    const ctx = makeProseContext({ prefix: 'x', suffix: '' });
+    await provider.getCompletion(ctx, new AbortController().signal);
+    await provider.recycleAll();
+    await provider.getCompletion(ctx, new AbortController().signal);
+
+    const r = rows()
+      .filter((row) => row.source === 'warmup' || row.source === 'completion')
+      .map((row) => [row.source, row.costUsd, row.durationApiMs]);
+    expect(r).toHaveLength(4);
+    expect(r[2]).toEqual(['warmup', 0.004, 400]);
+    // Exact values: a missed reset would give max(0, 0.004 - 0.06) = 0, not 0.004.
+    expect(r[3][0]).toBe('completion');
+    expect(r[3][1]).toBeCloseTo(0.02, 10);
+    expect(r[3][2]).toBe(1000);
+    expect(provider.getStats().totalCostUsd).toBeCloseTo(0.07, 10);
+  });
+
+  it('without an SDK-reported cost or API time, rows carry 0 cost and no per-turn trace cost', async () => {
+    scriptSessions([[warmup(), { text: '<COMPLETION> a</COMPLETION>' }]]);
+    const { ledger, rows } = makeLedgerSpy();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    provider.setLedger(ledger);
+    await provider.activate();
+    const res = await provider.getCompletionWithDetail(
+      makeProseContext({ prefix: 'x' }),
+      new AbortController().signal,
+    );
+    const completion = rows().find((row) => row.source === 'completion');
+    expect(completion?.costUsd).toBe(0);
+    expect(completion?.durationApiMs).toBe(0);
+    expect(res.detail?.costUsd).toBeUndefined();
   });
 });
 

@@ -654,7 +654,8 @@ export class PoolClient implements ICompletionProvider {
                 model: protocolMeta.model,
                 durationMs: protocolMeta.durationMs ?? 0,
                 durationApiMs: protocolMeta.durationApiMs ?? 0,
-                costUsd: protocolMeta.costUsd ?? 0,
+                // Older servers sent the cumulative session total as costUsd.
+                costUsd: protocolMeta.turnCostUsd ?? protocolMeta.costUsd ?? 0,
                 inputTokens: protocolMeta.inputTokens ?? 0,
                 outputTokens: protocolMeta.outputTokens ?? 0,
                 cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,

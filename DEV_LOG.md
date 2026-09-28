@@ -32,6 +32,10 @@ Reverse chronological. Most recent entry first.
 - **Follow-up (branch `showcase/followup-hang`):** `consumeStream()` had no arm for a stream that ends cleanly, so `recycleSlot()` dropped the held request's callback and the completion (which has no timeout) hung; it now ends as `slot_stream_ended`, a pending warmup fails at once instead of after 30 s, and `settleResult()` clears the callback on delivery so no path can settle a request twice.
 - **API breaker counted genuine empties.** Counting empties dates from when adapters swallowed 429/529 as a bare null; they now report `errorType`, so only that (and a malformed empty: no tokens, no finish reason) counts.
 
+### CLI cost and API time recorded per turn (branch `showcase/held-misc`)
+
+- the SDK's `total_cost_usd` (and `duration_api_ms`) are session totals, and only traces used the per-turn delta — ledger rows and `totalCostUsd` pool stats added the running totals; `consumeStream()` now overwrites `meta.costUsd`/`durationApiMs` with the deltas so every consumer is per-turn (API-time deltas are approximate, see `evals/latency-2026-09.md`), and old ledger rows are left as they are.
+
 ### Showcase pass: tests, CI matrix, evals, tracing (branch `showcase/audit-and-polish`)
 
 An audit found more infrastructure than expected (CI, 697 unit tests, trace-level logging, a usage ledger, an LLM-judge suite) but no coverage number, no committed eval results, and several untested modules (pool client/server/protocol, API providers and adapters, logger, suggest-edit, context-menu launch).

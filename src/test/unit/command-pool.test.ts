@@ -253,6 +253,45 @@ describe('CommandPool', () => {
     });
   });
 
+  describe('per-turn metadata', () => {
+    it("reports each command's own cost and API time, not the session totals", async () => {
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const totals = [
+          { text: 'READY', cost: 0.001, apiMs: 500 },
+          { text: 'first', cost: 0.011, apiMs: 2500 },
+          { text: 'second', cost: 0.016, apiMs: 3700 },
+        ];
+        async function* gen() {
+          const it = prompt[Symbol.asyncIterator]();
+          for (const t of totals) {
+            if ((await it.next()).done) return;
+            yield {
+              type: 'result',
+              subtype: 'success',
+              result: t.text,
+              total_cost_usd: t.cost,
+              duration_api_ms: t.apiMs,
+              usage: { input_tokens: 1, output_tokens: 1 },
+            };
+          }
+          await it.next();
+        }
+        return gen();
+      });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      const first = await pool.sendPrompt('a');
+      expect(first.meta?.costUsd).toBeCloseTo(0.01, 10);
+      expect(first.meta?.turnCostUsd).toBeCloseTo(0.01, 10);
+      expect(first.meta?.durationApiMs).toBe(2000);
+      const second = await pool.sendPrompt('b');
+      expect(second.meta?.costUsd).toBeCloseTo(0.005, 10);
+      expect(second.meta?.durationApiMs).toBe(1200);
+    });
+  });
+
   describe('updateModel', () => {
     it('triggers recycleAll when model changes', async () => {
       const stream1 = createFakeStream(['response1']);

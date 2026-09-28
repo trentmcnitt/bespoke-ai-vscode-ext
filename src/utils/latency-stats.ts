@@ -7,7 +7,9 @@
  *     measured inside the CLI process. It excludes pool slot wait (`waitMs`, reported
  *     separately), debounce, the pool IPC hop, post-processing, and render.
  *   - API backend: `durationMs` is the adapter's wall clock around the HTTP call.
- *   - `durationApiMs` is NOT used: on the CLI backend it is cumulative per SDK session.
+ *   - `durationApiMs` is NOT used. On the CLI backend, ledger rows written before the
+ *     per-turn fix hold the SDK's cumulative per-session value; newer rows hold an
+ *     approximate per-turn delta.
  *
  * The ledger's `project` field is never read.
  */
