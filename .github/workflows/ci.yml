@@ -41,7 +41,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci
+      # tree-sitter grammars (dev-only, loaded lazily by the quality-eval syntax checks) need a
+      # native build that fails on the Windows runner; unit tests never load them.
+      - run: npm ci ${{ runner.os == 'Windows' && '--ignore-scripts' || '' }}
       - run: npm run test:coverage
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest'
