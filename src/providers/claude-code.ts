@@ -1,7 +1,7 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { postProcessCompletion } from '../utils/post-process';
-import { SlotDenial, SlotPool } from './slot-pool';
+import { SlotDenial, SlotPool, denialOutcome } from './slot-pool';
 import { composeSystemPrompt, buildFillMessage, extractCompletion } from './prompt-strategy';
 import {
   CompletionWithDetail,
@@ -23,8 +23,7 @@ export const WARMUP_EXPECTED = 'four';
  * sets `aborted`; a pool failure sets `errorType`, so the trace says `error`.
  */
 function withDenial(detail: GenerationDetail, denial: SlotDenial): GenerationDetail {
-  if (denial === 'superseded' || denial === 'disposed') return { ...detail, aborted: true };
-  return { ...detail, errorType: denial };
+  return { ...detail, ...denialOutcome(denial) };
 }
 
 export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {

@@ -145,6 +145,7 @@ export interface ResultMetadata {
  * - `pool_warmup_failed`: a slot failed warmup, which kills every slot.
  * - `slot_stream_error`: the CLI session's stream threw.
  * - `slot_unavailable`: the pool is degraded, or the slot lost its session after acquisition.
+ * - `pool_circuit_open`: the rapid-recycle circuit breaker killed every slot; nothing was sent.
  * - `cli_<subtype>`: the CLI returned a non-success result (e.g. `cli_error_during_execution`).
  */
 export type SlotFailure =
@@ -152,6 +153,7 @@ export type SlotFailure =
   | 'pool_warmup_failed'
   | 'slot_stream_error'
   | 'slot_unavailable'
+  | 'pool_circuit_open'
   | `cli_${string}`;
 
 /**
@@ -160,6 +162,16 @@ export type SlotFailure =
  * everything else is a {@link SlotFailure}.
  */
 export type SlotDenial = 'superseded' | 'disposed' | SlotFailure;
+
+/**
+ * How a denial is recorded: `superseded` / `disposed` are cancellations (`aborted`);
+ * anything else is a failure whose type becomes the trace's `error.type`.
+ */
+export function denialOutcome(denial: SlotDenial): { aborted: true } | { errorType: SlotFailure } {
+  return denial === 'superseded' || denial === 'disposed'
+    ? { aborted: true }
+    : { errorType: denial };
+}
 
 /** What a slot's result promise resolves with. `failure` is set only when `text` is null. */
 export interface SlotResult {
@@ -234,6 +246,11 @@ export abstract class SlotPool {
   private _cliBillingError = false;
   /** Set by dispose(); a disposed pool never hands out a slot again. */
   private _disposed = false;
+  /**
+   * Set when the rapid-recycle circuit breaker has killed every slot. Nothing
+   * respawns them on its own; killAllSlots() (restart, recycleAll) clears it.
+   */
+  private _circuitOpen = false;
   /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
   private _resolvedModel: string | null = null;
 
@@ -286,7 +303,7 @@ export abstract class SlotPool {
   }
 
   isAvailable(): boolean {
-    return this.sdkAvailable === true && !this._disposed;
+    return this.sdkAvailable === true && !this._disposed && !this._circuitOpen;
   }
 
   /**
@@ -294,8 +311,9 @@ export abstract class SlotPool {
    * (possibly after waiting for a slot that is busy or warming up).
    * `disposed` is a cancellation (the window is shutting down); the rest are failures.
    */
-  protected unavailableReason(): SlotDenial | null {
+  unavailableReason(): SlotDenial | null {
     if (this._disposed) return 'disposed';
+    if (this._circuitOpen) return 'pool_circuit_open';
     // Degraded (warmup retries exhausted): no slot will ever come.
     if (this.sdkAvailable === false) return 'slot_unavailable';
     return null;
@@ -855,6 +873,9 @@ export abstract class SlotPool {
    * `reason` tells the waiting and in-flight requests why they got no result.
    */
   protected killAllSlots(reason: KillReason): void {
+    // Every caller (restart, recycleAll, warmup failure, dispose) replaces or ends
+    // the slots, so the breaker's all-dead state no longer applies.
+    this._circuitOpen = false;
     if (this.pendingWaiter) {
       const waiter = this.pendingWaiter;
       this.pendingWaiter = null;
@@ -939,11 +960,19 @@ export abstract class SlotPool {
       slot.resultPromise = null;
       slot.deliverResult = null;
 
-      // Check if all slots are now dead → fire onPoolDegraded
+      // All slots dead → the pool is unavailable until restart or recycleAll.
+      // Fail the parked request now: no slot will free up to wake it, so it
+      // would otherwise wait until a newer request superseded it.
       if (this.slots.every((s) => s.state === 'dead')) {
+        this._circuitOpen = true;
         this.logger.error(
           `${this.getPoolLabel()}: all slots dead (circuit breaker), pool degraded`,
         );
+        if (this.pendingWaiter) {
+          const waiter = this.pendingWaiter;
+          this.pendingWaiter = null;
+          waiter('pool_circuit_open');
+        }
         this.onPoolDegraded?.('circuit breaker: all slots dead after rapid recycles');
       }
       return;

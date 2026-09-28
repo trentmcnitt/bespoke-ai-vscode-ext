@@ -539,6 +539,14 @@ export class PoolClient implements ICompletionProvider {
       // Log error responses instead of silently swallowing
       const errorMsg = 'error' in response ? (response.error ?? 'unknown error') : 'unknown error';
       this.logger.error(`Pool: completion failed: ${errorMsg}`);
+      // An unavailable leader pool says why in meta (e.g. pool_circuit_open).
+      const why = response.type === 'completion' ? response.meta : undefined;
+      if (why?.errorType || why?.aborted) {
+        return {
+          text: null,
+          detail: { ...wireMetaToDetail(why, configuredModel, false), errorMessage: errorMsg },
+        };
+      }
       return {
         text: null,
         detail: {
@@ -668,6 +676,10 @@ export class PoolClient implements ICompletionProvider {
         const errorMsg = 'error' in response ? response.error : 'unknown error';
         this.logger.error(`Pool: command failed: ${errorMsg}`);
       }
+      // An unavailable leader pool says why in meta (e.g. pool_circuit_open).
+      const why = response.type === 'command' ? response.meta : undefined;
+      if (why?.aborted) return { text: null, meta: null, aborted: true };
+      if (why?.errorType) return { text: null, meta: null, errorType: why.errorType };
       return { text: null, meta: null, errorType: 'pool_error' };
     } catch (err) {
       // Disposed mid-request (pending requests are rejected): cancelled, not a pool failure.

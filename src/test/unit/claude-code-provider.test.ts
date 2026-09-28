@@ -785,6 +785,95 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
     }
   });
 
+  describe('when the rapid-recycle circuit breaker kills every slot', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /**
+     * Activate, park a request behind a busy slot, then crash the slot's session
+     * as the fifth rapid recycle, which trips the breaker (RAPID_RECYCLE_LIMIT = 5).
+     * The first four are set directly: driving them through real crashes needs a
+     * request in flight for each, which adds nothing to what is tested here.
+     */
+    async function tripBreaker(ctl: ReturnType<typeof controlledQuery>) {
+      const p = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      provider = p;
+      const degraded: string[] = [];
+      p.onPoolDegraded = (reason) => degraded.push(reason);
+      await p.activate();
+
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const holding = p.getCompletionWithDetail(makeProseContext(), signal());
+      const waiting = p.getCompletionWithDetail(makeProseContext(), signal());
+      await settle();
+      const slot = (
+        p as unknown as { slots: { rapidRecycleCount: number; lastRecycleTime: number }[] }
+      ).slots[0];
+      slot.rapidRecycleCount = 4;
+      slot.lastRecycleTime = now;
+      ctl.fail(new Error('subprocess exited'));
+      return { p, holding, waiting, degraded };
+    }
+
+    it('reports unavailable and fails the parked request at once with pool_circuit_open', async () => {
+      const ctl = controlledQuery();
+      const { p, holding, waiting, degraded } = await tripBreaker(ctl);
+
+      expect((await holding).detail?.errorType).toBe('slot_stream_error');
+      // Before the fix the parked request was never woken: nothing frees a dead slot.
+      const res = await Promise.race([
+        waiting,
+        new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), 200)),
+      ]);
+      expect(res).not.toBe('still waiting');
+      if (res === 'still waiting') return;
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('pool_circuit_open');
+      expect(res.detail?.aborted).toBeUndefined();
+
+      expect(degraded).toEqual(['circuit breaker: all slots dead after rapid recycles']);
+      expect(p.isAvailable()).toBe(false);
+      expect(p.getStats().available).toBe(false);
+    });
+
+    it('a request arriving while open resolves immediately instead of waiting', async () => {
+      const ctl = controlledQuery();
+      const { p, waiting } = await tripBreaker(ctl);
+      await waiting;
+
+      const res = await p.getCompletionWithDetail(makeProseContext(), signal());
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('pool_circuit_open');
+      expect((p as unknown as { pendingWaiter: unknown }).pendingWaiter).toBeNull();
+    });
+
+    it('restart (Restart Pools) closes the breaker and the pool serves again', async () => {
+      const ctl = controlledQuery();
+      const { p, waiting } = await tripBreaker(ctl);
+      await waiting;
+      vi.restoreAllMocks();
+
+      await p.restart();
+      expect(p.isAvailable()).toBe(true);
+      const next = p.getCompletionWithDetail(makeProseContext(), signal());
+      await settle();
+      ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> back</COMPLETION>' });
+      expect((await next).text).toBe(' back');
+    });
+
+    it('recycleAll (a model or custom-instructions change) also closes it', async () => {
+      const ctl = controlledQuery();
+      const { p, waiting } = await tripBreaker(ctl);
+      await waiting;
+      vi.restoreAllMocks();
+
+      await p.recycleAll();
+      expect(p.isAvailable()).toBe(true);
+    });
+  });
+
   it('a request after dispose is aborted, not sdk_unavailable', async () => {
     controlledQuery();
     const disposed = new ClaudeCodeProvider(makeConfig(), makeLogger());

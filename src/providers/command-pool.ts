@@ -1,5 +1,5 @@
 import { Logger } from '../utils/logger';
-import { SlotPool, ResultMetadata, SlotDenial } from './slot-pool';
+import { SlotPool, ResultMetadata, SlotDenial, denialOutcome } from './slot-pool';
 import type { GenerationDetail } from '../utils/trace';
 
 export const COMMAND_SYSTEM_PROMPT = `Follow the instructions in each message precisely. Output only what is requested — no commentary, preamble, or meta-text.`;
@@ -32,9 +32,7 @@ export interface SendPromptResult {
 
 /** `superseded` / `disposed` are cancellations; anything else is a pool failure. */
 function denialFields(denial: SlotDenial): Pick<SendPromptResult, 'errorType' | 'aborted'> {
-  return denial === 'superseded' || denial === 'disposed'
-    ? { aborted: true }
-    : { errorType: denial };
+  return denialOutcome(denial);
 }
 
 export class CommandPool extends SlotPool {

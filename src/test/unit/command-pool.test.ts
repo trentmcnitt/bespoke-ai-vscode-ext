@@ -305,6 +305,43 @@ describe('CommandPool', () => {
     });
   });
 
+  describe('rapid-recycle circuit breaker', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('once every slot is dead the pool is unavailable and commands fail with pool_circuit_open', async () => {
+      const fakeStream = createFakeStream([]);
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        consumeIterable(prompt, fakeStream);
+        return fakeStream.stream;
+      });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      // Four rapid recycles already counted; the session ending is the fifth.
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const slot = (
+        pool as unknown as { slots: { rapidRecycleCount: number; lastRecycleTime: number }[] }
+      ).slots[0];
+      slot.rapidRecycleCount = 4;
+      slot.lastRecycleTime = now;
+      fakeStream.terminate();
+      for (let i = 0; i < 10 && pool.isAvailable(); i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      expect(pool.isAvailable()).toBe(false);
+      expect(await pool.sendPrompt('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_circuit_open',
+      });
+    });
+  });
+
   describe('dispose', () => {
     it('marks pool unavailable', async () => {
       const fakeStream = createFakeStream([]);

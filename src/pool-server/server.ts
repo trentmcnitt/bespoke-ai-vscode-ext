@@ -11,7 +11,7 @@ import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import { ClaudeCodeProvider } from '../providers/claude-code';
 import { CommandPool, SendPromptResult } from '../providers/command-pool';
-import { ResultMetadata, PoolStats } from '../providers/slot-pool';
+import { ResultMetadata, PoolStats, SlotPool, denialOutcome } from '../providers/slot-pool';
 import { ExtensionConfig, CompletionContext } from '../types';
 import {
   PoolRequest,
@@ -395,6 +395,18 @@ export class PoolServer {
     this.sendResponse(client.socket, response);
   }
 
+  /**
+   * Why an unavailable pool turned a follower's request away, as wire metadata, so the
+   * follower traces the same outcome the leader's own request would get
+   * (e.g. `pool_circuit_open`) instead of a generic `pool_error`.
+   */
+  private unavailableMeta(pool: Pick<SlotPool, 'unavailableReason'>): ProtocolResultMetadata {
+    return {
+      model: this.config.claudeCode.model,
+      ...denialOutcome(pool.unavailableReason() ?? 'slot_unavailable'),
+    };
+  }
+
   private async handleCompletion(request: CompletionRequest): Promise<PoolResponse> {
     if (!this.completionProvider.isAvailable()) {
       return {
@@ -402,6 +414,7 @@ export class PoolServer {
         id: request.id,
         success: false,
         text: null,
+        meta: this.unavailableMeta(this.completionProvider),
         error: 'Completion pool not available',
       };
     }
@@ -442,6 +455,7 @@ export class PoolServer {
         id: request.id,
         success: false,
         text: null,
+        meta: this.unavailableMeta(this.commandPool),
         error: 'Command pool not available',
       };
     }

@@ -80,6 +80,8 @@ vi.mock('../../providers/claude-code', () => {
     setLedger = vi.fn();
     activate = vi.fn(async () => {});
     isAvailable = vi.fn(() => this.available);
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason = vi.fn(() => (this.available ? null : this.unavailableWhy));
     getCompletion = vi.fn(async (ctx: CompletionContext) => `<<${ctx.prefix}|${ctx.suffix}>>`);
     // Mirrors the real provider: detail wraps getCompletion (so call assertions still apply).
     getCompletionWithDetail = vi.fn(
@@ -113,6 +115,8 @@ vi.mock('../../providers/command-pool', () => {
     setLedger = vi.fn();
     activate = vi.fn(async () => {});
     isAvailable = vi.fn(() => this.available);
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason = vi.fn(() => (this.available ? null : this.unavailableWhy));
     sendPrompt = vi.fn(async (msg: string) => ({ text: `reply:${msg}`, meta: null }));
     getStats = vi.fn(() => fakeStats('command'));
     recycleAll = vi.fn(async () => {});
@@ -527,9 +531,24 @@ describe.skipIf(IS_WINDOWS)('PoolServer — request dispatch', () => {
       id: 'u',
       success: false,
       text: null,
+      meta: { model: 'sonnet', errorType: 'slot_unavailable' },
       error: 'Completion pool not available',
     });
     expect(completionPool().getCompletion).not.toHaveBeenCalled();
+  });
+
+  it('unavailable pools tell the follower why (open circuit breaker), for its trace', async () => {
+    await startServer();
+    completionPool().available = false;
+    completionPool().unavailableWhy = 'pool_circuit_open';
+    commandPool().available = false;
+    commandPool().unavailableWhy = 'pool_circuit_open';
+    const client = await connect();
+
+    const completion = await client.request(completionReq('c'));
+    expect(completion).toMatchObject({ success: false, meta: { errorType: 'pool_circuit_open' } });
+    const command = await client.request({ type: 'command', id: 'k', message: 'x' });
+    expect(command).toMatchObject({ success: false, meta: { errorType: 'pool_circuit_open' } });
   });
 
   it('completion: surfaces provider errors as a failed response', async () => {

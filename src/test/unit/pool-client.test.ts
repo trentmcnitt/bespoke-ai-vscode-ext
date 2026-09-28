@@ -31,6 +31,7 @@ const { fakeHome, registry } = vi.hoisted(() => {
 interface FakeCompletionProviderShape {
   config: { claudeCode: { model: string }; customInstructions: string };
   available: boolean;
+  unavailableWhy: string;
   disposed: boolean;
   recycles: number;
   restarts: number;
@@ -40,6 +41,7 @@ interface FakeCompletionProviderShape {
 interface FakeCommandPoolShape {
   model: string;
   available: boolean;
+  unavailableWhy: string;
   disposed: boolean;
   recycles: number;
   restarts: number;
@@ -85,6 +87,11 @@ vi.mock('../../providers/claude-code', () => ({
     async activate() {}
     isAvailable() {
       return this.available && !this.disposed;
+    }
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason() {
+      if (this.disposed) return 'disposed';
+      return this.available ? null : this.unavailableWhy;
     }
     async getCompletion(ctx: { prefix: string }) {
       if (ctx.prefix === 'THROW') throw new Error('boom');
@@ -157,6 +164,11 @@ vi.mock('../../providers/command-pool', () => ({
     async activate() {}
     isAvailable() {
       return this.available && !this.disposed;
+    }
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason() {
+      if (this.disposed) return 'disposed';
+      return this.available ? null : this.unavailableWhy;
     }
     async sendPrompt(message: string) {
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
@@ -495,9 +507,34 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       expect(b.errors.some((e) => e.includes('Completion pool not available'))).toBe(true);
       expect((await b.client.sendCommand('x')).text).toBeNull();
       expect(b.errors.some((e) => e.includes('Command pool not available'))).toBe(true);
+      // The leader says why, so the follower's trace is typed rather than pool_error.
+      const cmd = await b.client.sendCommand('x');
+      expect(cmd.errorType).toBe('slot_unavailable');
       // Leader's availability reflects the provider directly
       expect(a.client.isAvailable()).toBe(false);
       expect(a.client.isCommandPoolAvailable()).toBe(false);
+    });
+
+    it("a follower's request to an open-breaker pool is traced as pool_circuit_open, not pool_error", async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      for (const pool of [registry.completion[0], registry.command[0]]) {
+        pool.available = false;
+        pool.unavailableWhy = 'pool_circuit_open';
+      }
+
+      // A follower can't see the leader's pool state, so it sends; the leader says why.
+      expect(b.client.isAvailable()).toBe(true);
+      const res = await b.client.getCompletionWithDetail(makeProseContext(), signal());
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('pool_circuit_open');
+      expect(await b.client.sendCommand('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_circuit_open',
+      });
     });
 
     it('provider exceptions surface as null, not a thrown error, on both paths', async () => {
