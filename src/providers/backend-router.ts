@@ -5,6 +5,18 @@ import { ApiCompletionProvider } from './api/api-provider';
 import { ApiCommandProvider } from './api/api-command-provider';
 import { getPreset } from './api/presets';
 import { shortenModelName } from '../utils/model-name';
+import {
+  CompletionWithDetail,
+  GenerationDetail,
+  GenerationOptions,
+  TraceOutcome,
+  TraceRecorder,
+  detailFromError,
+  errorTypeOf,
+  newShortRequestId,
+  newSpanId,
+  newTraceId,
+} from '../utils/trace';
 
 /**
  * Routes completion and command requests to the active backend.
@@ -17,6 +29,7 @@ export class BackendRouter implements CompletionProvider {
   private apiCompletion: ApiCompletionProvider | null;
   private apiCommand: ApiCommandProvider | null;
   private config: ExtensionConfig;
+  private tracer: TraceRecorder | null = null;
 
   constructor(
     poolClient: PoolClient,
@@ -32,9 +45,25 @@ export class BackendRouter implements CompletionProvider {
 
   // --- CompletionProvider interface ---
 
-  isAvailable(): boolean {
-    if (this.config.backend === 'api') {
-      return this.apiCompletion?.isAvailable() ?? false;
+  /**
+   * Without `mode`: the primary backend. With `mode`: whatever that mode routes to
+   * (`resolveEffectiveBackend`), so an open main-preset breaker does not block a
+   * healthy code-override preset, and an open override breaker blocks only code.
+   */
+  isAvailable(mode?: 'prose' | 'code'): boolean {
+    if (!mode) {
+      if (this.config.backend === 'api') {
+        return this.apiCompletion?.isAvailable() ?? false;
+      }
+      return this.poolClient.isAvailable();
+    }
+    const effective = this.resolveEffectiveBackend(mode);
+    if (effective.backend === 'api') {
+      if (!this.apiCompletion) return false;
+      if (effective.model && effective.model !== this.config.api.preset) {
+        return this.apiCompletion.isPresetAvailable(effective.model);
+      }
+      return this.apiCompletion.isAvailable();
     }
     return this.poolClient.isAvailable();
   }
@@ -65,6 +94,48 @@ export class BackendRouter implements CompletionProvider {
     return this.poolClient.getCompletion(context, signal);
   }
 
+  /** Same routing as `getCompletion`, returning generation detail for trace records. */
+  async getCompletionWithDetail(
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    const effective = this.resolveEffectiveBackend(context.mode);
+
+    if (effective.backend === 'api') {
+      if (!this.apiCompletion) return { text: null };
+      if (effective.model && effective.model !== this.config.api.preset) {
+        return this.apiCompletion.getCompletionWithPresetDetail(
+          effective.model,
+          context,
+          signal,
+          options,
+        );
+      }
+      return this.apiCompletion.getCompletionWithDetail(context, signal, options);
+    }
+
+    if (effective.model && effective.model !== this.config.claudeCode.model) {
+      const overrideConfig = {
+        ...this.config,
+        claudeCode: { ...this.config.claudeCode, model: effective.model },
+      };
+      this.poolClient.updateConfig?.(overrideConfig);
+      try {
+        return await this.poolClient.getCompletionWithDetail(context, signal, options);
+      } finally {
+        this.poolClient.updateConfig?.(this.config);
+      }
+    }
+
+    return this.poolClient.getCompletionWithDetail(context, signal, options);
+  }
+
+  /** Attach the trace recorder used for command (commit message / suggest edit) records. */
+  setTraceRecorder(recorder: TraceRecorder | null): void {
+    this.tracer = recorder;
+  }
+
   updateConfig(config: ExtensionConfig): void {
     this.config = config;
     this.poolClient.updateConfig?.(config);
@@ -80,15 +151,141 @@ export class BackendRouter implements CompletionProvider {
   // --- Command interface for commit-message and suggest-edit ---
 
   async sendCommand(message: string, options?: SendPromptOptions): Promise<SendPromptResult> {
+    const tracer = this.tracer;
+    if (!tracer) return this.sendCommandUntraced(message, options);
+
+    const backend = this.config.backend === 'api' && this.apiCommand ? 'api' : 'claude-code';
+    const startTimeMs = Date.now();
+    let result: SendPromptResult | undefined;
+    let thrown: unknown;
+    try {
+      result = await this.sendCommandUntraced(message, options);
+      return result;
+    } catch (err) {
+      thrown = err;
+      throw err;
+    } finally {
+      this.recordCommand(tracer, backend, message, options, startTimeMs, result, thrown);
+    }
+  }
+
+  private async sendCommandUntraced(
+    message: string,
+    options?: SendPromptOptions,
+  ): Promise<SendPromptResult> {
     if (this.config.backend === 'api' && this.apiCommand) {
-      const text = await this.apiCommand.sendPrompt(
+      const { text, detail } = await this.apiCommand.sendPromptWithDetail(
         COMMAND_SYSTEM_PROMPT,
         message,
         options?.onCancel,
+        options?.timeoutMs,
       );
-      return { text, meta: null };
+      // Same fields the CLI path reports, so callers can tell a timeout or a
+      // swallowed failure from a cancel without reading trace detail.
+      return {
+        text,
+        meta: null,
+        detail,
+        ...(!text && detail?.errorType ? { errorType: detail.errorType } : {}),
+        ...(!text && detail?.aborted ? { aborted: true } : {}),
+      };
     }
     return this.poolClient.sendCommand(message, options);
+  }
+
+  /** Build and record a `chat` trace record for a command. Never throws. */
+  private recordCommand(
+    tracer: TraceRecorder,
+    backend: 'claude-code' | 'api',
+    message: string,
+    options: SendPromptOptions | undefined,
+    startTimeMs: number,
+    result: SendPromptResult | undefined,
+    thrown: unknown,
+  ): void {
+    try {
+      const endTimeMs = Date.now();
+      let detail: GenerationDetail | undefined = result?.detail ?? detailFromError(thrown);
+      if (!detail && backend === 'claude-code') {
+        // CLI: everything but the model-side numbers is known in this window, so no
+        // content needs to cross the pool socket for commands.
+        const meta = result?.meta;
+        detail = {
+          providerName: 'anthropic',
+          requestModel: this.config.claudeCode.model,
+          responseModel: meta?.model || undefined,
+          inputTokens: meta?.inputTokens,
+          outputTokens: meta?.outputTokens,
+          cacheReadTokens: meta?.cacheReadTokens,
+          cacheWriteTokens: meta?.cacheCreationTokens,
+          costUsd: meta?.turnCostUsd,
+          durationApiMs: meta?.durationApiMs,
+          finishReason: meta?.stopReason,
+          ...(result?.errorType ? { errorType: result.errorType } : {}),
+          ...(result?.aborted ? { aborted: true } : {}),
+        };
+      }
+      if (detail && this.config.trace.captureContent) {
+        detail = {
+          ...detail,
+          content: {
+            systemPrompt: COMMAND_SYSTEM_PROMPT,
+            userMessage: message,
+            rawOutput: result?.text ?? null,
+          },
+        };
+      }
+
+      const cancelled = options?.onCancel?.aborted === true || detail?.aborted === true;
+      const timedOut =
+        !result?.text &&
+        !cancelled &&
+        options?.timeoutMs !== undefined &&
+        endTimeMs - startTimeMs >= options.timeoutMs;
+      let outcome: TraceOutcome;
+      let errorType: string | undefined;
+      let errorMessage: string | undefined;
+      if (thrown !== undefined) {
+        outcome = 'error';
+        errorType = errorTypeOf(thrown);
+        errorMessage = thrown instanceof Error ? thrown.message : String(thrown);
+      } else if (result?.text) {
+        outcome = 'ok';
+      } else if (cancelled) {
+        outcome = 'aborted';
+      } else if (detail?.errorType) {
+        // The backend's own reason (e.g. `timeout`, `pool_recycled`) wins over the
+        // wall-clock guess below, which could mislabel a slow pool failure.
+        outcome = 'error';
+        errorType = detail.errorType;
+      } else if (timedOut) {
+        outcome = 'error';
+        errorType = 'timeout';
+      } else {
+        outcome = 'empty';
+      }
+
+      const requestModel = detail?.requestModel ?? this.config.claudeCode.model;
+      tracer.record({
+        traceId: newTraceId(),
+        spanId: newSpanId(),
+        requestId: newShortRequestId(),
+        source: options?.traceSource ?? 'command',
+        operation: 'chat',
+        backend,
+        outcome,
+        providerName: detail?.providerName ?? 'anthropic',
+        requestModel,
+        receivedAtMs: startTimeMs,
+        startTimeMs,
+        endTimeMs,
+        detail,
+        errorType,
+        errorMessage,
+      });
+    } catch {
+      // Tracing must never affect the command path.
+    }
   }
 
   isCommandAvailable(): boolean {

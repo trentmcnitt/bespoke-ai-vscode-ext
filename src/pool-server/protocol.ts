@@ -6,6 +6,7 @@
  */
 
 import { CompletionMode } from '../types';
+import type { GenerationDetail } from '../utils/trace';
 
 // --- Request Types ---
 
@@ -18,6 +19,11 @@ export interface CompletionRequest {
   languageId: string;
   fileName: string;
   filePath: string;
+  /**
+   * Requester's `bespokeAI.trace.captureContent`. The server includes prompt/response text in
+   * `meta.content` only when this is exactly `true` — absent (older clients) means no content.
+   */
+  captureContent?: boolean;
 }
 
 export interface CommandRequest {
@@ -67,6 +73,19 @@ export interface ClientHelloRequest {
   clientId: string;
 }
 
+/**
+ * Stop the sender's in-flight `command` whose id is `requestId`. `id` is a fresh id of
+ * its own: a leader from before `cancel` existed answers it with an `error` response,
+ * which then matches no pending request and is dropped. A cancel for a command that
+ * already finished, or a second cancel, is a no-op. Only the connection that sent the
+ * command can cancel it.
+ */
+export interface CancelRequest {
+  type: 'cancel';
+  id: string;
+  requestId: string;
+}
+
 export type PoolRequest =
   | CompletionRequest
   | CommandRequest
@@ -75,20 +94,44 @@ export type PoolRequest =
   | StatusRequest
   | ConfigUpdateRequest
   | DisposeRequest
-  | ClientHelloRequest;
+  | ClientHelloRequest
+  | CancelRequest;
 
 // --- Response Types ---
 
 export interface ResultMetadata {
   model: string;
   durationMs?: number;
+  /** Per-turn API time (delta of the SDK's cumulative `duration_api_ms`; approximate). */
   durationApiMs?: number;
+  /**
+   * Per-turn cost in USD (commands). Servers before this change sent the SDK's cumulative
+   * per-session total here, so clients prefer `turnCostUsd` when both are present.
+   */
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   sessionId?: string;
+  // --- Trace detail (all optional; see utils/trace.ts GenerationDetail) ---
+  /** Model the request asked for (config alias, e.g. `sonnet`); `model` is what responded. */
+  requestModel?: string;
+  /** Cost of this turn, only when the SDK reported one (see slot-pool `ResultMetadata`). */
+  turnCostUsd?: number;
+  /** Time waiting for a pool slot before sending. */
+  waitMs?: number;
+  finishReason?: string;
+  /** Request superseded (latest-request-wins) or pool disposed before sending. */
+  aborted?: boolean;
+  errorType?: string;
+  /** Prompt/response text — only when the request set `captureContent: true`. */
+  content?: {
+    systemPrompt?: string;
+    userMessage?: string;
+    rawOutput?: string | null;
+    extracted?: string | null;
+  };
 }
 
 export interface CompletionResponse {
@@ -148,7 +191,7 @@ export interface PoolStatsInfo {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
-  /** Cumulative cost in USD. */
+  /** Total cost in USD of served requests since activation, summed from per-turn costs. */
   totalCostUsd: number;
   /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
   resolvedModel: string | null;
@@ -187,6 +230,13 @@ export interface ClientHelloResponse {
   model: string;
 }
 
+/** Acknowledges a `cancel`, whether or not a command was still in flight. */
+export interface CancelResponse {
+  type: 'cancel';
+  id: string;
+  success: true;
+}
+
 export interface ErrorResponse {
   type: 'error';
   id: string;
@@ -203,6 +253,7 @@ export type PoolResponse =
   | ConfigUpdateResponse
   | DisposeResponse
   | ClientHelloResponse
+  | CancelResponse
   | ErrorResponse;
 
 // --- Server Events (pushed to clients) ---
@@ -219,6 +270,73 @@ export interface PoolDegradedEvent {
 }
 
 export type ServerEvent = ServerShuttingDownEvent | PoolDegradedEvent;
+
+// --- Trace detail <-> wire metadata ---
+
+/**
+ * Convert a provider's generation detail into wire metadata for a completion response.
+ * Content is copied only when `captureContent` is true — when the requesting window has
+ * content capture off, prompt text never crosses the socket.
+ */
+export function detailToWireMeta(
+  detail: GenerationDetail | undefined,
+  fallbackModel: string,
+  captureContent: boolean,
+): ResultMetadata {
+  if (!detail) return { model: fallbackModel };
+  const meta: ResultMetadata = {
+    model: detail.responseModel || fallbackModel,
+    requestModel: detail.requestModel,
+    durationApiMs: detail.durationApiMs,
+    turnCostUsd: detail.costUsd,
+    inputTokens: detail.inputTokens,
+    outputTokens: detail.outputTokens,
+    cacheReadTokens: detail.cacheReadTokens,
+    cacheCreationTokens: detail.cacheWriteTokens,
+    waitMs: detail.waitMs,
+    finishReason: detail.finishReason,
+    aborted: detail.aborted,
+    errorType: detail.errorType,
+  };
+  if (captureContent && detail.content) {
+    const c = detail.content;
+    meta.content = {
+      systemPrompt: c.systemPrompt,
+      userMessage: c.userMessage,
+      rawOutput: c.rawOutput,
+      extracted: c.extracted,
+    };
+  }
+  return meta;
+}
+
+/** Rebuild a GenerationDetail (CLI backend) from wire metadata. */
+export function wireMetaToDetail(
+  meta: ResultMetadata | undefined,
+  configuredModel: string,
+  captureContent: boolean,
+): GenerationDetail {
+  const detail: GenerationDetail = {
+    providerName: 'anthropic',
+    requestModel: meta?.requestModel || configuredModel,
+  };
+  if (!meta) return detail;
+  // `model` falls back to the configured alias / previous response model when nothing
+  // responded, so only trust it as the response model when the backend reported usage.
+  if (meta.model && meta.outputTokens !== undefined) detail.responseModel = meta.model;
+  detail.inputTokens = meta.inputTokens;
+  detail.outputTokens = meta.outputTokens;
+  detail.cacheReadTokens = meta.cacheReadTokens;
+  detail.cacheWriteTokens = meta.cacheCreationTokens;
+  detail.costUsd = meta.turnCostUsd;
+  detail.durationApiMs = meta.durationApiMs;
+  detail.waitMs = meta.waitMs;
+  detail.finishReason = meta.finishReason;
+  if (meta.aborted) detail.aborted = true;
+  if (meta.errorType) detail.errorType = meta.errorType;
+  if (captureContent && meta.content) detail.content = { ...meta.content };
+  return detail;
+}
 
 // --- Utilities ---
 

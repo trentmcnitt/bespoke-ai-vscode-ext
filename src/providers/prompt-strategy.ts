@@ -16,6 +16,9 @@ The user sends text containing a {{FILL_HERE}} marker. Output ONLY the replaceme
 Core rules:
 - Match the voice, style, tone, and formatting of the surrounding text exactly
 - Preserve indentation, whitespace, and structural patterns (bullet markers, heading levels, comment prefixes)
+- Your output is inserted at {{FILL_HERE}} exactly as written, and the text on both sides stays unchanged. In prose, check the character just before the marker:
+  - A letter, digit, or punctuation mark, and your output starts a new word: begin your output with a space (see the examples).
+  - A space or line break, or a partly typed word you are finishing: do not begin with a space.
 - NEVER repeat text that appears immediately before or after the marker
 - NEVER include {{FILL_HERE}} in your response
 - Focus on what belongs at the cursor — ignore errors or incomplete text elsewhere in the document
@@ -40,8 +43,8 @@ Examples:
 The 5th {{FILL_HERE}} is Jupiter.
 <COMPLETION>planet from the Sun</COMPLETION>
 
-I think we should use option B. The timeline is tighter but {{FILL_HERE}}
-<COMPLETION>the scope is much more reasonable. We can always extend the deadline if needed, but cutting features later is harder.</COMPLETION>
+I think we should use option B. The timeline is tighter but{{FILL_HERE}}
+<COMPLETION> the scope is much more reasonable. We can always extend the deadline if needed, but cutting features later is harder.</COMPLETION>
 
 ## Getting {{FILL_HERE}}
 
@@ -49,6 +52,9 @@ I think we should use option B. The timeline is tighter but {{FILL_HERE}}
 <COMPLETION>Started
 
 This guide walks you through the initial setup process.</COMPLETION>
+
+We finally shipped the new onboar{{FILL_HERE}}
+<COMPLETION>ding flow last week.</COMPLETION>
 
 When choosing a data format, consider your {{FILL_HERE}}
 <COMPLETION>use case. JSON is widely supported and ideal for web applications, YAML offers better readability for configuration files, and TOML provides a clean syntax for simpler settings.</COMPLETION>
@@ -61,8 +67,8 @@ I want the dashboard to show daily totals at the top. Below that, a weekly trend
 Can you check if the migration handles nullable columns? Also {{FILL_HERE}}
 <COMPLETION>verify that the rollback script actually restores the previous schema — last time it silently dropped the index on user_id.</COMPLETION>
 
-The build was taking 4 minutes on every push. {{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
-<COMPLETION>That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>
+The build was taking 4 minutes on every push.{{FILL_HERE}} I started by profiling the webpack config to find the bottleneck.
+<COMPLETION> That was completely untenable for a team doing 20+ deploys a day, so I decided to dedicate a sprint to fixing it.</COMPLETION>
 
 Code examples — suffix delimiters are already in the document, never repeat them:
 
@@ -140,7 +146,36 @@ export function buildFillMessage(
   const doc = suffix.trim()
     ? `<document language="${languageId}">\n${prefix}{{FILL_HERE}}${suffix}\n</document>`
     : `<document language="${languageId}">\n${prefix}{{FILL_HERE}}\n</document>`;
-  return `${doc}\n\nFill the {{FILL_HERE}} marker.`;
+  return `${doc}\n\n${fillInstructionSentences(prefix).join(' ')}`;
+}
+
+/** The fixed instruction line appended after the document. */
+export const FILL_INSTRUCTION = 'Fill the {{FILL_HERE}} marker.';
+/** Whitespace cue sent when the prefix ends in a non-word character plus one space. */
+export const ENDS_WITH_SPACE_CUE = 'The text before it already ends with a space.';
+
+/**
+ * The sentences appended after the document, in order. Shared by
+ * buildFillMessage() and the prefill echo check, so the check keys on exactly
+ * the text that was sent.
+ *
+ * Whitespace cue: the completion is inserted verbatim, but models often cannot
+ * tell that the marker sits flush against the preceding word and drop the
+ * leading space ("behind" + "inadequate" -> "behindinadequate"). State it
+ * explicitly. Only word-like tails get the cue, so code positions such as
+ * `href="` or `foo(` are left alone.
+ */
+export function fillInstructionSentences(prefix: string): string[] {
+  const lastWord = /[\p{L}\p{N}][\p{L}\p{N}_'’-]{0,29}[,.;:!?)]?$/u.exec(prefix)?.[0];
+  if (lastWord) {
+    return [
+      FILL_INSTRUCTION,
+      `There is no space between "${lastWord}" and the marker.`,
+      `If "${lastWord}" is a complete word or ends in punctuation and your output starts a new word, begin with a space.`,
+      `If you are finishing "${lastWord}" itself, do not.`,
+    ];
+  }
+  return /\S $/.test(prefix) ? [FILL_INSTRUCTION, ENDS_WITH_SPACE_CUE] : [FILL_INSTRUCTION];
 }
 
 /**
@@ -175,8 +210,12 @@ export interface PromptStrategy {
   readonly id: string;
   /** Build the full message set from document context. */
   buildMessages(prefix: string, suffix: string, languageId: string): PromptMessages;
-  /** Extract the completion text from the model's raw response. */
-  extractCompletion(raw: string): string | null;
+  /**
+   * Extract the completion text from the model's raw response. `prefix` and
+   * `suffix` are the document text around the cursor as sent, for strategies
+   * that need to tell the model's text apart from the prompt's.
+   */
+  extractCompletion(raw: string, prefix?: string, suffix?: string): string | null;
 }
 
 // ─── Strategy implementations ────────────────────────────────────
@@ -209,52 +248,137 @@ export const prefillExtraction: PromptStrategy = {
     // trimEnd() is required — the Anthropic API rejects assistant messages
     // with trailing whitespace. The model still sees the full prefix
     // (including whitespace) in the user message, so completions are correct.
-    const anchor = prefix.slice(-40).trimEnd();
+    const anchor = prefillAnchor(prefix);
     return {
       system: SYSTEM_PROMPT,
       user: buildFillMessage(prefix, suffix, languageId),
       assistantPrefill: `<COMPLETION>${anchor}`,
     };
   },
-  extractCompletion(raw: string): string | null {
-    // With prefill, the model's response continues from the prefill.
-    // The raw text is what the model returned AFTER the prefill
-    // (which already includes the opening <COMPLETION> tag + anchor).
-    //
-    // Anthropic models sometimes exhibit a "thinking leak" pattern:
-    // they immediately close the tag (</COMPLETION>), produce thinking
-    // text, then re-open a new <COMPLETION> block with the real content.
-    //
-    // Strategy: use indexOf to find the first </COMPLETION>. If the
-    // content before it is substantive, use it (handles clean responses
-    // and "valid-first-then-think" patterns). If empty, look for a
-    // second <COMPLETION>...</COMPLETION> pair (the model's retry after
-    // thinking).
-    const close = raw.indexOf('</COMPLETION>');
-    if (close !== -1) {
-      const content = raw.slice(0, close);
-      if (content.trim()) {
-        return content;
-      }
-      // Immediate close — model may have started thinking then retried.
-      // Look for a second <COMPLETION>...</COMPLETION> pair.
-      const secondOpen = raw.indexOf('<COMPLETION>', close);
-      if (secondOpen !== -1) {
-        const afterOpen = secondOpen + '<COMPLETION>'.length;
-        const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
-        if (secondClose !== -1) {
-          const retryContent = raw.slice(afterOpen, secondClose);
-          if (retryContent.trim()) {
-            return retryContent;
-          }
-        }
-      }
-      // No usable content found
-      return null;
-    }
-    return raw; // fallback: no closing tag, use raw text
+  extractCompletion(raw: string, prefix?: string, suffix?: string): string | null {
+    const content = extractPrefillContent(raw, prefix, suffix);
+    if (content === null || prefix === undefined) return content;
+    // The anchor had the prefix's trailing whitespace trimmed, so the model
+    // continues from e.g. "behind" and often re-emits that whitespace
+    // (" inadequate"). Those characters already sit before the cursor, so drop
+    // exactly the part of the output that reproduces them; otherwise the ghost
+    // text doubles the space ("behind  inadequate").
+    const trimmed = prefix.slice(-PREFILL_ANCHOR_CHARS).slice(prefillAnchor(prefix).length);
+    let i = 0;
+    while (i < trimmed.length && i < content.length && trimmed[i] === content[i]) i++;
+    return content.slice(i);
   },
 };
+
+/** How much of the prefix tail is echoed into the assistant prefill. */
+const PREFILL_ANCHOR_CHARS = 40;
+
+// trimEnd() is required — the Anthropic API rejects assistant messages with
+// trailing whitespace. The model still sees the full prefix (including
+// whitespace) in the user message.
+function prefillAnchor(prefix: string): string {
+  return prefix.slice(-PREFILL_ANCHOR_CHARS).trimEnd();
+}
+
+function extractPrefillContent(raw: string, prefix?: string, suffix?: string): string | null {
+  // With prefill, the model's response continues from the prefill.
+  // The raw text is what the model returned AFTER the prefill
+  // (which already includes the opening <COMPLETION> tag + anchor).
+  //
+  // Anthropic models sometimes exhibit a "thinking leak" pattern:
+  // they immediately close the tag (</COMPLETION>), produce thinking
+  // text, then re-open a new <COMPLETION> block with the real content.
+  //
+  // Strategy: use indexOf to find the first </COMPLETION>. If the
+  // content before it is substantive, use it (handles clean responses
+  // and "valid-first-then-think" patterns). If empty, look for a
+  // second <COMPLETION>...</COMPLETION> pair (the model's retry after
+  // thinking).
+  //
+  // "Substantive" ignores prompt scaffolding: a first block that is only the
+  // {{FILL_HERE}} marker (the model echoing the placeholder, then retrying)
+  // counts as empty, so the retry is used. Otherwise the marker was returned,
+  // post-processing stripped it, and the retry's real text was lost.
+  //
+  // A block that echoes the user message back (see echoesUserMessage) is not an
+  // answer either: it is treated like a blank block, so the retry is used if
+  // there is a closed one, and otherwise nothing is shown.
+  const isAnswer = (block: string) =>
+    !isScaffoldOnly(block) && !echoesUserMessage(block, prefix, suffix);
+  const close = raw.indexOf('</COMPLETION>');
+  if (close !== -1) {
+    const content = raw.slice(0, close);
+    if (isAnswer(content)) {
+      return content;
+    }
+    // Immediate close — model may have started thinking then retried.
+    // Look for a second <COMPLETION>...</COMPLETION> pair.
+    const secondOpen = raw.indexOf('<COMPLETION>', close);
+    if (secondOpen !== -1) {
+      const afterOpen = secondOpen + '<COMPLETION>'.length;
+      const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
+      if (secondClose !== -1) {
+        const retryContent = raw.slice(afterOpen, secondClose);
+        if (isAnswer(retryContent)) {
+          return retryContent;
+        }
+      }
+    }
+    // No usable content found
+    return null;
+  }
+  // Fallback: no closing tag (stop sequence or a max_tokens cut), use raw text.
+  return echoesUserMessage(raw, prefix, suffix) ? null : raw;
+}
+
+/**
+ * True when a prefill-path block contains the user message's own scaffolding,
+ * copied back by the model rather than written as an answer.
+ *
+ * Problem: haiku sometimes continues past the prefill anchor by re-typing the
+ * rest of the user message — `{{FILL_HERE}}`, the suffix, `</document>`, the
+ * "Fill the {{FILL_HERE}} marker." line and the whitespace cue — then reasons
+ * and only then answers, all before its first `</COMPLETION>`. Everything
+ * before that tag was the ghost text (2 of 24 mid-word samples on
+ * `the deploym`, and `code-html-tag` at `href="`; see
+ * evals/2026-09-28-reasoning-leakage.md).
+ *
+ * Why it is safe: each signal is text this extension writes, never text the
+ * author wrote.
+ *  - The block starts with the `{{FILL_HERE}}` marker and also contains
+ *    `</document>`: the model is copying the document from the marker to the
+ *    wrapper's closing tag. Neither alone is enough — `</document>` is a real
+ *    closing tag in XML, and a leading marker followed by a real answer is
+ *    handled by stripLeakedTags() as before.
+ *  - The block contains one of the exact sentences appended after the
+ *    document for this request (fillInstructionSentences(prefix)), including
+ *    the whitespace cue that quotes the author's last word.
+ * A signal that also appears in the document text sent (prefix + suffix) is
+ * ignored: someone editing this very file, or a document that mentions the
+ * marker, can legitimately produce it.
+ *
+ * Not covered, on purpose: reasoning that quotes nothing from the prompt
+ * ("Wait, let me reconsider…") is still shown. That wording can be legitimate
+ * prose, so it is not a safe trigger.
+ */
+function echoesUserMessage(block: string, prefix?: string, suffix?: string): boolean {
+  const docText = (prefix ?? '') + (suffix ?? '');
+  const fromPrompt = (s: string) => block.includes(s) && !docText.includes(s);
+  if (
+    /^\s*\{\{FILL_HERE\}\}/.test(block) &&
+    fromPrompt('{{FILL_HERE}}') &&
+    fromPrompt('</document>')
+  ) {
+    return true;
+  }
+  const sentences = prefix === undefined ? [FILL_INSTRUCTION] : fillInstructionSentences(prefix);
+  return sentences.some(fromPrompt);
+}
+
+/** True when `text` is blank once prompt scaffolding tags / the fill marker are removed. */
+function isScaffoldOnly(text: string): boolean {
+  return !text.replace(/<\/?COMPLETION>|\{\{FILL_HERE\}\}/g, '').trim();
+}
 
 /** Common preamble patterns that non-Anthropic models produce. */
 const PREAMBLE_PATTERNS = [

@@ -30,6 +30,12 @@ export class CircuitBreaker {
     return true;
   }
 
+  /** Milliseconds until an open breaker lets requests through again; 0 when closed. Read-only. */
+  remainingCooldownMs(): number {
+    if (this.consecutiveFailures < this.threshold) return 0;
+    return Math.max(0, this.cooldownMs - (Date.now() - this.circuitOpenedAt));
+  }
+
   recordFailure(): void {
     this.consecutiveFailures++;
     if (this.consecutiveFailures === this.threshold) {

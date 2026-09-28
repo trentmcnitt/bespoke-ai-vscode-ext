@@ -10,6 +10,12 @@ import {
   MAX_COMMIT_DIFF_CHARS,
 } from './utils/commit-message-utils';
 import { getWorkspaceRoot } from './utils/workspace';
+import {
+  commandFailureType,
+  commandUnavailableMessage,
+  describeCommandFailure,
+} from './utils/command-failure';
+import type { ApiCommandProvider } from './providers/api/api-command-provider';
 import type { GitExtension, Repository } from './types/git';
 
 const TIMEOUT_MS = 60_000;
@@ -20,6 +26,7 @@ export async function generateCommitMessage(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   if (inFlight) {
     vscode.window.setStatusBarMessage('Bespoke AI: Request already in progress', 2000);
@@ -27,7 +34,14 @@ export async function generateCommitMessage(
   }
   inFlight = true;
   try {
-    await doGenerateCommitMessage(router, logger, ledger);
+    await doGenerateCommitMessage(router, logger, ledger, apiCommand);
+  } catch (err) {
+    // Command features are their own entry point (no orchestrator above them),
+    // so log and surface errors here. The toast is deliberately not awaited:
+    // awaiting it would hold the in-flight guard until the user dismisses it.
+    logger.error('Commit message generation failed', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Bespoke AI: Commit message generation failed — ${msg}`);
   } finally {
     inFlight = false;
   }
@@ -37,12 +51,15 @@ async function doGenerateCommitMessage(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   logger.info('Commit message generation started');
 
-  // Check pool availability
+  // Check backend availability; on the API backend, say why (no key, paused, bad preset)
   if (!router.isCommandAvailable()) {
-    vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
+    const backend = router.getBackend();
+    const reason = backend === 'api' ? apiCommand?.unavailableReason() : null;
+    vscode.window.showWarningMessage(`Bespoke AI: ${commandUnavailableMessage(backend, reason)}`);
     return;
   }
 
@@ -142,7 +159,7 @@ async function doGenerateCommitMessage(
 
   // 6. Send to command pool with progress
   const startTime = Date.now();
-  const { text, meta } = await vscode.window.withProgress(
+  const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Bespoke AI: Generating commit message...',
@@ -155,13 +172,24 @@ async function doGenerateCommitMessage(
       return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
+        traceSource: 'commit-message',
       });
     },
   );
 
   const durationMs = Date.now() - startTime;
+  const { text, meta } = result;
 
   if (text === null) {
+    // The pool (or API) ended the request without a reply: say why. A cancellation
+    // or supersession stays silent. Not awaited, so the in-flight guard is released.
+    const failure = commandFailureType(result);
+    if (failure) {
+      logger.error(`Commit message generation failed: ${failure}`);
+      void vscode.window.showErrorMessage(
+        `Bespoke AI: Commit message generation failed — ${describeCommandFailure(failure)}`,
+      );
+    }
     return;
   }
 

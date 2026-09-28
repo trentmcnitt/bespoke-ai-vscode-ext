@@ -1,8 +1,14 @@
 import { CompletionContext, CompletionProvider, ExtensionConfig } from '../types';
 import { Logger } from '../utils/logger';
 import { postProcessCompletion } from '../utils/post-process';
-import { SlotPool } from './slot-pool';
+import { SlotDenial, SlotPool, denialOutcome } from './slot-pool';
 import { composeSystemPrompt, buildFillMessage, extractCompletion } from './prompt-strategy';
+import {
+  CompletionWithDetail,
+  GenerationContent,
+  GenerationDetail,
+  GenerationOptions,
+} from '../utils/trace';
 
 /** Maximum completions per slot before recycling. */
 const MAX_COMPLETION_REUSES = 8;
@@ -11,6 +17,14 @@ const MAX_COMPLETION_REUSES = 8;
 export const WARMUP_PREFIX = 'Two plus two equals ';
 export const WARMUP_SUFFIX = '.';
 export const WARMUP_EXPECTED = 'four';
+
+/**
+ * Record why a request got no result: a cancellation (`superseded`, `disposed`)
+ * sets `aborted`; a pool failure sets `errorType`, so the trace says `error`.
+ */
+function withDenial(detail: GenerationDetail, denial: SlotDenial): GenerationDetail {
+  return { ...detail, ...denialOutcome(denial) };
+}
 
 export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
   private config: ExtensionConfig;
@@ -38,20 +52,43 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     this.logger.info(`Claude Code: pool ready (${this.poolSize} slots)`);
   }
 
-  async getCompletion(context: CompletionContext, _signal: AbortSignal): Promise<string | null> {
+  async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
+    return (await this.getCompletionWithDetail(context, signal)).text;
+  }
+
+  async getCompletionWithDetail(
+    context: CompletionContext,
+    _signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    const detail: GenerationDetail = {
+      providerName: 'anthropic',
+      requestModel: this.config.claudeCode.model,
+    };
+    // Disposed (shutting down) is a cancellation; checked first because dispose()
+    // also clears queryFn.
+    if (this.unavailableReason() === 'disposed') {
+      return { text: null, detail: withDenial(detail, 'disposed') };
+    }
     if (!this.queryFn) {
-      return null;
+      return { text: null, detail: { ...detail, errorType: 'sdk_unavailable' } };
     }
 
     // Acquire an available slot (marks it busy before returning)
     const acquireStart = Date.now();
-    const slotIndex = await this.acquireSlot();
-    if (slotIndex === null) {
-      return null;
+    const slotIndex = await this.acquireSlotOrDenial();
+    if (typeof slotIndex !== 'number') {
+      // Superseded by a newer request (latest-request-wins) or disposed → aborted;
+      // the pool killed while waiting (recycle, warmup failure) → error.
+      return {
+        text: null,
+        detail: withDenial({ ...detail, waitMs: Date.now() - acquireStart }, slotIndex),
+      };
     }
     // Time spent waiting for the pool (busy slot or recycle-in-progress), as
     // distinct from inference time — keeps speed reports diagnosable (#22).
     const waitMs = Date.now() - acquireStart;
+    detail.waitMs = waitMs;
     if (waitMs > 100) {
       this.logger.debug(
         `Claude Code: waited ${waitMs}ms for a slot (pool busy or recycling) before sending request`,
@@ -61,13 +98,17 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     const slot = this.slots[slotIndex];
 
     const message = buildFillMessage(context.prefix, context.suffix, context.languageId);
+    const content: GenerationContent | undefined = options?.captureContent
+      ? { systemPrompt: this.getSystemPrompt(), userMessage: message }
+      : undefined;
+    if (content) detail.content = content;
 
     this.logger.traceInline('slot', String(slotIndex));
     this.logger.traceBlock('→ sent', message);
 
-    // Guard: slot may have been disposed between acquireSlot and here
+    // Guard: slot may have lost its session between acquireSlot and here
     if (!slot.channel || !slot.resultPromise) {
-      return null;
+      return { text: null, detail: { ...detail, errorType: 'slot_unavailable' } };
     }
 
     // Push the completion request into the slot's channel
@@ -75,7 +116,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
 
     // Await the result unconditionally — the consumer owns the slot lifecycle
     const startTime = Date.now();
-    const raw = await slot.resultPromise;
+    const { text: raw, failure } = await slot.resultPromise;
     const wallDuration = Date.now() - startTime;
 
     // Record completion in ledger
@@ -101,10 +142,24 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       sessionId: meta?.sessionId,
     });
 
-    this.logger.traceBlock('← raw', raw ?? '(null)');
+    if (meta) {
+      detail.responseModel = meta.model || undefined;
+      detail.inputTokens = meta.inputTokens;
+      detail.outputTokens = meta.outputTokens;
+      detail.cacheReadTokens = meta.cacheReadTokens;
+      detail.cacheWriteTokens = meta.cacheCreationTokens;
+      detail.costUsd = meta.turnCostUsd;
+      detail.durationApiMs = meta.durationApiMs;
+      detail.finishReason = meta.stopReason;
+    } else {
+      detail.durationApiMs = wallDuration;
+    }
+    if (content) content.rawOutput = raw;
+
+    this.logger.traceBlock('← raw', raw ?? (failure ? `(null: ${failure})` : '(null)'));
 
     if (!raw) {
-      return null;
+      return { text: null, detail: failure ? withDenial(detail, failure) : detail };
     }
 
     // Extract content from <COMPLETION> tags
@@ -112,6 +167,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
     if (extracted !== raw) {
       this.logger.traceBlock('← extracted', extracted);
     }
+    if (content) content.extracted = extracted;
 
     // Run standard post-processing (prefix enables overlap trimming if model echoes the line fragment)
     const result = postProcessCompletion(extracted, context.prefix, context.suffix, context.mode);
@@ -120,7 +176,7 @@ export class ClaudeCodeProvider extends SlotPool implements CompletionProvider {
       this.logger.traceBlock('← processed', result ?? '(null)');
     }
 
-    return result;
+    return { text: result, detail };
   }
 
   // --- SlotPool abstract method implementations ---

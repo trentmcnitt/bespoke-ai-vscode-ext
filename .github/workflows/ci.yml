@@ -13,6 +13,7 @@ jobs:
   quality:
     name: Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,22 +23,59 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run format:check
+      # Advisory only: reports known vulnerabilities in runtime dependencies without failing the build.
+      - name: npm audit (runtime deps)
+        run: npm audit --omit=dev || true
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci
-      - run: npm run test:unit
+      # tree-sitter grammars (dev-only, loaded lazily by the quality-eval syntax checks) need a
+      # native build that fails on the Windows runner; unit tests never load them.
+      - run: npm ci ${{ runner.os == 'Windows' && '--ignore-scripts' || '' }}
+      - run: npm run test:coverage
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          node -e '
+            const t = require("./coverage/coverage-summary.json").total;
+            const row = (k) => `| ${k} | ${t[k].pct}% | ${t[k].covered}/${t[k].total} |`;
+            console.log(["| Metric | % | Covered |", "| --- | --- | --- |", ...["lines", "statements", "functions", "branches"].map(row)].join("\n"));
+          ' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: coverage-report
+          path: coverage/
+
+  # The branch ruleset requires a check named "Test". The matrix reports as
+  # "Test (<os>)", so this job reports "Test" and passes only if every OS passed.
+  test-all:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: All test legs passed
+        run: test "${{ needs.test.result }}" = success
 
   build:
     name: Build VSIX
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4

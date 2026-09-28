@@ -12,6 +12,8 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 export class OpenAICompatAdapter implements ApiAdapter {
   readonly providerId: string;
   private client: unknown = null;
+  /** The key `client` was built with; a different resolved key rebuilds it. */
+  private clientKey: string | undefined;
   private preset: Preset;
   private sessionId: string;
 
@@ -51,7 +53,9 @@ export class OpenAICompatAdapter implements ApiAdapter {
           model: this.preset.modelId,
           messages: openaiMessages,
           max_tokens: options.maxTokens,
-          temperature: options.temperature,
+          // Left out when the model rejects sampling parameters (e.g. OpenRouter
+          // `anthropic/claude-sonnet-5`). See model-capabilities.ts.
+          ...(this.preset.features?.sampling === false ? {} : { temperature: options.temperature }),
           stop: options.stopSequences,
           ...this.preset.extraBody,
         },
@@ -77,9 +81,10 @@ export class OpenAICompatAdapter implements ApiAdapter {
         },
         model: response.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
+        finishReason: response.choices?.[0]?.finish_reason ?? undefined,
       };
     } catch (err: unknown) {
-      if (isAbortError(err)) {
+      if (isAbortError(err, options.signal)) {
         return {
           text: null,
           usage: { inputTokens: 0, outputTokens: 0 },
@@ -98,6 +103,7 @@ export class OpenAICompatAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: '429',
         };
       }
 
@@ -119,9 +125,11 @@ export class OpenAICompatAdapter implements ApiAdapter {
   }
 
   private async getClient(): Promise<OpenAIClient> {
-    if (this.client) return this.client as OpenAIClient;
-
+    // Resolved per request (an in-memory lookup) so a key replaced with
+    // `setApiKey`, or changed in the environment, takes effect on the next
+    // request instead of the cached client failing until reload.
     const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (this.client && apiKey === this.clientKey) return this.client as OpenAIClient;
     if (!apiKey) {
       throw new Error(
         `API key not found for ${this.preset.apiKeyEnvVar}. Set it in your environment or ~/.creds/api-keys.env`,
@@ -146,16 +154,18 @@ export class OpenAICompatAdapter implements ApiAdapter {
       baseURL: this.preset.baseUrl,
       ...(Object.keys(defaultHeaders).length > 0 && { defaultHeaders }),
     });
+    this.clientKey = apiKey;
     return this.client as OpenAIClient;
   }
 }
 
-function isAbortError(err: unknown): boolean {
-  if (err instanceof Error && err.name === 'AbortError') return true;
-  if (err instanceof DOMException && err.name === 'AbortError') return true;
-  // OpenAI SDK wraps abort errors
-  if (err instanceof Error && err.message?.includes('aborted')) return true;
-  return false;
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  // Our own signal is the source of truth: the SDK throws APIUserAbortError
+  // ("Request was aborted.") only after checking that it was aborted. Matching
+  // on message text also swallowed server errors that merely mention
+  // "aborted", hiding them from the user and from the circuit breaker.
+  if (signal.aborted) return true;
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 // Minimal type definitions to avoid import-time dependency
@@ -176,13 +186,13 @@ interface OpenAIClient {
           model: string;
           messages: OpenAIMessage[];
           max_tokens: number;
-          temperature: number;
+          temperature?: number;
           stop?: string[];
           [key: string]: unknown;
         },
         options?: { signal?: AbortSignal },
       ): Promise<{
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
         usage?: {
           prompt_tokens?: number;
           completion_tokens?: number;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BackendRouter } from '../../providers/backend-router';
 import { makeConfig, makeProseContext } from '../helpers';
+import { TraceRecorder } from '../../utils/trace';
 
 // Create mock objects
 function makeMockPoolClient() {
@@ -31,6 +32,10 @@ function makeMockApiCommand() {
   return {
     isAvailable: vi.fn().mockReturnValue(true),
     sendPrompt: vi.fn().mockResolvedValue('api command result'),
+    sendPromptWithDetail: vi.fn().mockResolvedValue({
+      text: 'api command result',
+      detail: { providerName: 'x_ai', requestModel: 'grok-4', outputTokens: 12 },
+    }),
     updateConfig: vi.fn(),
     dispose: vi.fn(),
   };
@@ -157,7 +162,12 @@ describe('BackendRouter', () => {
 
       const result = await router.sendCommand('test message');
       expect(result.text).toBe('api command result');
-      expect(mockApiCommand.sendPrompt).toHaveBeenCalled();
+      expect(mockApiCommand.sendPromptWithDetail).toHaveBeenCalledWith(
+        expect.any(String),
+        'test message',
+        undefined,
+        undefined,
+      );
     });
 
     it('reports backend as api', () => {
@@ -259,5 +269,167 @@ describe('BackendRouter', () => {
 
       expect(router.isAvailable()).toBe(false);
     });
+  });
+});
+
+describe('BackendRouter — command trace records', () => {
+  function build(
+    backend: 'claude-code' | 'api',
+    captureContent = true,
+  ): {
+    router: BackendRouter;
+    recorder: TraceRecorder;
+    pool: ReturnType<typeof makeMockPoolClient>;
+    api: ReturnType<typeof makeMockApiCommand>;
+  } {
+    const pool = makeMockPoolClient();
+    const api = makeMockApiCommand();
+    const router = new BackendRouter(
+      pool as any,
+      makeMockApiCompletion() as any,
+      api as any,
+      makeConfig({ backend, trace: { captureContent, file: false } }),
+    );
+    const recorder = new TraceRecorder({ captureContent });
+    router.setTraceRecorder(recorder);
+    return { router, recorder, pool, api };
+  }
+
+  it('records a chat span for a CLI command, rebuilding detail from pool metadata', async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({
+      text: 'feat: add tracing',
+      meta: {
+        model: 'claude-sonnet-4-5',
+        durationMs: 900,
+        durationApiMs: 850,
+        costUsd: 0.5,
+        turnCostUsd: 0.01,
+        inputTokens: 3,
+        outputTokens: 20,
+        cacheReadTokens: 4000,
+        cacheCreationTokens: 0,
+        sessionId: 's',
+        stopReason: 'end_turn',
+      },
+    });
+    await router.sendCommand('DIFF', { traceSource: 'commit-message' });
+    const [r] = recorder.getRecent();
+    expect(r).toMatchObject({
+      operation: 'chat',
+      source: 'commit-message',
+      backend: 'claude-code',
+      outcome: 'ok',
+      providerName: 'anthropic',
+    });
+    expect(r.detail).toMatchObject({
+      requestModel: 'sonnet',
+      responseModel: 'claude-sonnet-4-5',
+      costUsd: 0.01,
+      finishReason: 'end_turn',
+      content: { userMessage: 'DIFF', rawOutput: 'feat: add tracing' },
+    });
+    // The prompt was not sent over the pool socket for the trace's sake.
+    expect(pool.sendCommand).toHaveBeenCalledWith('DIFF', { traceSource: 'commit-message' });
+  });
+
+  it('records API command detail and omits content when capture is off', async () => {
+    const { router, recorder } = build('api', false);
+    await router.sendCommand('FIX THIS', { traceSource: 'suggest-edit' });
+    const [r] = recorder.getRecent();
+    expect(r.source).toBe('suggest-edit');
+    expect(r.backend).toBe('api');
+    expect(r.providerName).toBe('x_ai');
+    expect(r.detail?.outputTokens).toBe(12);
+    expect(JSON.stringify(r)).not.toContain('FIX THIS');
+  });
+
+  it('records a CLI command the pool ended as error with its type, or aborted', async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'pool_recycled' });
+    await router.sendCommand('x');
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('error');
+    expect(r.detail?.errorType).toBe('pool_recycled');
+
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, aborted: true });
+    await router.sendCommand('x');
+    expect(recorder.getRecent()[0].outcome).toBe('aborted');
+  });
+
+  it("records the backend's own reason over the wall-clock timeout guess", async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'timeout' });
+    await router.sendCommand('x', { timeoutMs: 60_000 });
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'timeout' });
+
+    // A slow pool failure is not relabelled a timeout.
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'pool_recycled' });
+    await router.sendCommand('x', { timeoutMs: 0 });
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'pool_recycled' });
+  });
+
+  it('passes timeoutMs to the API command provider', async () => {
+    const { router, api } = build('api');
+    const cancel = new AbortController();
+    await router.sendCommand('x', { timeoutMs: 1234, onCancel: cancel.signal });
+    expect(api.sendPromptWithDetail).toHaveBeenCalledWith(
+      expect.any(String),
+      'x',
+      cancel.signal,
+      1234,
+    );
+  });
+
+  it('classifies cancelled, timed-out, and thrown commands', async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null });
+
+    const controller = new AbortController();
+    controller.abort();
+    await router.sendCommand('x', { onCancel: controller.signal });
+    expect(recorder.getRecent()[0].outcome).toBe('aborted');
+
+    await router.sendCommand('x', { timeoutMs: 0 });
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'timeout' });
+
+    await router.sendCommand('x');
+    expect(recorder.getRecent()[0].outcome).toBe('empty');
+
+    pool.sendCommand.mockRejectedValue(new TypeError('bad'));
+    await expect(router.sendCommand('x')).rejects.toThrow('bad');
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'TypeError' });
+  });
+
+  it('routes getCompletionWithDetail like getCompletion (incl. code override)', async () => {
+    const pool = makeMockPoolClient();
+    const apiCompletion = {
+      ...makeMockApiCompletion(),
+      getCompletionWithDetail: vi.fn().mockResolvedValue({ text: 'api', detail: undefined }),
+      getCompletionWithPresetDetail: vi.fn().mockResolvedValue({ text: 'override' }),
+    };
+    const poolWithDetail = {
+      ...pool,
+      getCompletionWithDetail: vi.fn().mockResolvedValue({ text: 'cli' }),
+    };
+    const router = new BackendRouter(
+      poolWithDetail as any,
+      apiCompletion as any,
+      makeMockApiCommand() as any,
+      makeConfig({ codeOverride: { backend: 'api', model: 'openai-gpt-4.1-nano' } }),
+    );
+    const opts = { captureContent: true };
+    expect(
+      (await router.getCompletionWithDetail(makeProseContext(), new AbortController().signal, opts))
+        .text,
+    ).toBe('cli');
+    expect(poolWithDetail.getCompletionWithDetail.mock.calls[0][2]).toBe(opts);
+    const code = { ...makeProseContext(), mode: 'code' as const };
+    expect(
+      (await router.getCompletionWithDetail(code, new AbortController().signal, opts)).text,
+    ).toBe('override');
+    expect(apiCompletion.getCompletionWithPresetDetail.mock.calls[0][0]).toBe(
+      'openai-gpt-4.1-nano',
+    );
   });
 });

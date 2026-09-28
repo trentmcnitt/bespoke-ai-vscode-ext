@@ -1,3 +1,5 @@
+import type { CompletionWithDetail, GenerationOptions } from './utils/trace';
+
 export type CompletionMode = 'prose' | 'code';
 
 /** Default model used throughout the extension and tests.
@@ -61,7 +63,22 @@ export interface CompletionContext {
 
 export interface CompletionProvider {
   getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null>;
-  isAvailable(): boolean;
+  /**
+   * Optional: same as `getCompletion`, plus model-side detail for trace records (tokens,
+   * model, timing, and — when `options.captureContent` — prompt/response text).
+   * The orchestrator prefers this when present and falls back to `getCompletion`.
+   */
+  getCompletionWithDetail?(
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail>;
+  /**
+   * Whether a request can be sent now. With `mode`, answers for the backend/preset
+   * that mode routes to (the code override may use a different one); without it,
+   * for the primary backend.
+   */
+  isAvailable(mode?: 'prose' | 'code'): boolean;
   updateConfig?(config: ExtensionConfig): void;
   recycleAll?(): Promise<void>;
 }
@@ -119,5 +136,21 @@ export interface ExtensionConfig {
   };
   /** Standing user instructions appended to the inline-completion system prompt. Empty string = none. */
   customInstructions: string;
+  /** Per-request trace records (see `utils/trace.ts`). */
+  trace: {
+    /** Keep prompt/response text in trace records. Off = content omitted at every sink. */
+    captureContent: boolean;
+    /** Append records to `~/.bespokeai/traces.jsonl`. */
+    file: boolean;
+    /** Opt-in OTLP/HTTP JSON exporter. */
+    otlp: {
+      /** Collector base URL; empty = exporter off. */
+      endpoint: string;
+      /** Env var (resolved like API keys) holding `key=value,...` request headers. */
+      headersEnvVar: string;
+      /** Export prompt/response text (also requires `trace.captureContent`). */
+      captureContent: boolean;
+    };
+  };
   logLevel: 'info' | 'debug' | 'trace';
 }

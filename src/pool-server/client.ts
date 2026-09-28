@@ -23,13 +23,39 @@ import {
   generateRequestId,
   serializeMessage,
   parseMessage,
+  wireMetaToDetail,
 } from './protocol';
-import { PoolServer, acquireLock, isProcessAlive, readLockfile } from './server';
+import type { CompletionWithDetail, GenerationOptions } from '../utils/trace';
+import {
+  PoolServer,
+  acquireLock,
+  commandMetaToWire,
+  isProcessAlive,
+  readLockfile,
+  releaseLock,
+} from './server';
 import { getIpcPath, ipcEndpointMayExist } from './ipc-path';
 
 const CONNECT_TIMEOUT_MS = 2000;
 const RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_ATTEMPTS = 3;
+
+/** How long a follower waits for the leader to answer a request. */
+const IPC_REQUEST_TIMEOUT_MS = 60_000;
+/** Extra wait past a command's own `timeoutMs`, so the leader's timeout answers first. */
+const IPC_COMMAND_TIMEOUT_MARGIN_MS = 5_000;
+
+/**
+ * The follower-side wait for a request. A command with its own `timeoutMs`
+ * (Suggest Edits uses 90 s) waits past it, so the leader's CommandPool reports
+ * `timeout` instead of the follower giving up first with `pool_error`.
+ */
+export function ipcTimeoutFor(request: PoolRequest): number {
+  if (request.type === 'command' && request.timeoutMs) {
+    return Math.max(IPC_REQUEST_TIMEOUT_MS, request.timeoutMs + IPC_COMMAND_TIMEOUT_MARGIN_MS);
+  }
+  return IPC_REQUEST_TIMEOUT_MS;
+}
 
 export type PoolRole = 'server' | 'client';
 
@@ -130,7 +156,16 @@ export class PoolClient implements ICompletionProvider {
 
       // Give up waiting — attempt lock acquisition as last resort and become server
       this.logger.error('Pool: failed to connect after retries, forcing lock acquisition');
-      acquireLock(process.pid); // best-effort; if this fails, becomeServer's listen() will fail if another server is active
+      // Best-effort: acquireLock() fails if the lock still names a live pid (a hung
+      // leader, or a pid reused after a crash). We become the server anyway, WITHOUT
+      // the lock. On Unix this does not fail when another server is active:
+      // PoolServer.start() deletes the socket path before listen(), so we displace a
+      // live leader and two servers can run (only Windows' named pipe refuses a second
+      // listener). Known limitation — see AGENTS.md "Forced pool leadership". Do not
+      // make dispose() release only its own lock without also force-taking the lock
+      // here: followers recover from a forced server's exit only because dispose()
+      // deletes the lock unconditionally.
+      acquireLock(process.pid);
       await this.becomeServer();
     } finally {
       this.activating = false;
@@ -178,6 +213,12 @@ export class PoolClient implements ICompletionProvider {
         })
           .then((response) => {
             if (response.type === 'client-hello' && response.success) {
+              // Disposed while connecting: don't keep a socket open to the leader.
+              if (this.disposed) {
+                socket.destroy();
+                cleanup();
+                return;
+              }
               this.serverModel = response.model;
               resolved = true;
               this.connecting = false;
@@ -269,7 +310,7 @@ export class PoolClient implements ICompletionProvider {
     if (this.disposed) return;
 
     this.logger.info('Pool: disconnected from server');
-    this.attemptTakeOver();
+    this.attemptTakeOver().catch((err) => this.logger.error('Pool: takeover failed', err));
   }
 
   private async attemptTakeOver(): Promise<void> {
@@ -279,6 +320,9 @@ export class PoolClient implements ICompletionProvider {
     try {
       this.reconnectAttempts++;
       await this.delay(RECONNECT_DELAY_MS * this.reconnectAttempts);
+      // The window may have closed during the back-off; dispose() has already run
+      // and would never shut down a server we started now.
+      if (this.disposed) return;
 
       // Try to connect first (another client may have become server)
       const connected = await this.tryConnect();
@@ -306,6 +350,12 @@ export class PoolClient implements ICompletionProvider {
   }
 
   private async becomeServer(): Promise<void> {
+    // Every path to leadership comes through here, after the caller took the lock.
+    // If the window was disabled meanwhile, give the lock back instead of serving.
+    if (this.disposed) {
+      releaseLock(process.pid);
+      return;
+    }
     this.logger.info('Pool: becoming server');
 
     this.server = new PoolServer({
@@ -316,20 +366,37 @@ export class PoolClient implements ICompletionProvider {
       onPoolDegraded: this.onPoolDegraded,
     });
 
-    await this.server.start();
+    try {
+      await this.server.start();
+    } catch (err) {
+      // Don't leave a failed server behind for dispose() to clean up later.
+      this.server = null;
+      throw err;
+    }
+
+    // Disposed during warmup: dispose() already shut the server down.
+    if (this.disposed) return;
 
     this.role = 'server';
+    // Forget the previous leader's model so getCurrentModel() reports our own.
+    this.serverModel = null;
     this.reconnectAttempts = 0;
     this.onRoleChange?.('server');
     this.logger.debug('Pool: now acting as server');
   }
 
-  private sendRequest(request: PoolRequest): Promise<PoolResponse> {
+  /**
+   * Send `request` to the leader (or run it locally when we are the leader).
+   * `signal` applies to `command` requests: on the fast path it goes straight to the
+   * CommandPool; over the socket, an abort resolves this request at once as aborted
+   * and sends the leader a `cancel` for it.
+   */
+  private sendRequest(request: PoolRequest, signal?: AbortSignal): Promise<PoolResponse> {
     return new Promise((resolve, reject) => {
       // If we're the server, handle locally
       if (this.role === 'server' && this.server) {
         // For server role, we need to call the pools directly
-        this.handleLocalRequest(request).then(resolve).catch(reject);
+        this.handleLocalRequest(request, signal).then(resolve).catch(reject);
         return;
       }
 
@@ -338,20 +405,61 @@ export class PoolClient implements ICompletionProvider {
         return;
       }
 
-      const pending: PendingRequest = { resolve, reject };
+      const socket = this.socket;
+      let onAbort: (() => void) | undefined;
+      const done = () => {
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
+      };
+      const pending: PendingRequest = {
+        resolve: (response) => {
+          done();
+          resolve(response);
+        },
+        reject: (err) => {
+          done();
+          reject(err);
+        },
+      };
 
       // Set timeout for requests
       pending.timer = setTimeout(() => {
         this.pendingRequests.delete(request.id);
-        reject(new Error('Request timed out'));
-      }, 60_000);
+        pending.reject(new Error('Request timed out'));
+      }, ipcTimeoutFor(request));
+
+      if (request.type === 'command' && signal) {
+        onAbort = () => {
+          if (this.pendingRequests.get(request.id) !== pending) return; // already answered
+          this.pendingRequests.delete(request.id);
+          clearTimeout(pending.timer);
+          // Its own id: an older leader answers an unknown type with an error for
+          // that id, which matches no pending request and is dropped.
+          if (!socket.destroyed) {
+            socket.write(
+              serializeMessage({ type: 'cancel', id: generateRequestId(), requestId: request.id }),
+            );
+          }
+          // Don't wait for the leader; its eventual reply finds no pending request.
+          pending.resolve({
+            type: 'command',
+            id: request.id,
+            success: true,
+            text: null,
+            meta: { model: '', aborted: true },
+          });
+        };
+        signal.addEventListener('abort', onAbort);
+      }
 
       this.pendingRequests.set(request.id, pending);
-      this.socket.write(serializeMessage(request));
+      socket.write(serializeMessage(request));
     });
   }
 
-  private async handleLocalRequest(request: PoolRequest): Promise<PoolResponse> {
+  private async handleLocalRequest(
+    request: PoolRequest,
+    signal?: AbortSignal,
+  ): Promise<PoolResponse> {
     if (!this.server) {
       return {
         type: 'error',
@@ -371,26 +479,30 @@ export class PoolClient implements ICompletionProvider {
           fileName: request.fileName,
           filePath: request.filePath,
         };
-        const abortController = new AbortController();
-        const text = await this.server.getCompletion(context, abortController.signal);
+        const { text, meta } = await this.server.completeWithMeta(
+          context,
+          request.captureContent === true,
+        );
         return {
           type: 'completion',
           id: request.id,
           success: true,
           text,
+          meta,
         };
       }
 
       case 'command': {
         const result = await this.server.sendCommand(request.message, {
           timeoutMs: request.timeoutMs,
+          onCancel: signal,
         });
         return {
           type: 'command',
           id: request.id,
           success: true,
           text: result.text,
-          meta: result.meta || undefined,
+          meta: commandMetaToWire(result.meta, result),
         };
       }
 
@@ -433,6 +545,10 @@ export class PoolClient implements ICompletionProvider {
           model: this.server.getModel(),
         };
 
+      case 'cancel':
+        // The fast path passes the caller's signal to the pool directly; nothing to do.
+        return { type: 'cancel', id: request.id, success: true };
+
       default: {
         const unhandled = request as PoolRequest;
         return {
@@ -461,8 +577,23 @@ export class PoolClient implements ICompletionProvider {
 
   // --- CompletionProvider interface ---
 
-  async getCompletion(context: CompletionContext, _signal: AbortSignal): Promise<string | null> {
-    if (this.disposed) return null;
+  async getCompletion(context: CompletionContext, signal: AbortSignal): Promise<string | null> {
+    return (await this.getCompletionWithDetail(context, signal)).text;
+  }
+
+  async getCompletionWithDetail(
+    context: CompletionContext,
+    _signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    const configuredModel = this.config.claudeCode.model;
+    const captureContent = options?.captureContent === true;
+    if (this.disposed) {
+      return {
+        text: null,
+        detail: { ...wireMetaToDetail(undefined, configuredModel, false), aborted: true },
+      };
+    }
 
     try {
       const response = await this.sendRequest({
@@ -474,20 +605,51 @@ export class PoolClient implements ICompletionProvider {
         languageId: context.languageId,
         fileName: context.fileName,
         filePath: context.filePath,
+        captureContent,
       });
 
       if (response.type === 'completion' && response.success) {
-        return response.text;
+        return {
+          text: response.text,
+          detail: wireMetaToDetail(response.meta, configuredModel, captureContent),
+        };
       }
       // Log error responses instead of silently swallowing
-      if (response.type === 'error' || (response.type === 'completion' && !response.success)) {
-        const errorMsg = 'error' in response ? response.error : 'unknown error';
-        this.logger.error(`Pool: completion failed: ${errorMsg}`);
+      const errorMsg = 'error' in response ? (response.error ?? 'unknown error') : 'unknown error';
+      this.logger.error(`Pool: completion failed: ${errorMsg}`);
+      // An unavailable leader pool says why in meta (e.g. pool_circuit_open).
+      const why = response.type === 'completion' ? response.meta : undefined;
+      if (why?.errorType || why?.aborted) {
+        return {
+          text: null,
+          detail: { ...wireMetaToDetail(why, configuredModel, false), errorMessage: errorMsg },
+        };
       }
-      return null;
+      return {
+        text: null,
+        detail: {
+          ...wireMetaToDetail(undefined, configuredModel, false),
+          errorType: 'pool_error',
+          errorMessage: errorMsg,
+        },
+      };
     } catch (err) {
+      // Disposed mid-request (pending requests are rejected): cancelled, not a pool failure.
+      if (this.disposed) {
+        return {
+          text: null,
+          detail: { ...wireMetaToDetail(undefined, configuredModel, false), aborted: true },
+        };
+      }
       this.logger.error(`Pool: completion error: ${err}`);
-      return null;
+      return {
+        text: null,
+        detail: {
+          ...wireMetaToDetail(undefined, configuredModel, false),
+          errorType: 'pool_error',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+      };
     }
   }
 
@@ -505,6 +667,8 @@ export class PoolClient implements ICompletionProvider {
     const modelChanged = config.claudeCode.model !== this.config.claudeCode.model;
     const instructionsChanged = config.customInstructions !== this.config.customInstructions;
     this.config = config;
+    // The cached leader model is stale once the model changes.
+    if (modelChanged) this.serverModel = null;
 
     // Only the CLI backend runs a pool server. In API mode the client is never
     // connected, so sending a config-update would reject and log a spurious
@@ -544,45 +708,67 @@ export class PoolClient implements ICompletionProvider {
   // --- Command interface for commit-message and suggest-edit ---
 
   async sendCommand(message: string, options?: SendPromptOptions): Promise<SendPromptResult> {
-    if (this.disposed) {
-      return { text: null, meta: null };
+    // The window is shutting down: cancelled, as for a completion after dispose and a
+    // command whose client is disposed mid-request — not an empty model reply.
+    // Cancelled before sending: nothing to stop.
+    if (this.disposed || options?.onCancel?.aborted) {
+      return { text: null, meta: null, aborted: true };
     }
 
     try {
-      const response = await this.sendRequest({
-        type: 'command',
-        id: generateRequestId(),
-        message,
-        timeoutMs: options?.timeoutMs,
-      });
+      const response = await this.sendRequest(
+        {
+          type: 'command',
+          id: generateRequestId(),
+          message,
+          timeoutMs: options?.timeoutMs,
+        },
+        options?.onCancel,
+      );
 
       if (response.type === 'command' && response.success) {
         // Map protocol metadata to slot-pool format (fill defaults for optional fields)
         const protocolMeta = response.meta;
-        const meta = protocolMeta
-          ? {
-              model: protocolMeta.model,
-              durationMs: protocolMeta.durationMs ?? 0,
-              durationApiMs: protocolMeta.durationApiMs ?? 0,
-              costUsd: protocolMeta.costUsd ?? 0,
-              inputTokens: protocolMeta.inputTokens ?? 0,
-              outputTokens: protocolMeta.outputTokens ?? 0,
-              cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,
-              cacheCreationTokens: protocolMeta.cacheCreationTokens ?? 0,
-              sessionId: protocolMeta.sessionId ?? '',
-            }
-          : null;
-        return { text: response.text, meta };
+        // A failure-only meta (no usage) carries just errorType / aborted.
+        const meta =
+          protocolMeta && protocolMeta.outputTokens !== undefined
+            ? {
+                model: protocolMeta.model,
+                durationMs: protocolMeta.durationMs ?? 0,
+                durationApiMs: protocolMeta.durationApiMs ?? 0,
+                // Older servers sent the cumulative session total as costUsd.
+                costUsd: protocolMeta.turnCostUsd ?? protocolMeta.costUsd ?? 0,
+                inputTokens: protocolMeta.inputTokens ?? 0,
+                outputTokens: protocolMeta.outputTokens ?? 0,
+                cacheReadTokens: protocolMeta.cacheReadTokens ?? 0,
+                cacheCreationTokens: protocolMeta.cacheCreationTokens ?? 0,
+                sessionId: protocolMeta.sessionId ?? '',
+                stopReason: protocolMeta.finishReason,
+                turnCostUsd: protocolMeta.turnCostUsd,
+              }
+            : null;
+        return {
+          text: response.text,
+          meta,
+          ...(protocolMeta?.errorType ? { errorType: protocolMeta.errorType } : {}),
+          ...(protocolMeta?.aborted ? { aborted: true } : {}),
+        };
       }
       // Log error responses instead of silently swallowing
       if (response.type === 'error' || (response.type === 'command' && !response.success)) {
         const errorMsg = 'error' in response ? response.error : 'unknown error';
         this.logger.error(`Pool: command failed: ${errorMsg}`);
       }
-      return { text: null, meta: null };
+      // An unavailable leader pool says why in meta (e.g. pool_circuit_open).
+      const why = response.type === 'command' ? response.meta : undefined;
+      if (why?.aborted) return { text: null, meta: null, aborted: true };
+      if (why?.errorType) return { text: null, meta: null, errorType: why.errorType };
+      return { text: null, meta: null, errorType: 'pool_error' };
     } catch (err) {
+      // Disposed mid-request (pending requests are rejected): cancelled, not a pool failure.
+      if (this.disposed) return { text: null, meta: null, aborted: true };
       this.logger.error(`Pool: command error: ${err}`);
-      return { text: null, meta: null };
+      return { text: null, meta: null, errorType: 'pool_error' };
     }
   }
 

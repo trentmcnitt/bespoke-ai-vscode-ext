@@ -4,6 +4,81 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 09-28-26
+
+### Cancelling a CLI command reaches the pool (branch `showcase/fu-cancel`)
+
+- **Cancel now stops CLI commands:** the caller's signal goes to `CommandPool` on the leader's fast path and, from a follower, as a new `cancel` IPC request (own id, so an older leader's `error` reply for the unknown type matches nothing), ending the command as `aborted` and recycling the slot via `SlotPool.abandonRequest()`, which also retires the session so a late result for the cancelled or timed-out turn can no longer hand an exiting session to the next request, and exempts cancel-driven recycles from the rapid-recycle breaker.
+
+### Command UX: diff close guard, pool failure toasts, accurate unavailable message (branch `showcase/fu-cmdux`)
+
+- **Suggest Edits closed the user's file:** the diff cleanup ran `workbench.action.closeActiveEditor` in a `finally`, so a failed `vscode.diff` (or a tab switch during the Apply prompt) closed whatever was active. It now closes only tabs whose `TabInputTextDiff` has our two `bespoke-edit-*` URIs (compared by scheme + path), via `tabGroups.close`, and only if the diff opened.
+- **Pool failures on commands were a silent null:** `PoolClient.sendCommand()` already returns `errorType`/`aborted`, but the features only checked `text === null`. They now log and toast (non-awaited) via `utils/command-failure.ts`; `aborted` and a bare null (user cancel) stay silent. The API detail's `errorType` (429/529/`connection_refused`) is folded in. Not covered: a `CommandPool` timeout settles as a bare null with no `errorType`, so it is still indistinguishable from a user cancel here.
+- **"Command pool not ready" on the API backend** covered a missing key, an open breaker and a bad preset alike. `ApiCommandProvider.unavailableReason()` (read-only; `CircuitBreaker.remainingCooldownMs()` added, which unlike `isOpen()` never closes the breaker) now feeds `commandUnavailableMessage()`. To stay out of `backend-router.ts`, `extension.ts` passes the `ApiCommandProvider` to the two features as an optional 4th argument rather than adding a router getter.
+
+### Command timeouts, mode-aware availability, override breaker (branch `showcase/fu-routing`)
+
+- **Command `timeoutMs` now applies on the API backend.** `ApiCommandProvider` used its 60 s fallback only when no signal was passed, and the commands always pass one, so a hung endpoint waited out the SDK's 10 minutes. It now links the cancel signal with a timer (`linkAbortSignal()`, since `AbortSignal.any` needs Node 20.3 and VS Code 1.85 runs Node 18). The adapters report any abort of their signal as `aborted`, so the provider reclassifies by which source fired: a timeout is `error`/`timeout` and counts toward the command breaker (the backend failed to answer within the bound — from the user's side the same as an outage), a cancel stays `aborted` and does not. `CommandPool` returns `timeout` too, and a follower's IPC wait for a command is now `timeoutMs` + 5 s (it was a flat 60 s, below Suggest Edits' 90 s). Not fixed: on the CLI backend the cancel signal never reaches the pool (`PoolClient.sendCommand` sends only `timeoutMs`), so cancelling a CLI command does nothing until the timeout.
+- **`isAvailable(mode)`.** The orchestrator's availability check didn't know the mode, so an open main breaker blocked healthy code-override requests. `CompletionProvider.isAvailable(mode?)` (optional, so other implementations are unchanged); the router resolves the mode's backend/preset and asks the override `PresetSlot` for override traffic (`isPresetAvailable()`, which creates the slot as the request would). Side effect: a code override to `claude-code` under a primary `api` backend is now recorded as `backend_unavailable` instead of failing silently.
+- **Override breaker shown.** A warning toast naming the preset, once per preset per session (it re-opens every ~30 s while the preset keeps failing), and an info log line on close. No status-bar suffix: the only side-effect-free place to read the override state would be a new breaker query, and a suffix set from callbacks goes stale when a settings change evicts the slot (a custom preset is rebuilt on every change) without a close event.
+
+### Command errors reach the log (#7) (branch `showcase/held-misc`)
+
+- **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).
+
+### `anthropic-sonnet` preset fixed (branch `showcase/followup-sonnet`)
+
+- **Sonnet 5 rejects `temperature` and an assistant prefill (HTTP 400), so the preset had failed every request since 0.8.8.** Claude-model presets now take strategy and request features from `providers/api/model-capabilities.ts` (sourced from the Sonnet 5 migration guide and the Claude API skill): no prefill → `tag-extraction`; no sampling → `temperature` left out. Unknown ids keep the Haiku 4.5 behaviour, so add a row when a new Claude model ships.
+- **Sonnet 5 thinks by default, and thinking tokens count against `max_tokens`.** With the presets' 200-token cap, 3 of 51 sampled requests spent all 200 on thinking and returned no text. The adapter now sends `thinking: {type: "disabled"}` for Sonnet 5 / Opus 5. Opus 5.5 and Fable reject that, so a custom preset on them can still come back empty.
+- Tag extraction without a prefill kept the leading space on Sonnet 5 (0/29 glued in the sample, one misread word in the harness). The earlier 24/28 glued result (variant P1) was haiku with `<COMPLETION>` still prefilled, a different setup. See `evals/2026-09-28-sonnet-preset.md`.
+
+### Invalid logLevel no longer writes trace content (#8) (branch `showcase/held-misc`)
+
+- **#8:** the Logger's two guard styles (`rank <= X` vs early-return `rank > X`) disagreed on an unknown level's `undefined` rank, so `logLevel: "error"` silenced `debug()` but wrote full trace blocks; every gated method now uses one `enabled()` helper, and `setLevel`/`readLogLevel` fall back to `info` (via `typeof`, since `'constructor' in LEVEL_RANK` is true).
+
+---
+
+## 09-27-26
+
+### Forced pool leadership documented (#10) (branch `showcase/held-misc`)
+
+- Docs only (option c): the forced-leadership comment in `PoolClient.activate()` claimed `listen()` would fail against a live server, which is false on Unix (`start()` deletes the socket first); the comment is corrected and the two-server case is a Known Limitation, with the per-server socket path as the later structural fix; `dispose()`'s unconditional lock delete is deliberately untouched.
+
+### CLI slot isolation, pool-kill outcomes, breaker and empties (branch `showcase/followup-pool`)
+
+- **Slots loaded the host's Claude Code setup.** `settingSources: []` only skips settings.json. On CLI 2.1.283 a slot still got the claude.ai connectors (~145 MCP tools and their instructions; ~96k tokens of cache writes per session), auto-memory, CLAUDE.md content and user agents, and `tools: []` does not remove MCP tools. Found by reading the SDK's `system/init` message and asking the model what it received (a handful of haiku calls). Fix: `strictMcpConfig: true` plus env vars (`CLAUDE_CODE_SAFE_MODE=1` and three older-CLI equivalents). Env vars, not flags, so an older `claude` can't fail warmup on an unknown flag. `--bare` is out: it never reads OAuth. Still injected and not controllable: the environment block, model, date, and account email reminders.
+- **Pool kills were traced as `aborted` or `empty`.** The reason now rides in the value the request awaits (`SlotResult`, `acquireSlotOrDenial()`), because `killAllSlots()` resets the slot and a recycle reuses it before the caller resumes. Completions and commands both.
+- **Follow-up (branch `showcase/followup-pool2`):** a command sent after dispose is now `aborted`, not `empty`, and the SlotPool rapid-recycle breaker, which has no timed cooldown (it recovers on restart or recycle), now makes the pool report unavailable and fail requests at once with `pool_circuit_open`, including a follower's, whose leader now sends the reason in the unavailable response.
+- **Follow-up (branch `showcase/followup-hang`):** `consumeStream()` had no arm for a stream that ends cleanly, so `recycleSlot()` dropped the held request's callback and the completion (which has no timeout) hung; it now ends as `slot_stream_ended`, a pending warmup fails at once instead of after 30 s, and `settleResult()` clears the callback on delivery so no path can settle a request twice.
+- **API breaker counted genuine empties.** Counting empties dates from when adapters swallowed 429/529 as a bare null; they now report `errorType`, so only that (and a malformed empty: no tokens, no finish reason) counts.
+
+### CLI cost and API time recorded per turn (branch `showcase/held-misc`)
+
+- the SDK's `total_cost_usd` (and `duration_api_ms`) are session totals, and only traces used the per-turn delta — ledger rows and `totalCostUsd` pool stats added the running totals; `consumeStream()` now overwrites `meta.costUsd`/`durationApiMs` with the deltas so every consumer is per-turn (API-time deltas are approximate, see `evals/latency-2026-09.md`), and old ledger rows are left as they are.
+
+### Showcase pass: tests, CI matrix, evals, tracing (branch `showcase/audit-and-polish`)
+
+An audit found more infrastructure than expected (CI, 697 unit tests, trace-level logging, a usage ledger, an LLM-judge suite) but no coverage number, no committed eval results, and several untested modules (pool client/server/protocol, API providers and adapters, logger, suggest-edit, context-menu launch).
+
+**Tests and CI.** +585 unit tests (1,283 total), line coverage 36% → 67%. Pool tests use real Unix sockets in a temp dir. CI now runs the unit suite on Ubuntu, macOS, and Windows; the Windows leg immediately found five tests that assumed a Unix host (hardcoded `/` paths, host platform) and a tree-sitter native build failure (eval-only dependency, now skipped on Windows via `--ignore-scripts`).
+
+**Bugs found by writing tests**, fixed with regression tests after an adversarial review of each fix:
+
+- A corrupt `pool.lock` blocked every acquire until deleted by hand. Now reclaimed once older than 1 s (a fresh one may be mid-write).
+- `PoolServer.start()` failing after `listen()` left the server bound; the first fix then hung because `close()` waits for followers that connected during warmup. Connected sockets are now destroyed first.
+- A window disabled during startup or takeover could still become the pool server. One guard in `becomeServer()` covers every path, and releases the lock the caller took (`releaseLock()` checks the pid). `dispose()`'s lock deletion is deliberately unchanged: making it pid-checked without also force-taking the lock on forced leadership breaks recovery (reviewer's REVIEW-E).
+- Held for Trent: the API code-override path resets the shared circuit breaker and rebuilds its adapter per request; replacing a bad API key doesn't take effect until reload; command errors bypass the Logger; the CLI SDK's `total_cost_usd` is cumulative per session, so the usage ledger overstates cost.
+
+**Error analysis before evals.** An AI agent (Claude) read every failed output of the March sonnet run, spot-checked 14 passes, and ran a mechanical whitespace check over all 99: judge 82.8%, analyst 69.7%. The main failure was a missing leading space at word boundaries, present in the raw model output, which the judge passed 15 times; three byte-identical completions got opposite verdicts on the same day. This became six deterministic checks in Layer 1 (`deterministic-checks.ts`), run provenance in `summary.json`, a rescore of 48 old runs, a blind 100-item judge-validation sample (unlabelled), and a 52-case replay set that runs recorded raw outputs through the current pipeline in CI.
+
+**Whitespace fixes.** Every prose example in `SYSTEM_PROMPT` had a space before `{{FILL_HERE}}`, which taught models never to lead with one. Prompt-only fix (rule + flush examples + a per-request last-word cue). Direct measure: glued words in a targeted harness sonnet 59% → 0%, grok 90% → 0%; `boundary-ws` failures in the full suite 27 → 0 and 36 → 1; gpt-4.1-nano unchanged (~97% glued across five variants). The judge pass rate (sonnet 66.0% → 85.8%, grok 44.2% → 78.8%) mostly restates that check, because the rubric fails any scenario whose check fails: on scenarios the check never applied to, sonnet went 37/41 → 35/41 and grok 28/44 → 34/44. Likely origin: `da68e0f` (Feb 11) replaced the `>>>CURSOR<<<` + `<completion_start>` echo protocol, where the seam whitespace came from the document, with `{{FILL_HERE}}`; all 21 earlier opus runs have 0 boundary failures and every judged full-suite run after it has many (confounded with the opus → haiku/sonnet switch). The judge passed it, so it went unnoticed through ~6 weeks of judged runs. Separately, `prefillExtraction` trimmed the anchor's trailing whitespace (the API requires it) and the model re-emitted it, doubling spaces and blank lines; extraction now drops exactly the re-emitted part (doubled blank lines 100% → 0%). The replay set showed the prefill bug was wider than spaces: newlines and indentation were duplicated too.
+
+**Code-mode overlap trim removed the completion's own closers.** Blind judges of the fresh runs flagged invalid code across all three models where the raw output was balanced. With f0edfc3's 1-char minimum, `trimSuffixOverlap` matched a trailing `)`/`]`/`}` against the suffix without asking whose scope it closed. `overlapClosesOwnScope()` now rejects any overlap length whose closers close a bracket opened in the kept part; it can only trim equal or less than before. This also overturned a call in the March analysis: `user.isActive()` + suffix `)` was a bug, not a judge false fail (corrected in the analysis with a dated note; analyst pass 69/99). The replay set carried the wrong expectation for that case and for f0edfc3's own example, which was also closing the model's own `if` block.
+
+**Tracing.** Per-request records shaped per the OpenTelemetry GenAI semantic conventions (which moved to `semantic-conventions-genai` in June 2026 and are unreleased; pinned to the `1.42.0-dev` snapshot). CLI detail rides the existing `ResultMetadata` back to follower windows; prompt text crosses the socket only when capture is on. A webview lists the last 200; opt-in JSONL file; opt-in OTLP/HTTP JSON export (Langfuse accepts JSON; Phoenix is protobuf-only) that pauses while VS Code telemetry is off. An adversarial review found three privacy issues (a header value could reach the log via undici's error message; the remote-endpoint notice didn't re-warn when content export was enabled; turning capture off left captured content in the ring and queues), all fixed with tests.
+
+---
+
 ## 09-25-26
 
 ### Explain / Fix / Do can launch opencode (#23)

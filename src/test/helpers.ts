@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     contextChars: 2500,
     suffixChars: 2000,
   },
-  claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
+  claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus', 'fable'] },
   api: {
     preset: 'xai-grok',
     customPresets: [],
@@ -33,6 +33,11 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   codeOverride: { backend: '', model: '' },
   contextMenu: { agent: 'claude-code', permissionMode: 'default' },
   customInstructions: '',
+  trace: {
+    captureContent: true,
+    file: false,
+    otlp: { endpoint: '', headersEnvVar: 'BESPOKE_OTLP_HEADERS', captureContent: false },
+  },
   logLevel: 'info',
 };
 
@@ -46,6 +51,11 @@ export function makeConfig(overrides: Partial<ExtensionConfig> = {}): ExtensionC
     prose: { ...DEFAULT_CONFIG.prose, ...overrides.prose },
     code: { ...DEFAULT_CONFIG.code, ...overrides.code },
     contextMenu: { ...DEFAULT_CONFIG.contextMenu, ...overrides.contextMenu },
+    trace: {
+      ...DEFAULT_CONFIG.trace,
+      ...overrides.trace,
+      otlp: { ...DEFAULT_CONFIG.trace.otlp, ...overrides.trace?.otlp },
+    },
   };
 }
 
@@ -676,4 +686,26 @@ export async function assertValidSyntax(
       `Syntax errors in ${languageId} parse tree.\n\nS-expression (first 500 chars):\n${sExpr.slice(0, 500)}\n\nFull text:\n${full}`,
     );
   }
+}
+
+/**
+ * Assert that SDK query options isolate a slot from the host's Claude Code
+ * configuration (settings files, CLAUDE.md, auto-memory, MCP servers and
+ * claude.ai connectors), while keeping the host environment (PATH, auth vars).
+ */
+export function expectIsolatedQueryOptions(options: any): void {
+  expect(options.settingSources).toEqual([]);
+  expect(options.strictMcpConfig).toBe(true);
+  expect(options.tools).toEqual([]);
+  expect(options.allowedTools).toEqual([]);
+  expect(options.mcpServers ?? {}).toEqual({});
+  expect(options.persistSession).toBe(false);
+  expect(options.env).toMatchObject({
+    CLAUDE_CODE_SAFE_MODE: '1',
+    CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+  });
+  // `env` replaces the SDK's default (process.env), so the host env must survive.
+  expect(options.env.PATH).toBe(process.env.PATH);
 }

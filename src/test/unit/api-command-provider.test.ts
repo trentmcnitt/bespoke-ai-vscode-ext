@@ -1,0 +1,405 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ApiCommandProvider } from '../../providers/api/api-command-provider';
+import { ApiAdapterResult, Preset } from '../../providers/api/types';
+import { UsageLedger } from '../../utils/usage-ledger';
+import { Logger } from '../../utils/logger';
+import { makeConfig, makeLogger } from '../helpers';
+
+const mocks = vi.hoisted(() => ({
+  createAdapter: vi.fn(),
+}));
+
+vi.mock('../../providers/api/adapters', () => ({
+  createAdapter: mocks.createAdapter,
+}));
+
+type CompleteFn = (
+  system: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  options: {
+    signal: AbortSignal;
+    maxTokens: number;
+    temperature: number;
+    stopSequences?: string[];
+  },
+) => Promise<ApiAdapterResult>;
+
+interface FakeAdapter {
+  preset: Preset;
+  complete: ReturnType<typeof vi.fn<CompleteFn>>;
+  isConfigured: ReturnType<typeof vi.fn<() => boolean>>;
+  dispose: ReturnType<typeof vi.fn<() => void>>;
+}
+
+function makeResult(overrides: Partial<ApiAdapterResult> = {}): ApiAdapterResult {
+  return {
+    text: 'feat: add widget\n\nAdds the widget.',
+    usage: { inputTokens: 2000, outputTokens: 30 },
+    model: 'fake-model',
+    durationMs: 800,
+    ...overrides,
+  };
+}
+
+let adapters: FakeAdapter[];
+
+function lastAdapter(): FakeAdapter {
+  return adapters[adapters.length - 1];
+}
+
+const SYSTEM = 'You write commit messages.';
+const USER = 'diff --git a/x b/x\n+hello';
+
+describe('ApiCommandProvider', () => {
+  beforeEach(() => {
+    adapters = [];
+    mocks.createAdapter.mockReset();
+    mocks.createAdapter.mockImplementation((preset: Preset) => {
+      const adapter: FakeAdapter = {
+        preset,
+        complete: vi.fn<CompleteFn>().mockResolvedValue(makeResult()),
+        isConfigured: vi.fn(() => true),
+        dispose: vi.fn(),
+      };
+      adapters.push(adapter);
+      return { providerId: preset.provider, ...adapter };
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('sendPrompt', () => {
+    it('passes the caller system prompt and user message through unmodified and returns raw text', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      // Tag-like content must NOT be extracted — commands return raw text.
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: '<corrected>fixed</corrected>' }),
+      );
+
+      const result = await provider.sendPrompt(SYSTEM, USER);
+
+      expect(result).toBe('<corrected>fixed</corrected>');
+      const [system, messages] = lastAdapter().complete.mock.calls[0];
+      expect(system).toBe(SYSTEM);
+      expect(messages).toEqual([{ role: 'user', content: USER }]);
+    });
+
+    it('uses 4096 max tokens regardless of the preset (presets are tuned for 200-token completions)', async () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      await provider.sendPrompt(SYSTEM, USER);
+      const options = lastAdapter().complete.mock.calls[0][2];
+      expect(lastAdapter().preset.maxTokens).toBe(200);
+      expect(options.maxTokens).toBe(4096);
+      expect(options.temperature).toBe(0.2);
+    });
+
+    it('never sends a prefill message, even for a prefill preset', async () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      await provider.sendPrompt(SYSTEM, USER);
+      expect(lastAdapter().complete.mock.calls[0][1]).toHaveLength(1);
+    });
+
+    it('follows the caller signal: a cancel aborts the request', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      const ac = new AbortController();
+      let seen: AbortSignal | undefined;
+      lastAdapter().complete.mockImplementation(async (_s, _m, opts) => {
+        seen = opts.signal;
+        ac.abort();
+        return makeResult({ text: null, aborted: true });
+      });
+      await expect(provider.sendPromptWithDetail(SYSTEM, USER, ac.signal)).resolves.toMatchObject({
+        text: null,
+        detail: { aborted: true },
+      });
+      expect(seen?.aborted).toBe(true);
+    });
+
+    it('bounds the request by timeoutMs even when a caller signal is given', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockImplementation(
+        (_s, _m, opts) =>
+          new Promise((resolve) =>
+            opts.signal.addEventListener('abort', () =>
+              resolve(makeResult({ text: null, aborted: true })),
+            ),
+          ),
+      );
+      const pending = provider.sendPromptWithDetail(
+        SYSTEM,
+        USER,
+        new AbortController().signal,
+        1000,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      const { text, detail } = await pending;
+      expect(text).toBeNull();
+      expect(detail?.errorType).toBe('timeout');
+      expect(detail?.aborted).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('an adapter that throws after a timeout is reported as a timeout, not the error', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockImplementation(
+        (_s, _m, opts) =>
+          new Promise((_resolve, reject) =>
+            opts.signal.addEventListener('abort', () => reject(new Error('TimeoutError'))),
+          ),
+      );
+      const pending = provider.sendPromptWithDetail(SYSTEM, USER, undefined, 500);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(pending).resolves.toMatchObject({
+        text: null,
+        detail: { errorType: 'timeout' },
+      });
+    });
+
+    it('supplies its own timeout signal when the caller omits one', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      await provider.sendPrompt(SYSTEM, USER);
+      const sig = lastAdapter().complete.mock.calls[0][2].signal;
+      expect(sig).toBeInstanceOf(AbortSignal);
+      expect(sig.aborted).toBe(false);
+    });
+
+    it('returns null (does not throw) on an aborted response', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockResolvedValue(makeResult({ text: null, aborted: true }));
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBeNull();
+    });
+
+    it('propagates adapter errors', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      const err = new Error('openai API key invalid or missing');
+      lastAdapter().complete.mockRejectedValue(err);
+      await expect(provider.sendPrompt(SYSTEM, USER)).rejects.toBe(err);
+    });
+  });
+
+  describe('usage ledger', () => {
+    it('records a command entry with tokens, cached tokens, duration and char counts', async () => {
+      const record = vi.fn();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger(), {
+        record,
+      } as unknown as UsageLedger);
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({
+          text: 'fix: typo',
+          model: 'gpt-4.1-nano',
+          durationMs: 777,
+          usage: { inputTokens: 1500, outputTokens: 5, cacheReadTokens: 1024 },
+        }),
+      );
+
+      await provider.sendPrompt(SYSTEM, USER);
+
+      expect(record).toHaveBeenCalledWith({
+        source: 'command',
+        model: 'gpt-4.1-nano',
+        backend: 'api',
+        durationMs: 777,
+        inputTokens: 1500,
+        outputTokens: 5,
+        cacheReadTokens: 1024,
+        inputChars: SYSTEM.length + USER.length,
+        outputChars: 'fix: typo'.length,
+      });
+    });
+  });
+
+  describe('unavailableReason', () => {
+    it('is null when the provider is available', () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      expect(provider.isAvailable()).toBe(true);
+      expect(provider.unavailableReason()).toBeNull();
+    });
+
+    it('reports an unknown preset id', () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'no-such-preset', customPresets: [] } }),
+        makeLogger(),
+      );
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toEqual({
+        kind: 'no_preset',
+        presetId: 'no-such-preset',
+      });
+    });
+
+    it('reports a preset whose adapter could not be built', () => {
+      mocks.createAdapter.mockImplementation(() => {
+        throw new Error('bad baseUrl');
+      });
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toMatchObject({
+        kind: 'adapter_failed',
+        presetId: 'anthropic-haiku',
+      });
+    });
+
+    it('reports a missing API key with the preset display name', () => {
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),
+        makeLogger(),
+      );
+      lastAdapter().isConfigured.mockReturnValue(false);
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toEqual({
+        kind: 'no_key',
+        presetId: 'anthropic-haiku',
+        displayName: lastAdapter().preset.displayName,
+      });
+    });
+
+    it('reports an open breaker with the time left', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockRejectedValue(new Error('503'));
+      for (let i = 0; i < 5; i++) {
+        await expect(provider.sendPrompt(SYSTEM, USER)).rejects.toThrow('503');
+      }
+      vi.advanceTimersByTime(10_000);
+      expect(provider.isAvailable()).toBe(false);
+      expect(provider.unavailableReason()).toMatchObject({
+        kind: 'breaker_open',
+        retryInMs: 20_000,
+      });
+      vi.advanceTimersByTime(20_001);
+      expect(provider.unavailableReason()).toBeNull();
+    });
+  });
+
+  describe('circuit breaker', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('opens after 5 consecutive failures, blocks, and recovers after 30s', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      const adapter = lastAdapter();
+      adapter.complete.mockRejectedValue(new Error('503'));
+
+      for (let i = 0; i < 5; i++) {
+        await expect(provider.sendPrompt(SYSTEM, USER)).rejects.toThrow('503');
+      }
+      expect(provider.isAvailable()).toBe(false);
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBeNull();
+      expect(adapter.complete).toHaveBeenCalledTimes(5);
+
+      vi.advanceTimersByTime(30_001);
+      adapter.complete.mockResolvedValue(makeResult({ text: 'ok' }));
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBe('ok');
+      expect(provider.isAvailable()).toBe(true);
+    });
+
+    it('counts swallowed failures and malformed empties, not aborts or genuine empties', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      const adapter = lastAdapter();
+
+      adapter.complete.mockResolvedValue(makeResult({ text: null, aborted: true }));
+      for (let i = 0; i < 6; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(true);
+
+      // The model replied with nothing, and said why: not a backend failure.
+      adapter.complete.mockResolvedValue(
+        makeResult({
+          text: null,
+          finishReason: 'end_turn',
+          usage: { inputTokens: 9, outputTokens: 2 },
+        }),
+      );
+      for (let i = 0; i < 6; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(true);
+
+      adapter.complete.mockResolvedValue(
+        makeResult({ text: null, errorType: '529', usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+      for (let i = 0; i < 5; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('a malformed empty reply (no output tokens, no finish reason) counts as a failure', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: null, usage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+      for (let i = 0; i < 5; i++) await provider.sendPrompt(SYSTEM, USER);
+      expect(provider.isAvailable()).toBe(false);
+    });
+  });
+
+  describe('adapter lifecycle', () => {
+    it('is unavailable when the adapter reports no API key', () => {
+      mocks.createAdapter.mockImplementation((preset: Preset) => ({
+        providerId: preset.provider,
+        complete: vi.fn(),
+        isConfigured: () => false,
+        dispose: vi.fn(),
+      }));
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      expect(provider.isAvailable()).toBe(false);
+    });
+
+    it('unknown preset: logs an error and sendPrompt returns null', async () => {
+      const error = vi.fn();
+      const logger = { ...makeLogger(), error } as unknown as Logger;
+      const provider = new ApiCommandProvider(
+        makeConfig({ api: { preset: 'missing', customPresets: [] } }),
+        logger,
+      );
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('"missing" not found'));
+      expect(provider.isAvailable()).toBe(false);
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBeNull();
+    });
+
+    it('adapter construction failure is logged, not thrown', async () => {
+      mocks.createAdapter.mockImplementation(() => {
+        throw new Error('bad adapter');
+      });
+      const error = vi.fn();
+      const provider = new ApiCommandProvider(makeConfig(), {
+        ...makeLogger(),
+        error,
+      } as unknown as Logger);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('bad adapter'));
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBeNull();
+    });
+
+    it('updateConfig reloads only when the preset changes', () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      provider.updateConfig(makeConfig({ customInstructions: 'x' }));
+      expect(adapters).toHaveLength(1);
+
+      provider.updateConfig(
+        makeConfig({ api: { preset: 'openai-gpt-4o-mini', customPresets: [] } }),
+      );
+      expect(adapters).toHaveLength(2);
+      expect(adapters[0].dispose).toHaveBeenCalledTimes(1);
+      expect(lastAdapter().preset.id).toBe('openai-gpt-4o-mini');
+    });
+
+    it('dispose releases the adapter and makes sendPrompt return null', async () => {
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      const adapter = lastAdapter();
+      provider.dispose();
+      expect(adapter.dispose).toHaveBeenCalledTimes(1);
+      await expect(provider.sendPrompt(SYSTEM, USER)).resolves.toBeNull();
+      expect(adapter.complete).not.toHaveBeenCalled();
+    });
+  });
+});

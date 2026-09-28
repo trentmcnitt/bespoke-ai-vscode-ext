@@ -4,6 +4,8 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 export class AnthropicAdapter implements ApiAdapter {
   readonly providerId = 'anthropic';
   private client: unknown = null;
+  /** The key `client` was built with; a different resolved key rebuilds it. */
+  private clientKey: string | undefined;
   private preset: Preset;
 
   constructor(preset: Preset) {
@@ -44,7 +46,15 @@ export class AnthropicAdapter implements ApiAdapter {
         {
           model: this.preset.modelId,
           max_tokens: options.maxTokens,
-          temperature: options.temperature,
+          // Left out, not sent as undefined, when the model rejects sampling
+          // parameters (Sonnet 5, Opus 4.7+: HTTP 400). See model-capabilities.ts.
+          ...(this.preset.features?.sampling === false ? {} : { temperature: options.temperature }),
+          // Models that think by default (Sonnet 5, 5.5): thinking tokens count
+          // against max_tokens and can use up the whole completion budget. Each
+          // model accepts only its own "off" setting (Sonnet 5.5 400s on disabled).
+          ...(this.preset.features?.thinkingOff
+            ? { thinking: { type: this.preset.features.thinkingOff } }
+            : {}),
           system,
           messages: apiMessages,
           stop_sequences: options.stopSequences,
@@ -65,12 +75,14 @@ export class AnthropicAdapter implements ApiAdapter {
           inputTokens: response.usage?.input_tokens ?? 0,
           outputTokens: response.usage?.output_tokens ?? 0,
           cacheReadTokens: (response.usage as CacheUsage)?.cache_read_input_tokens,
+          cacheWriteTokens: (response.usage as CacheUsage)?.cache_creation_input_tokens,
         },
         model: response.model ?? this.preset.modelId,
         durationMs: Date.now() - startTime,
+        finishReason: response.stop_reason ?? undefined,
       };
     } catch (err: unknown) {
-      if (isAbortError(err)) {
+      if (isAbortError(err, options.signal)) {
         return {
           text: null,
           usage: { inputTokens: 0, outputTokens: 0 },
@@ -88,6 +100,7 @@ export class AnthropicAdapter implements ApiAdapter {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: this.preset.modelId,
           durationMs: Date.now() - startTime,
+          errorType: String(status),
         };
       }
 
@@ -107,9 +120,11 @@ export class AnthropicAdapter implements ApiAdapter {
   }
 
   private async getClient(): Promise<AnthropicClient> {
-    if (this.client) return this.client as AnthropicClient;
-
+    // Resolved per request (an in-memory lookup) so a key replaced with
+    // `setApiKey`, or changed in the environment, takes effect on the next
+    // request instead of the cached client failing until reload.
     const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (this.client && apiKey === this.clientKey) return this.client as AnthropicClient;
     if (!apiKey) {
       throw new Error(
         `API key not found for ${this.preset.apiKeyEnvVar ?? 'ANTHROPIC_API_KEY'}. Set it in your environment or ~/.creds/api-keys.env`,
@@ -123,16 +138,18 @@ export class AnthropicAdapter implements ApiAdapter {
       ...(this.preset.baseUrl && { baseURL: this.preset.baseUrl }),
       ...(this.preset.extraHeaders && { defaultHeaders: this.preset.extraHeaders }),
     });
+    this.clientKey = apiKey;
     return this.client as AnthropicClient;
   }
 }
 
-function isAbortError(err: unknown): boolean {
-  if (err instanceof Error && err.name === 'AbortError') return true;
-  if (err instanceof DOMException && err.name === 'AbortError') return true;
-  // Anthropic SDK wraps abort errors
-  if (err instanceof Error && err.message?.includes('aborted')) return true;
-  return false;
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  // Our own signal is the source of truth: the SDK throws APIUserAbortError
+  // ("Request was aborted.") only after checking that it was aborted. Matching
+  // on message text also swallowed server errors that merely mention
+  // "aborted", hiding them from the user and from the circuit breaker.
+  if (signal.aborted) return true;
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 // Minimal type definitions for the Anthropic SDK to avoid import-time dependency
@@ -158,7 +175,7 @@ interface AnthropicClient {
       params: {
         model: string;
         max_tokens: number;
-        temperature: number;
+        temperature?: number;
         system: unknown;
         messages: Array<{ role: string; content: string }>;
         stop_sequences?: string[];
@@ -169,6 +186,7 @@ interface AnthropicClient {
       content: ContentBlock[];
       usage?: CacheUsage;
       model?: string;
+      stop_reason?: string | null;
     }>;
   };
 }

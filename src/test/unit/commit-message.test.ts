@@ -1,4 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { makeLogger } from '../helpers';
+
+vi.mock('vscode', () => ({
+  ProgressLocation: { Notification: 15 },
+  window: {
+    showWarningMessage: vi.fn(),
+    showInformationMessage: vi.fn(),
+    showErrorMessage: vi.fn(),
+    setStatusBarMessage: vi.fn(),
+    showQuickPick: vi.fn(),
+    withProgress: vi.fn(async (_opts: unknown, task: any) =>
+      task({ report: vi.fn() }, { onCancellationRequested: vi.fn() }),
+    ),
+  },
+  extensions: { getExtension: vi.fn() },
+  workspace: { workspaceFolders: [{ uri: { fsPath: '/home/u/my-project' } }] },
+}));
+
+import * as vscode from 'vscode';
+import { generateCommitMessage } from '../../commit-message';
+import type { BackendRouter } from '../../providers/backend-router';
+import type { ApiCommandProvider } from '../../providers/api/api-command-provider';
+import type { Logger } from '../../utils/logger';
 import {
   buildFullCommitPrompt,
   parseCommitMessage,
@@ -98,5 +121,139 @@ describe('truncateDiff', () => {
   it('default limit is the exported constant', () => {
     const d = 'y\n'.repeat(MAX_COMMIT_DIFF_CHARS);
     expect(truncateDiff(d).length).toBeLessThan(MAX_COMMIT_DIFF_CHARS + 100);
+  });
+});
+
+describe('generateCommitMessage — error handling', () => {
+  const win = vscode.window as unknown as {
+    showWarningMessage: ReturnType<typeof vi.fn>;
+    showErrorMessage: ReturnType<typeof vi.fn>;
+    setStatusBarMessage: ReturnType<typeof vi.fn>;
+  };
+  const getExtension = vscode.extensions.getExtension as unknown as ReturnType<typeof vi.fn>;
+
+  function makeRouter(sendCommand: () => Promise<unknown>) {
+    return {
+      isCommandAvailable: vi.fn(() => true),
+      getBackend: vi.fn((): 'claude-code' | 'api' => 'claude-code'),
+      getCurrentModel: vi.fn(() => 'sonnet'),
+      sendCommand: vi.fn(sendCommand),
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const repo = {
+      rootUri: { fsPath: '/home/u/my-project' },
+      diff: vi.fn(async (staged: boolean) => (staged ? 'diff --git a/x b/x\n+hello\n' : '')),
+      inputBox: { value: '' },
+    };
+    getExtension.mockReturnValue({
+      isActive: true,
+      exports: { getAPI: () => ({ repositories: [repo] }) },
+    });
+  });
+
+  it('logs and toasts a backend error (resolving, not rejecting) and releases the in-flight guard', async () => {
+    // The toast never settles; the wrapper must not await it.
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {}));
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const err = new Error('401 invalid x-api-key');
+    const failing = makeRouter(async () => {
+      throw err;
+    });
+
+    await expect(
+      generateCommitMessage(failing as unknown as BackendRouter, logger),
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith('Commit message generation failed', err);
+    expect(win.showErrorMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Commit message generation failed — 401 invalid x-api-key',
+    );
+
+    // A subsequent invocation is not blocked by a stuck in-flight flag.
+    const next = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(next as unknown as BackendRouter, makeLogger());
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+    expect(win.setStatusBarMessage).not.toHaveBeenCalledWith(
+      'Bespoke AI: Request already in progress',
+      2000,
+    );
+  });
+
+  it('toasts and logs a pool failure (null text with an errorType), naming the cause', async () => {
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {})); // never dismissed
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({
+      text: null,
+      meta: null,
+      errorType: 'pool_circuit_open',
+    }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(error).toHaveBeenCalledWith('Commit message generation failed: pool_circuit_open');
+    expect(win.showErrorMessage).toHaveBeenCalledOnce();
+    const msg = win.showErrorMessage.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^Bespoke AI: Commit message generation failed — /);
+    expect(msg).toContain('crashing repeatedly');
+    // The unsettled toast does not hold the in-flight guard.
+    const next = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(next as unknown as BackendRouter, makeLogger());
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it('stays silent on an aborted (superseded / shutdown) command', async () => {
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({ text: null, meta: null, aborted: true }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('stays silent on a bare null (the user cancelled)', async () => {
+    const router = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(router as unknown as BackendRouter, makeLogger());
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it('on the API backend with no key, says so instead of "Command pool not ready"', async () => {
+    const router = makeRouter(async () => ({ text: 'x', meta: null }));
+    router.isCommandAvailable.mockReturnValue(false);
+    router.getBackend.mockReturnValue('api');
+    const apiCommand = {
+      unavailableReason: vi.fn(() => ({
+        kind: 'no_key',
+        presetId: 'openai-gpt-4.1-nano',
+        displayName: 'GPT-4.1 Nano',
+      })),
+    };
+    await generateCommitMessage(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledWith(
+      'Bespoke AI: No API key for GPT-4.1 Nano. Run "Bespoke AI: Enter API Key".',
+    );
+    expect(router.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('on the Claude Code backend, keeps the pool-not-ready message', async () => {
+    const router = makeRouter(async () => ({ text: 'x', meta: null }));
+    router.isCommandAvailable.mockReturnValue(false);
+    const apiCommand = { unavailableReason: vi.fn() };
+    await generateCommitMessage(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Command pool not ready. Try again in a moment.',
+    );
+    expect(apiCommand.unavailableReason).not.toHaveBeenCalled();
   });
 });

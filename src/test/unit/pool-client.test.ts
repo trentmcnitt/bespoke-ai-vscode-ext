@@ -1,0 +1,1183 @@
+/**
+ * PoolClient leader election and IPC tests.
+ *
+ * These run real Unix-socket traffic between PoolClient instances in one process.
+ * `os.homedir()` is redirected to a temp dir so the real ipc-path module resolves
+ * STATE_DIR / pool.sock / pool.lock there instead of ~/.bespokeai. The Claude CLI
+ * providers (ClaudeCodeProvider, CommandPool) are replaced with in-memory fakes
+ * that echo which server instance handled the request, so a response proves
+ * which leader actually served it.
+ */
+import * as fs from 'fs';
+import * as net from 'net';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+
+const { fakeHome, registry } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeFs = require('fs') as typeof import('fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodePath = require('path') as typeof import('path');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeOs = require('os') as typeof import('os');
+  return {
+    fakeHome: nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'bpc-')),
+    registry: {
+      completion: [] as FakeCompletionProviderShape[],
+      command: [] as FakeCommandPoolShape[],
+    },
+  };
+});
+
+interface FakeCompletionProviderShape {
+  config: { claudeCode: { model: string }; customInstructions: string };
+  available: boolean;
+  unavailableWhy: string;
+  disposed: boolean;
+  recycles: number;
+  restarts: number;
+  configUpdates: number;
+}
+
+interface FakeCommandPoolShape {
+  model: string;
+  signals: AbortSignal[];
+  available: boolean;
+  unavailableWhy: string;
+  disposed: boolean;
+  recycles: number;
+  restarts: number;
+  modelUpdates: string[];
+}
+
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return { ...actual, homedir: () => fakeHome };
+});
+
+function fakeStats(label: string, available: boolean) {
+  return {
+    label,
+    available,
+    slots: [],
+    activatedAt: null,
+    uptimeMs: null,
+    totalRequests: 0,
+    totalRecycles: 0,
+    lastRequestAt: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalCostUsd: 0,
+  };
+}
+
+vi.mock('../../providers/claude-code', () => ({
+  ClaudeCodeProvider: class {
+    available = true;
+    disposed = false;
+    recycles = 0;
+    restarts = 0;
+    configUpdates = 0;
+    lastUsedModel: string | undefined;
+    onPoolDegraded?: (reason: string) => void;
+    constructor(public config: FakeCompletionProviderShape['config']) {
+      registry.completion.push(this);
+    }
+    setLedger() {}
+    async activate() {}
+    isAvailable() {
+      return this.available && !this.disposed;
+    }
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason() {
+      if (this.disposed) return 'disposed';
+      return this.available ? null : this.unavailableWhy;
+    }
+    async getCompletion(ctx: { prefix: string }) {
+      if (ctx.prefix === 'THROW') throw new Error('boom');
+      // Identify the serving instance: model + index in registry
+      return `${this.config.claudeCode.model}#${registry.completion.indexOf(this)}:${ctx.prefix}`;
+    }
+    async getCompletionWithDetail(
+      ctx: { prefix: string },
+      _s: unknown,
+      opts?: { captureContent?: boolean },
+    ) {
+      // A pool kill / a superseded request, as ClaudeCodeProvider reports them.
+      if (ctx.prefix === 'RECYCLED' || ctx.prefix === 'SUPERSEDED') {
+        const why = ctx.prefix === 'RECYCLED' ? { errorType: 'pool_recycled' } : { aborted: true };
+        return {
+          text: null,
+          detail: { providerName: 'anthropic', requestModel: this.config.claudeCode.model, ...why },
+        };
+      }
+      const text = await this.getCompletion(ctx);
+      return {
+        text,
+        detail: {
+          providerName: 'anthropic',
+          requestModel: this.config.claudeCode.model,
+          responseModel: `claude-${this.config.claudeCode.model}-resolved`,
+          inputTokens: 10,
+          outputTokens: 3,
+          cacheReadTokens: 100,
+          costUsd: 0.002,
+          waitMs: 5,
+          finishReason: 'end_turn',
+          ...(opts?.captureContent
+            ? { content: { systemPrompt: 'SYS', userMessage: `U:${ctx.prefix}`, rawOutput: 'RAW' } }
+            : {}),
+        },
+      };
+    }
+    getStats() {
+      return fakeStats('completion', this.isAvailable());
+    }
+    updateConfig(config: FakeCompletionProviderShape['config']) {
+      this.config = config;
+      this.configUpdates++;
+    }
+    async recycleAll() {
+      this.recycles++;
+    }
+    async restart() {
+      this.restarts++;
+    }
+    dispose() {
+      this.disposed = true;
+    }
+  },
+}));
+
+vi.mock('../../providers/command-pool', () => ({
+  CommandPool: class {
+    available = true;
+    disposed = false;
+    recycles = 0;
+    restarts = 0;
+    modelUpdates: string[] = [];
+    /** onCancel signals the server passed, in order. */
+    signals: AbortSignal[] = [];
+    onPoolDegraded?: (reason: string) => void;
+    constructor(public model: string) {
+      registry.command.push(this);
+    }
+    setLedger() {}
+    async activate() {}
+    isAvailable() {
+      return this.available && !this.disposed;
+    }
+    unavailableWhy = 'slot_unavailable';
+    unavailableReason() {
+      if (this.disposed) return 'disposed';
+      return this.available ? null : this.unavailableWhy;
+    }
+    async sendPrompt(message: string, opts?: { onCancel?: AbortSignal }) {
+      if (opts?.onCancel) this.signals.push(opts.onCancel);
+      // Stays in flight until cancelled, like CommandPool.
+      if (message === 'HOLD') {
+        return new Promise((resolve) => {
+          const done = () => resolve({ text: null, meta: null, aborted: true });
+          if (opts?.onCancel?.aborted) done();
+          opts?.onCancel?.addEventListener('abort', done);
+        });
+      }
+      if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
+      if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
+      if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
+      if (message === 'TIMED_OUT') return { text: null, meta: null, errorType: 'timeout' };
+      if (message === 'OLD_SERVER_COST') {
+        // A server from before the per-turn fix: costUsd is the SDK's cumulative
+        // session total, turnCostUsd the real per-turn cost.
+        return {
+          text: 'cmd',
+          meta: {
+            model: this.model,
+            durationMs: 12,
+            durationApiMs: 10,
+            costUsd: 0.5,
+            turnCostUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            sessionId: 'sess-1',
+          },
+        };
+      }
+      return {
+        text: `cmd:${this.model}:${message}`,
+        meta: {
+          model: this.model,
+          durationMs: 12,
+          durationApiMs: 10,
+          costUsd: 0.001,
+          inputTokens: 100,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          sessionId: 'sess-1',
+        },
+      };
+    }
+    getStats() {
+      return fakeStats('command', this.isAvailable());
+    }
+    updateModel(model: string) {
+      this.model = model;
+      this.modelUpdates.push(model);
+    }
+    async recycleAll() {
+      this.recycles++;
+    }
+    async restart() {
+      this.restarts++;
+    }
+    dispose() {
+      this.disposed = true;
+    }
+  },
+}));
+
+import { PoolClient, PoolRole, ipcTimeoutFor } from '../../pool-server/client';
+import { acquireLock } from '../../pool-server/server';
+import { STATE_DIR, LOCK_PATH, getIpcPath } from '../../pool-server/ipc-path';
+import { UsageLedger } from '../../utils/usage-ledger';
+import { Logger } from '../../utils/logger';
+import { makeConfig, makeLogger, makeProseContext } from '../helpers';
+import type { ExtensionConfig } from '../../types';
+
+const IS_WINDOWS = process.platform === 'win32';
+const SOCK_PATH = getIpcPath();
+
+interface Harness {
+  client: PoolClient;
+  roles: PoolRole[];
+  degraded: Array<{ pool: string; reason: string }>;
+  errors: string[];
+}
+
+const live: PoolClient[] = [];
+const rawServers: net.Server[] = [];
+
+function makeClient(id: string, config: ExtensionConfig = makeConfig()): Harness {
+  const roles: PoolRole[] = [];
+  const degraded: Array<{ pool: string; reason: string }> = [];
+  const errors: string[] = [];
+  const logger = { ...makeLogger(), error: (m: string) => errors.push(m) } as unknown as Logger;
+  const client = new PoolClient({
+    config,
+    logger,
+    ledger: {} as UsageLedger,
+    clientId: id,
+    onRoleChange: (r) => roles.push(r),
+    onPoolDegraded: (pool, reason) => degraded.push({ pool, reason }),
+  });
+  live.push(client);
+  return { client, roles, degraded, errors };
+}
+
+const signal = () => new AbortController().signal;
+
+/** Stand up a bare socket server at the pool path with a custom responder. */
+async function startRawServer(
+  onLine: (socket: net.Socket, msg: Record<string, unknown>) => void,
+): Promise<{ server: net.Server; sockets: net.Socket[] }> {
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  const sockets: net.Socket[] = [];
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    let buf = '';
+    socket.on('data', (d) => {
+      buf += d.toString();
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) if (line.trim()) onLine(socket, JSON.parse(line));
+    });
+    socket.on('error', () => {});
+  });
+  await new Promise<void>((resolve) => server.listen(SOCK_PATH, resolve));
+  rawServers.push(server);
+  return { server, sockets };
+}
+
+beforeEach(() => {
+  registry.completion.length = 0;
+  registry.command.length = 0;
+});
+
+afterEach(async () => {
+  for (const c of live.splice(0)) c.dispose();
+  for (const s of rawServers.splice(0)) {
+    await new Promise<void>((resolve) => s.close(() => resolve()));
+  }
+  fs.rmSync(STATE_DIR, { recursive: true, force: true });
+});
+
+afterAll(() => {
+  fs.rmSync(fakeHome, { recursive: true, force: true });
+});
+
+describe.skipIf(IS_WINDOWS)('PoolClient', () => {
+  it('redirects the state dir into the temp home (sanity check for isolation)', () => {
+    expect(STATE_DIR.startsWith(fakeHome)).toBe(true);
+    expect(SOCK_PATH.startsWith(fakeHome)).toBe(true);
+  });
+
+  it('a disposed client reports the completion as aborted, not empty', async () => {
+    const h = makeClient('disposed');
+    h.client.dispose();
+    const res = await h.client.getCompletionWithDetail(makeProseContext(), signal());
+    expect(res.text).toBeNull();
+    expect(res.detail?.aborted).toBe(true);
+  });
+
+  it('a disposed client reports a command as aborted, not empty', async () => {
+    const h = makeClient('disposed-cmd');
+    h.client.dispose();
+    expect(await h.client.sendCommand('x')).toEqual({ text: null, meta: null, aborted: true });
+  });
+
+  describe('leader election', () => {
+    it('first client becomes server, writes lockfile with its pid, and binds the socket', async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+
+      expect(a.client.getRole()).toBe('server');
+      expect(a.roles).toEqual(['server']);
+      expect(JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid).toBe(process.pid);
+      expect(fs.existsSync(SOCK_PATH)).toBe(true);
+      expect(registry.completion).toHaveLength(1);
+    });
+
+    it('second client connects as follower instead of starting another server', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      expect(b.client.getRole()).toBe('client');
+      expect(b.roles).toEqual(['client']);
+      expect(registry.completion).toHaveLength(1); // no second provider spawned
+      expect(b.client.isAvailable()).toBe(true);
+      expect(b.client.isCommandPoolAvailable()).toBe(true);
+      // Follower reports the leader's model from client-hello, not its own setting
+      expect(b.client.getCurrentModel()).toBe('opus');
+      expect(a.client.getCurrentModel()).toBe('opus');
+    });
+
+    it('activate() is a no-op while an activation is already in flight', async () => {
+      const a = makeClient('A');
+      await Promise.all([a.client.activate(), a.client.activate()]);
+      expect(a.roles).toEqual(['server']);
+      expect(registry.completion).toHaveLength(1);
+    });
+  });
+
+  describe('request routing', () => {
+    it('follower completions travel over the socket and are served by the leader', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      const ctx = makeProseContext({ prefix: 'hello' });
+      expect(await b.client.getCompletion(ctx, signal())).toBe('opus#0:hello');
+      // Leader uses the local fast path and hits the same provider
+      expect(await a.client.getCompletion(ctx, signal())).toBe('opus#0:hello');
+    });
+
+    it('generation detail reaches the requester on both the fast path and the socket', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      const ctx = makeProseContext({ prefix: 'hi' });
+      for (const h of [a, b]) {
+        const res = await h.client.getCompletionWithDetail(ctx, signal(), { captureContent: true });
+        expect(res.text).toBe('opus#0:hi');
+        expect(res.detail).toMatchObject({
+          providerName: 'anthropic',
+          requestModel: 'opus',
+          responseModel: 'claude-opus-resolved',
+          inputTokens: 10,
+          outputTokens: 3,
+          cacheReadTokens: 100,
+          costUsd: 0.002,
+          waitMs: 5,
+          finishReason: 'end_turn',
+          content: { systemPrompt: 'SYS', userMessage: 'U:hi', rawOutput: 'RAW' },
+        });
+      }
+    });
+
+    it('a pool kill reaches the requester as an error type, a superseded request as aborted, on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const h of [a, b]) {
+        const killed = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'RECYCLED' }),
+          signal(),
+        );
+        expect(killed.text).toBeNull();
+        expect(killed.detail?.errorType).toBe('pool_recycled');
+        expect(killed.detail?.aborted).toBeUndefined();
+
+        const superseded = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'SUPERSEDED' }),
+          signal(),
+        );
+        expect(superseded.detail?.aborted).toBe(true);
+        expect(superseded.detail?.errorType).toBeUndefined();
+      }
+    });
+
+    it('omits content on both paths when capture is off', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      const ctx = makeProseContext({ prefix: 'hi' });
+      for (const h of [a, b]) {
+        const res = await h.client.getCompletionWithDetail(ctx, signal(), {
+          captureContent: false,
+        });
+        expect(res.detail?.content).toBeUndefined();
+        expect(res.detail?.outputTokens).toBe(3);
+        const plain = await h.client.getCompletionWithDetail(ctx, signal());
+        expect(plain.detail?.content).toBeUndefined();
+      }
+    });
+
+    it('does not report a stale response model when nothing responded', async () => {
+      const { wireMetaToDetail } = await import('../../pool-server/protocol');
+      // Server fallback `model` is the previous request's resolved model; no usage reported.
+      const d = wireMetaToDetail(
+        { model: 'claude-opus-4-previous', requestModel: 'opus', aborted: true },
+        'opus',
+        true,
+      );
+      expect(d.responseModel).toBeUndefined();
+      expect(d.aborted).toBe(true);
+    });
+
+    it('reports a pool failure as error detail rather than a bare null', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      const res = await b.client.getCompletionWithDetail(
+        makeProseContext({ prefix: 'THROW' }),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail).toMatchObject({ errorType: 'pool_error', errorMessage: 'boom' });
+    });
+
+    it('concurrent follower requests are matched to their own responses', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      const prefixes = Array.from({ length: 20 }, (_, i) => `p${i}`);
+      const results = await Promise.all(
+        prefixes.map((p) => b.client.getCompletion(makeProseContext({ prefix: p }), signal())),
+      );
+      expect(results.map((r) => r!.split(':').pop())).toEqual(prefixes);
+    });
+
+    it('commands return text and fully-populated metadata on both paths', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const c of [a.client, b.client]) {
+        const res = await c.sendCommand('commit msg', { timeoutMs: 5000 });
+        expect(res.text).toBe('cmd:opus:commit msg');
+        expect(res.meta).toMatchObject({ model: 'opus', durationMs: 12, sessionId: 'sess-1' });
+      }
+      expect((await b.client.sendCommand('NO_META')).meta).toBeNull();
+    });
+
+    it('a follower records the per-turn cost even when the server sends a cumulative costUsd', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      const res = await b.client.sendCommand('OLD_SERVER_COST');
+      expect(res.meta?.costUsd).toBe(0.01);
+      expect(res.meta?.turnCostUsd).toBe(0.01);
+    });
+
+    it('a command the pool ended reaches the requester with its reason on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const c of [a.client, b.client]) {
+        expect(await c.sendCommand('RECYCLED')).toEqual({
+          text: null,
+          meta: null,
+          errorType: 'pool_recycled',
+        });
+        expect(await c.sendCommand('SUPERSEDED')).toEqual({
+          text: null,
+          meta: null,
+          aborted: true,
+        });
+        expect(await c.sendCommand('TIMED_OUT')).toEqual({
+          text: null,
+          meta: null,
+          errorType: 'timeout',
+        });
+      }
+    });
+
+    it("a follower waits past a command's own timeoutMs, so the leader reports the timeout", () => {
+      const cmd = (timeoutMs?: number) =>
+        ({ type: 'command', id: 'x', message: 'm', timeoutMs }) as const;
+      expect(ipcTimeoutFor(cmd())).toBe(60_000);
+      expect(ipcTimeoutFor(cmd(30_000))).toBe(60_000);
+      expect(ipcTimeoutFor(cmd(90_000))).toBe(95_000); // Suggest Edits
+      expect(ipcTimeoutFor({ type: 'status', id: 'y' } as any)).toBe(60_000);
+    });
+
+    it('follower returns null and logs when the leader reports the completion pool unavailable', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      registry.completion[0].available = false;
+      registry.command[0].available = false;
+
+      expect(await b.client.getCompletion(makeProseContext(), signal())).toBeNull();
+      expect(b.errors.some((e) => e.includes('Completion pool not available'))).toBe(true);
+      expect((await b.client.sendCommand('x')).text).toBeNull();
+      expect(b.errors.some((e) => e.includes('Command pool not available'))).toBe(true);
+      // The leader says why, so the follower's trace is typed rather than pool_error.
+      const cmd = await b.client.sendCommand('x');
+      expect(cmd.errorType).toBe('slot_unavailable');
+      // Leader's availability reflects the provider directly
+      expect(a.client.isAvailable()).toBe(false);
+      expect(a.client.isCommandPoolAvailable()).toBe(false);
+    });
+
+    it("a follower's request to an open-breaker pool is traced as pool_circuit_open, not pool_error", async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      for (const pool of [registry.completion[0], registry.command[0]]) {
+        pool.available = false;
+        pool.unavailableWhy = 'pool_circuit_open';
+      }
+
+      // A follower can't see the leader's pool state, so it sends; the leader says why.
+      expect(b.client.isAvailable()).toBe(true);
+      const res = await b.client.getCompletionWithDetail(makeProseContext(), signal());
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('pool_circuit_open');
+      expect(await b.client.sendCommand('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_circuit_open',
+      });
+    });
+
+    it('provider exceptions surface as null, not a thrown error, on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      const ctx = makeProseContext({ prefix: 'THROW' });
+
+      expect(await a.client.getCompletion(ctx, signal())).toBeNull();
+      expect(await b.client.getCompletion(ctx, signal())).toBeNull();
+      expect(b.errors.some((e) => e.includes('boom'))).toBe(true);
+    });
+
+    it('getPoolStatus reports each client its own role but the shared server model', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      const sa = await a.client.getPoolStatus();
+      const sb = await b.client.getPoolStatus();
+      expect(sa).toMatchObject({ role: 'server', model: 'opus' });
+      expect(sb).toMatchObject({ role: 'client', model: 'opus' });
+      expect(sb!.completionPool!.label).toBe('completion');
+      expect(sb!.commandPool!.label).toBe('command');
+    });
+
+    it('recycleAll / restart from a follower recycle both pools on the leader', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      await b.client.restart(); // follower restart → recycle request
+      expect(registry.completion[0].recycles).toBe(1);
+      expect(registry.command[0].recycles).toBe(1);
+
+      await a.client.recycleAll(); // leader local path
+      expect(registry.completion[0].recycles).toBe(2);
+
+      await a.client.restart(); // leader restart → restartPools
+      expect(registry.completion[0].restarts).toBe(1);
+      expect(registry.command[0].restarts).toBe(1);
+    });
+  });
+
+  describe('command cancellation', () => {
+    const helloReply = (socket: net.Socket, msg: Record<string, unknown>) =>
+      socket.write(
+        JSON.stringify({
+          type: 'client-hello',
+          id: msg.id,
+          success: true,
+          serverId: 'raw',
+          model: 'm',
+        }) + '\n',
+      );
+
+    it("the leader's own cancel ends its command and the pool serves the next one", async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+      expect(a.client.getRole()).toBe('server');
+
+      const controller = new AbortController();
+      const held = a.client.sendCommand('HOLD', { timeoutMs: 60_000, onCancel: controller.signal });
+      await vi.waitFor(() => expect(registry.command[0].signals).toHaveLength(1));
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+      expect(registry.command[0].signals[0].aborted).toBe(true);
+      expect((await a.client.sendCommand('next')).text).toBe('cmd:sonnet:next');
+    });
+
+    it("a follower's cancel resolves at once and reaches the leader, whose pool is freed", async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      expect(b.client.getRole()).toBe('client');
+
+      const controller = new AbortController();
+      const held = b.client.sendCommand('HOLD', { timeoutMs: 60_000, onCancel: controller.signal });
+      await vi.waitFor(() => expect(registry.command[0].signals).toHaveLength(1));
+      const leaderSignal = registry.command[0].signals[0];
+      expect(leaderSignal.aborted).toBe(false);
+
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+      await vi.waitFor(() => expect(leaderSignal.aborted).toBe(true));
+      expect((await b.client.sendCommand('next')).text).toBe('cmd:sonnet:next');
+      expect(b.errors).toEqual([]);
+    });
+
+    it('an old leader that does not know cancel: the follower still resolves aborted and the connection stays usable', async () => {
+      const received: Record<string, unknown>[] = [];
+      let heldId: unknown;
+      const { sockets } = await startRawServer((socket, msg) => {
+        received.push(msg);
+        if (msg.type === 'client-hello') return helloReply(socket, msg);
+        if (msg.type === 'command' && msg.message === 'HOLD') {
+          heldId = msg.id; // answered only later, and late
+          return;
+        }
+        if (msg.type === 'command') {
+          socket.write(
+            JSON.stringify({ type: 'command', id: msg.id, success: true, text: 'ok' }) + '\n',
+          );
+          return;
+        }
+        // What PoolServer.handleRequest did for an unknown type before `cancel` existed.
+        socket.write(
+          JSON.stringify({
+            type: 'error',
+            id: msg.id || 'unknown',
+            success: false,
+            error: `Unknown request type: ${msg.type}`,
+          }) + '\n',
+        );
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+
+      const controller = new AbortController();
+      const held = b.client.sendCommand('HOLD', { onCancel: controller.signal });
+      await vi.waitFor(() => expect(heldId).toBeDefined());
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+
+      await vi.waitFor(() => expect(received.some((m) => m.type === 'cancel')).toBe(true));
+      const cancel = received.find((m) => m.type === 'cancel')!;
+      expect(cancel.requestId).toBe(heldId);
+      expect(cancel.id).not.toBe(heldId); // its own id, so the error reply matches nothing
+
+      // The old leader finally answers the cancelled command: ignored.
+      sockets[0].write(
+        JSON.stringify({ type: 'command', id: heldId, success: true, text: 'late' }) + '\n',
+      );
+      expect((await b.client.sendCommand('next')).text).toBe('ok');
+      expect(b.client.isAvailable()).toBe(true);
+      expect(b.errors).toEqual([]);
+    });
+
+    it('a follower sends no cancel for an already-aborted signal or after the answer arrived', async () => {
+      const received: Record<string, unknown>[] = [];
+      await startRawServer((socket, msg) => {
+        received.push(msg);
+        if (msg.type === 'client-hello') return helloReply(socket, msg);
+        socket.write(
+          JSON.stringify({ type: 'command', id: msg.id, success: true, text: 'ok' }) + '\n',
+        );
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+
+      const early = new AbortController();
+      early.abort();
+      expect(await b.client.sendCommand('x', { onCancel: early.signal })).toEqual({
+        text: null,
+        meta: null,
+        aborted: true,
+      });
+
+      const late = new AbortController();
+      expect((await b.client.sendCommand('y', { onCancel: late.signal })).text).toBe('ok');
+      late.abort();
+      late.abort();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(received.map((m) => m.type)).toEqual(['client-hello', 'command']);
+    });
+  });
+
+  describe('config propagation', () => {
+    it("follower model change reaches the leader's pools", async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'sonnet', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'sonnet', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      b.client.updateConfig(makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+
+      await vi.waitFor(() => expect(registry.command[0].modelUpdates).toEqual(['opus']));
+      await vi.waitFor(() => expect(registry.completion[0].recycles).toBe(1));
+      expect(await b.client.getCompletion(makeProseContext({ prefix: 'x' }), signal())).toBe(
+        'opus#0:x',
+      );
+    });
+
+    it('custom-instructions-only change recycles completions but leaves the command pool alone', async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+
+      a.client.updateConfig(makeConfig({ customInstructions: 'be terse' }));
+
+      await vi.waitFor(() => expect(registry.completion[0].recycles).toBe(1));
+      expect(registry.completion[0].config.customInstructions).toBe('be terse');
+      expect(registry.command[0].modelUpdates).toEqual([]);
+    });
+
+    it('does not contact the server for unrelated changes or in API mode', async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+
+      a.client.updateConfig(makeConfig({ debounceMs: 42 }));
+      a.client.updateConfig(
+        makeConfig({ backend: 'api', claudeCode: { model: 'opus', models: [] } }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(registry.completion[0].configUpdates).toBe(0);
+      expect(registry.command[0].modelUpdates).toEqual([]);
+      expect(a.errors).toEqual([]);
+    });
+
+    it('an unconnected client logs (not throws) when a config update cannot be sent', async () => {
+      const a = makeClient('A');
+      // never activated: role 'client', no socket
+      a.client.updateConfig(makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      await vi.waitFor(() =>
+        expect(a.errors.some((e) => e.includes('config update failed'))).toBe(true),
+      );
+      expect(a.client.isAvailable()).toBe(false);
+      expect(a.client.isCommandPoolAvailable()).toBe(false);
+
+      // Every public request method honors the null-on-error contract
+      expect(await a.client.getCompletion(makeProseContext(), signal())).toBeNull();
+      expect(await a.client.sendCommand('x')).toEqual({
+        text: null,
+        meta: null,
+        errorType: 'pool_error',
+      });
+      expect(await a.client.getPoolStatus()).toBeNull();
+      await expect(a.client.recycleAll()).resolves.toBeUndefined();
+      await expect(a.client.restart()).resolves.toBeUndefined();
+      expect(a.errors.some((e) => e.includes('command error'))).toBe(true);
+      expect(a.errors.some((e) => e.includes('recycle failed'))).toBe(true);
+    });
+  });
+
+  describe('server events', () => {
+    it('forwards pool-degraded broadcasts from the leader to follower callbacks', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      const provider = registry.completion[0] as unknown as { onPoolDegraded: (r: string) => void };
+      provider.onPoolDegraded('credit balance too low');
+
+      await vi.waitFor(() =>
+        expect(b.degraded).toEqual([{ pool: 'completion', reason: 'credit balance too low' }]),
+      );
+      expect(a.degraded).toEqual([{ pool: 'completion', reason: 'credit balance too low' }]);
+    });
+
+    it('handles messages split across TCP chunks and ignores garbage lines', async () => {
+      await startRawServer((socket, msg) => {
+        if (msg.type === 'client-hello') {
+          socket.write(
+            JSON.stringify({
+              type: 'client-hello',
+              id: msg.id,
+              success: true,
+              serverId: 'raw',
+              model: 'raw-model',
+            }) + '\n',
+          );
+        } else if (msg.type === 'completion') {
+          const payload = JSON.stringify({
+            type: 'completion',
+            id: msg.id,
+            success: true,
+            text: 'split-ok',
+          });
+          // garbage line, an event without id, then the response split in two writes
+          socket.write('not json\n' + JSON.stringify({ type: 'pool-degraded', pool: 'command' }));
+          socket.write('\n' + payload.slice(0, 10));
+          setTimeout(() => socket.write(payload.slice(10) + '\n'), 5);
+        }
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+      expect(b.client.getRole()).toBe('client');
+      expect(b.client.getCurrentModel()).toBe('raw-model');
+
+      expect(await b.client.getCompletion(makeProseContext(), signal())).toBe('split-ok');
+      expect(b.errors.some((e) => e.includes('failed to parse message'))).toBe(true);
+      expect(b.degraded).toEqual([{ pool: 'command', reason: 'unknown' }]);
+    });
+
+    it('rejects in-flight follower requests when the server connection drops', async () => {
+      const { sockets } = await startRawServer((socket, msg) => {
+        if (msg.type === 'client-hello') {
+          socket.write(
+            JSON.stringify({
+              type: 'client-hello',
+              id: msg.id,
+              success: true,
+              serverId: 'raw',
+              model: 'm',
+            }) + '\n',
+          );
+        }
+        // completion requests are never answered
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+
+      const pending = b.client.getCompletion(makeProseContext(), signal());
+      await vi.waitFor(() => expect(sockets).toHaveLength(1));
+      sockets[0].destroy();
+
+      expect(await pending).toBeNull();
+      expect(b.errors.some((e) => e.includes('Server disconnected'))).toBe(true);
+      expect(b.client.isAvailable()).toBe(false);
+
+      // The server is still up, so the back-off path reconnects instead of taking over.
+      // (Wait for it to settle — disposing mid-back-off leaks a server; see bug test below.)
+      await vi.waitFor(() => expect(sockets).toHaveLength(2), { timeout: 2000 });
+      await vi.waitFor(() => expect(b.client.isAvailable()).toBe(true));
+      expect(b.client.getRole()).toBe('client');
+    });
+  });
+
+  describe('takeover', () => {
+    it('follower becomes the new server after the leader disposes', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+
+      a.client.dispose();
+      expect(registry.completion[0].disposed).toBe(true);
+
+      await vi.waitFor(() => expect(b.client.getRole()).toBe('server'), { timeout: 3000 });
+      expect(b.roles).toEqual(['client', 'server']);
+      expect(JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid).toBe(process.pid);
+      // New server spun up its own providers with the follower's config
+      expect(registry.completion).toHaveLength(2);
+      expect(await b.client.getCompletion(makeProseContext({ prefix: 'z' }), signal())).toBe(
+        'haiku#1:z',
+      );
+      expect((await b.client.getPoolStatus())!.model).toBe('haiku');
+    });
+
+    it('with two followers, exactly one takes over and the other reconnects to it', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      const c = makeClient('C');
+      await a.client.activate();
+      await b.client.activate();
+      await c.client.activate();
+
+      a.client.dispose();
+
+      await vi.waitFor(
+        () => {
+          const roles = [b.client.getRole(), c.client.getRole()].sort();
+          expect(roles).toEqual(['client', 'server']);
+          const follower = b.client.getRole() === 'client' ? b.client : c.client;
+          expect(follower.isAvailable()).toBe(true);
+        },
+        { timeout: 4000, interval: 25 },
+      );
+      expect(registry.completion).toHaveLength(2);
+
+      const follower = b.client.getRole() === 'client' ? b : c;
+      expect(await follower.client.getCompletion(makeProseContext({ prefix: 'q' }), signal())).toBe(
+        'sonnet#1:q',
+      );
+    });
+
+    // Regression: `disposed` used to be checked only before the back-off delay, so a
+    // client disposed during the delay still started a PoolServer nothing would dispose.
+    it('dispose during takeover back-off cancels the takeover', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      a.client.dispose();
+      await new Promise((r) => setTimeout(r, 50)); // B is now inside the 500ms back-off
+      b.client.dispose();
+      await new Promise((r) => setTimeout(r, 700));
+      try {
+        expect(b.client.getRole()).toBe('client');
+        expect(fs.existsSync(LOCK_PATH)).toBe(false);
+      } finally {
+        // Reach the orphaned server so it doesn't leak into later tests
+        (b.client as unknown as { server: { dispose(): void } | null }).server?.dispose();
+      }
+    });
+
+    // Regression: serverModel (cached from the client-hello) used to survive takeover,
+    // so the new leader kept reporting the old leader's model.
+    it('getCurrentModel reflects the new server after takeover', async () => {
+      const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+      const b = makeClient('B', makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+      await a.client.activate();
+      await b.client.activate();
+      a.client.dispose();
+      await vi.waitFor(() => expect(b.client.getRole()).toBe('server'), { timeout: 3000 });
+
+      expect(b.client.getCurrentModel()).toBe('haiku');
+    });
+
+    it('a disposed follower does not attempt takeover', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      b.client.dispose();
+      a.client.dispose();
+      await new Promise((r) => setTimeout(r, 700));
+
+      expect(b.client.getRole()).toBe('client');
+      expect(registry.completion).toHaveLength(1);
+      expect(fs.existsSync(LOCK_PATH)).toBe(false);
+      expect(await b.client.getCompletion(makeProseContext(), signal())).toBeNull();
+      // Disposed = the window is shutting down: aborted, like a completion after dispose.
+      expect(await b.client.sendCommand('x')).toEqual({ text: null, meta: null, aborted: true });
+      expect(await b.client.getPoolStatus()).toBeNull();
+      expect(b.client.isAvailable()).toBe(false);
+      expect(b.client.isCommandPoolAvailable()).toBe(false);
+    });
+
+    it('can re-activate after dispose (disable/enable cycle)', async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+      a.client.dispose();
+      expect(fs.existsSync(LOCK_PATH)).toBe(false);
+      expect(fs.existsSync(SOCK_PATH)).toBe(false);
+
+      await a.client.activate();
+      expect(a.client.getRole()).toBe('server');
+      expect(await a.client.getCompletion(makeProseContext({ prefix: 'r' }), signal())).toBe(
+        'sonnet#1:r',
+      );
+    });
+  });
+
+  describe('stale state', () => {
+    it('reclaims a lockfile left by a dead process and removes a leftover socket file', async () => {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      // PID far above any realistic pid_max → process.kill(pid, 0) throws ESRCH
+      fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: 2 ** 30, timestamp: 0 }));
+      fs.writeFileSync(SOCK_PATH, ''); // stale regular file where the socket should be
+
+      const a = makeClient('A');
+      await a.client.activate();
+
+      expect(a.client.getRole()).toBe('server');
+      expect(JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid).toBe(process.pid);
+      expect(fs.statSync(SOCK_PATH).isSocket()).toBe(true);
+    });
+
+    it('reclaims a corrupt lockfile left behind by a crash', () => {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(LOCK_PATH, '{not json');
+      const old = new Date(Date.now() - 5000);
+      fs.utimesSync(LOCK_PATH, old, old);
+
+      expect(acquireLock(process.pid)).toBe(true);
+    });
+
+    it('rejects a server that answers client-hello with failure, then falls back to leadership', async () => {
+      await startRawServer((socket, msg) => {
+        socket.write(
+          JSON.stringify({ type: 'error', id: msg.id, success: false, error: 'nope' }) + '\n',
+        );
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+      // No valid server → it acquires the lock, unlinks the (live) socket path, and
+      // binds its own server there.
+      expect(b.client.getRole()).toBe('server');
+      expect(JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid).toBe(process.pid);
+      // Let the takeover back-off (started by the rejected hello socket closing) settle
+      // before teardown, so it can't resurrect a server after dispose.
+      await new Promise((r) => setTimeout(r, 600));
+      expect(b.client.getRole()).toBe('server');
+      expect(await b.client.getCompletion(makeProseContext({ prefix: 'h' }), signal())).toBe(
+        'sonnet#0:h',
+      );
+    });
+
+    it('waits for a live lock holder, then forces leadership when no server ever appears', async () => {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      // Parent process is alive and owned by us, so the lock looks legitimately held
+      fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.ppid, timestamp: 0 }));
+
+      const a = makeClient('A');
+      const start = Date.now();
+      await a.client.activate();
+
+      expect(Date.now() - start).toBeGreaterThanOrEqual(1400); // 3 × 500ms retries
+      expect(a.client.getRole()).toBe('server');
+      expect(a.errors).toContain('Pool: failed to connect after retries, forcing lock acquisition');
+      // Forced leadership does not take the lock — it still names the other pid
+      expect(JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid).toBe(process.ppid);
+    }, 5000);
+
+    it('connects on retry when the lock holder starts listening late', async () => {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.ppid, timestamp: 0 }));
+
+      const leader = makeClient('A');
+      const b = makeClient('B');
+      const activating = b.client.activate();
+      // After B's first connect attempt fails, bring up a real leader. It can't
+      // take the (ppid-held) lock either, so hand it over first.
+      setTimeout(async () => {
+        fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: 2 ** 30, timestamp: 0 }));
+        await leader.client.activate();
+        fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.ppid, timestamp: 0 }));
+      }, 100);
+      await activating;
+
+      expect(leader.client.getRole()).toBe('server');
+      expect(b.client.getRole()).toBe('client');
+      expect(registry.completion).toHaveLength(1);
+    });
+  });
+});
+
+describe.skipIf(IS_WINDOWS)('PoolClient — disposal and model reporting', () => {
+  // Regression: the activate() retry loop never checked `disposed`, so disabling the
+  // extension during startup could still end with this window running a pool server.
+  it('dispose during the activate() retry loop does not end with a live server', async () => {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.ppid, timestamp: Date.now() }));
+    const a = makeClient('A');
+    const p = a.client.activate();
+    await new Promise((r) => setTimeout(r, 200));
+    a.client.dispose();
+    await p;
+    expect({
+      role: a.client.getRole(),
+      socketOnDisk: fs.existsSync(SOCK_PATH),
+      pools: registry.completion.length,
+    }).toEqual({ role: 'client', socketOnDisk: false, pools: 0 });
+  });
+
+  // The disposal guard runs after the caller took the lock; it must hand the lock back,
+  // or re-enabling waits out the retry loop and comes up as a forced server.
+  it('dispose in the retry loop does not leave a lock naming our own pid', async () => {
+    const { spawn } = await import('node:child_process');
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(()=>{},60000)']);
+    try {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(LOCK_PATH, JSON.stringify({ pid: holder.pid, timestamp: Date.now() }));
+      const a = makeClient('A');
+      const p = a.client.activate();
+      await new Promise((r) => setTimeout(r, 200));
+      a.client.dispose();
+      holder.kill('SIGKILL');
+      await p;
+      const leakedLockPid = fs.existsSync(LOCK_PATH)
+        ? JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8')).pid
+        : null;
+      const t0 = Date.now();
+      await a.client.activate();
+      const reactivateMs = Date.now() - t0;
+      const forced = a.errors.some((e: string) => e.includes('forcing lock acquisition'));
+      a.client.dispose();
+      expect({
+        leakedLockPid: leakedLockPid === process.pid,
+        forced,
+        slow: reactivateMs > 1400,
+      }).toEqual({ leakedLockPid: false, forced: false, slow: false });
+    } finally {
+      holder.kill('SIGKILL');
+    }
+  }, 15000);
+
+  // Regression: the leader model cached at hello went stale when this window changed model.
+  it('follower getCurrentModel follows its own model change', async () => {
+    const a = makeClient('A', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+    const b = makeClient('B', makeConfig({ claudeCode: { model: 'opus', models: [] } }));
+    await a.client.activate();
+    await b.client.activate();
+    b.client.updateConfig(makeConfig({ claudeCode: { model: 'haiku', models: [] } }));
+    await new Promise((r) => setTimeout(r, 100));
+    const status = await b.client.getPoolStatus();
+    expect({ server: status?.model, reported: b.client.getCurrentModel() }).toEqual({
+      server: 'haiku',
+      reported: 'haiku',
+    });
+  });
+});

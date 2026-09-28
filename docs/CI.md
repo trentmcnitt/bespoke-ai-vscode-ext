@@ -1,70 +1,22 @@
-# CI Pipeline Spec
+# CI
 
-## Why
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request targeting `main`.
 
-Bespoke AI has no CI pipeline. Code quality is enforced only by local pre-commit hooks (Husky + lint-staged). If hooks are bypassed or a contributor doesn't have them set up, broken code can land on main unchecked.
+| Job        | Runs on                     | What it does                                                                                                                                      |
+| ---------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quality    | ubuntu                      | `npm run check` (ESLint + `tsc --noEmit`), `npm run format:check` (Prettier), advisory `npm audit`                                                |
+| Test       | ubuntu, macOS, Windows      | `npm run test:coverage` (Vitest unit tests + v8 coverage). Ubuntu uploads the HTML coverage report and writes a coverage table to the job summary |
+| Build VSIX | ubuntu (pull requests only) | `npm run compile` + `vsce package`, uploads the `.vsix` as an artifact                                                                            |
 
-The pipeline should:
+Every job has a 10-minute timeout.
 
-1. Catch regressions before they hit main
-2. Enforce the same checks the pre-commit hooks already run
-3. Gate merges via branch protection rules
+The OS matrix exists because the extension ships on all three platforms and some code is platform-specific (IPC uses a Unix socket on macOS/Linux and a named pipe on Windows — see `src/pool-server/ipc-path.ts`).
 
-## What to Build
+## Not in CI
 
-### Workflow: `ci.yml`
+- **Integration tests** (`npm run test:api`) call real backends and need API keys or a Claude subscription.
+- **Quality evals** (`npm run test:quality`) generate completions from real models and are judged in a second, LLM-as-judge step. Results from these runs are summarized in `evals/`.
 
-Triggers on push to `main` and pull requests targeting `main`.
+Run both locally; see AGENTS.md → Testing.
 
-All jobs run on `ubuntu-latest`. Node version pinned to `20` (Vitest 4 requires Node 20+; the esbuild `target: 'node18'` controls output syntax, not the CI runtime). Dependencies installed with `npm ci`.
-
-### Jobs
-
-**1. `quality` — Static analysis (fast, runs first)**
-
-- Type checking + linting (`npm run check`)
-- Format checking (`npm run format:check`)
-
-Depends on: nothing (starts immediately)
-
-**2. `test` — Unit tests**
-
-- `npm run test:unit` (Vitest)
-
-Depends on: nothing (runs in parallel with `quality`)
-
-### Job dependency graph
-
-```
-push/PR
-  ├── quality
-  └── test
-```
-
-Both jobs start immediately in parallel. Simple and fast.
-
-### What NOT to include
-
-- **API tests** (`npm run test:api`) — these hit real AI backends (xAI, OpenAI, Anthropic, etc.) and require API keys. Meant for targeted local runs, not CI.
-- **Quality tests** (`npm run test:quality`) — these hit AI APIs for LLM-as-judge evaluation. Local only.
-- **VSIX packaging/publishing** — handled separately. CI is about verification, not deployment.
-- **Matrix testing** — this is a VS Code extension targeting a known Node version, not a library.
-
-### Action versions
-
-- `actions/checkout@v4`
-- `actions/setup-node@v4` (with `node-version: '20'`, `cache: 'npm'`)
-
-### Security
-
-- Top-level `permissions: contents: read` (least privilege)
-- No secrets needed beyond `GITHUB_TOKEN`
-
-## Branch protection
-
-Set up a branch ruleset on `main` in GitHub repo settings:
-
-- Require a pull request before merging
-- Require status checks to pass: `Quality`, `Test`
-- Block force pushes
-- Restrict deletions
+The branch ruleset on `main` requires checks named `Quality` and `Test`. Because the test job is a matrix (reported as `Test (<os>)`), a small `Test` job waits for all three legs and passes only if every one passed.

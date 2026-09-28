@@ -55,6 +55,35 @@ export function detectCliAuthEnvVars(env: NodeJS.ProcessEnv = process.env): stri
   return CLI_AUTH_ENV_VARS.filter((name) => !!env[name]);
 }
 
+/**
+ * Env vars that keep a slot's CLI session from loading the host's Claude Code
+ * customizations. `settingSources: []` only skips settings.json files: with it
+ * alone, a CLI 2.1.283 slot still received the user's claude.ai connectors
+ * (~145 MCP tools and their server instructions, ~96k tokens written to the
+ * prompt cache per session), the auto-memory MEMORY.md, CLAUDE.md content,
+ * and user agents (verified 2026-09-27 via the SDK's `system/init` message
+ * and by asking the model what it received). `strictMcpConfig` drops the MCP
+ * servers, connectors included; these cover the rest.
+ *
+ * Env vars rather than CLI flags on purpose: an older `claude` ignores an
+ * env var it doesn't know, but exits on an unknown flag, which would fail
+ * warmup and degrade the pool. Auth is unaffected (safe mode keeps the
+ * subscription login; verified). Do not use `--bare`: it never reads OAuth.
+ */
+export const SLOT_ISOLATION_ENV: Readonly<Record<string, string>> = {
+  /** Disables CLAUDE.md, skills, plugins, hooks, MCP servers, custom agents, output styles. */
+  CLAUDE_CODE_SAFE_MODE: '1',
+  /** For CLIs without safe mode (the bundled 2.0.77 cli.js has these two). */
+  CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+};
+
+/** The environment for a slot's CLI subprocess: the host's, plus the isolation vars. */
+export function slotEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  return { ...base, ...SLOT_ISOLATION_ENV };
+}
+
 export interface SlotStats {
   state: SlotState;
   requestCount: number;
@@ -80,15 +109,30 @@ export interface PoolStats {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
-  /** Cumulative cost in USD. */
+  /**
+   * Total cost in USD of the requests served since activation (excluding warmups),
+   * summed from per-turn costs — not from the SDK's cumulative per-session totals.
+   */
   totalCostUsd: number;
   /** Full model ID reported by the CLI, resolving aliases like `sonnet`. Null until the first response. */
   resolvedModel: string | null;
 }
 
 export interface ResultMetadata {
+  /** Wall time of this turn inside the CLI (the SDK's `duration_ms` is already per turn). */
   durationMs: number;
+  /**
+   * API time attributed to this turn. The SDK's `duration_api_ms` is cumulative for the
+   * slot's session, so `consumeStream()` replaces it with the delta from the previous
+   * result on the same stream. Approximate: the CLI may count API time spent between
+   * turns, so a delta can exceed `durationMs`.
+   */
   durationApiMs: number;
+  /**
+   * Cost of THIS turn in USD. The SDK's `total_cost_usd` is cumulative for the slot's
+   * session, so `consumeStream()` replaces it with the per-turn delta (0 when the SDK
+   * reported no cost). Usage-ledger rows and pool stats sum this.
+   */
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -97,15 +141,98 @@ export interface ResultMetadata {
   sessionId: string;
   /** The model that actually generated this response (from the SDK assistant message). */
   model: string;
+  /** `stop_reason` from the final assistant message, when the SDK reports one. */
+  stopReason?: string;
+  /**
+   * Cost of THIS turn, set only when the SDK actually reported `total_cost_usd` (traces
+   * must never show a fabricated 0). Same value as `costUsd` otherwise. The SDK total is
+   * cumulative per session (verified against usage-ledger data: it grows monotonically
+   * across a slot's requests), so this is the delta from the previous result on the same
+   * stream; a new stream (recycle) is a new session and starts from 0.
+   */
+  turnCostUsd?: number;
 }
+
+/**
+ * Why a request got no answer from the model although nobody cancelled it.
+ * Recorded as the trace's `error.type`, so a pool kill is not mistaken for a
+ * user-superseded (`aborted`) or model-empty (`empty`) request.
+ *
+ * - `pool_recycled`: the pool was recycled or restarted (config change, Restart Pools).
+ * - `pool_warmup_failed`: a slot failed warmup, which kills every slot.
+ * - `slot_stream_error`: the CLI session's stream threw.
+ * - `slot_stream_ended`: the CLI session's stream ended (e.g. the process exited)
+ *   without a result for the request.
+ * - `slot_unavailable`: the pool is degraded, or the slot lost its session after acquisition.
+ * - `pool_circuit_open`: the rapid-recycle circuit breaker killed every slot; nothing was sent.
+ * - `cli_<subtype>`: the CLI returned a non-success result (e.g. `cli_error_during_execution`).
+ * - `cli_usage_limit` / `cli_notice`: Claude Code answered with its own notice instead of
+ *   the model (see {@link cliNoticeFailure}); the notice is never delivered as text.
+ */
+export type SlotFailure =
+  | 'pool_recycled'
+  | 'pool_warmup_failed'
+  | 'slot_stream_error'
+  | 'slot_stream_ended'
+  | 'slot_unavailable'
+  | 'pool_circuit_open'
+  | `cli_${string}`;
+
+/**
+ * Why a request ended without a slot or a result. `superseded` (a newer request
+ * took the single waiter place), `cancelled` (the caller's signal aborted while it
+ * waited for a slot) and `disposed` (shutdown) are cancellations; everything else
+ * is a {@link SlotFailure}.
+ */
+export type SlotDenial = 'superseded' | 'cancelled' | 'disposed' | SlotFailure;
+
+/**
+ * How a denial is recorded: `superseded` / `cancelled` / `disposed` are cancellations
+ * (`aborted`); anything else is a failure whose type becomes the trace's `error.type`.
+ */
+export function denialOutcome(denial: SlotDenial): { aborted: true } | { errorType: SlotFailure } {
+  return denial === 'superseded' || denial === 'cancelled' || denial === 'disposed'
+    ? { aborted: true }
+    : { errorType: denial };
+}
+
+/**
+ * Claude Code sometimes answers a turn itself instead of calling the model — most
+ * visibly when a subscription hits its usage limit ("You've hit your session limit ·
+ * resets 6:50pm"). Such a reply comes from an assistant message whose model is
+ * `<synthetic>`, or a result flagged `is_error`. Its text is a status message for a
+ * person, not document content, so it must never become ghost text or a commit
+ * message. Returns the failure type to record, or null for a genuine model reply.
+ */
+export function cliNoticeFailure(
+  assistantModel: string | undefined,
+  isError: boolean,
+  text: string | null,
+): SlotFailure | null {
+  if (assistantModel !== '<synthetic>' && !isError) return null;
+  return text && /\blimit\b/i.test(text) ? 'cli_usage_limit' : 'cli_notice';
+}
+
+/** What a slot's result promise resolves with. `failure` is set only when `text` is null. */
+export interface SlotResult {
+  text: string | null;
+  failure?: SlotDenial;
+}
+
+/** Reasons `killAllSlots()` passes to waiting and in-flight requests. */
+type KillReason = 'pool_recycled' | 'pool_warmup_failed' | 'disposed';
 
 export interface Slot {
   state: SlotState;
   channel: MessageChannel | null;
-  /** Resolves with the next result from the stream consumer. */
-  resultPromise: Promise<string | null> | null;
+  /**
+   * Resolves with the next result from the stream consumer. The reason for a
+   * null travels in the value, not on the slot: a kill resets the slot's fields
+   * and a recycle reuses the object before the caller's continuation runs.
+   */
+  resultPromise: Promise<SlotResult> | null;
   /** Call to deliver a result from the background consumer. */
-  deliverResult: ((value: string | null) => void) | null;
+  deliverResult: ((value: SlotResult) => void) | null;
   /** Number of completions delivered by this slot (excludes warmup). */
   resultCount: number;
   /** Monotonically increasing generation — incremented on killAllSlots to invalidate stale consumers. */
@@ -114,10 +241,19 @@ export interface Slot {
   lastRecycleTime: number;
   /** Count of rapid consecutive recycles (resets when gap exceeds threshold). */
   rapidRecycleCount: number;
+  /**
+   * Set when the caller gave up on the request in flight (`cancel` or `timeout`) and
+   * the slot's input was closed ({@link SlotPool.abandonRequest}). The session is
+   * retired: a late result for that turn is dropped and the slot recycles instead of
+   * being handed to the next request. Cleared on recycle.
+   */
+  abandoned?: 'cancel' | 'timeout' | null;
   /** SDK metadata from the most recent result message, read by callers. */
   lastResultMeta: ResultMetadata | null;
   /** Model from the most recent assistant message in the stream. */
   lastAssistantModel: string | null;
+  /** stop_reason from the most recent assistant message in the stream. */
+  lastAssistantStopReason?: string | null;
   /** Buffered stderr output from the CLI subprocess for diagnostics. */
   stderrChunks: string[];
 }
@@ -145,7 +281,7 @@ export abstract class SlotPool {
   protected readonly poolSize: number;
   protected ledger: UsageLedger | null = null;
   /** Single-waiter queue: only one request can wait for a slot at a time. */
-  protected pendingWaiter: ((index: number | null) => void) | null = null;
+  protected pendingWaiter: ((result: number | SlotDenial) => void) | null = null;
   /** Deduplicates overlapping recycleAll calls. */
   private _recyclePromise: Promise<void> | null = null;
   protected _warmupResolvers: (((ok: boolean) => void) | null)[];
@@ -155,6 +291,15 @@ export abstract class SlotPool {
   private _cliConfigCorrupted = false;
   /** Set when warmup returns the API "Credit balance is too low" error (see consumeStream). */
   private _cliBillingError = false;
+  /** Claude Code's usage-limit notice seen at warmup (retrying won't help until it resets). */
+  private _cliUsageLimitNotice: string | null = null;
+  /** Set by dispose(); a disposed pool never hands out a slot again. */
+  private _disposed = false;
+  /**
+   * Set when the rapid-recycle circuit breaker has killed every slot. Nothing
+   * respawns them on its own; killAllSlots() (restart, recycleAll) clears it.
+   */
+  private _circuitOpen = false;
   /** Full model ID reported by the CLI (e.g. what the `sonnet` alias resolved to). */
   private _resolvedModel: string | null = null;
 
@@ -207,14 +352,27 @@ export abstract class SlotPool {
   }
 
   isAvailable(): boolean {
-    return this.sdkAvailable === true;
+    return this.sdkAvailable === true && !this._disposed && !this._circuitOpen;
+  }
+
+  /**
+   * Why a request arriving now cannot get a slot, or null if it may acquire one
+   * (possibly after waiting for a slot that is busy or warming up).
+   * `disposed` is a cancellation (the window is shutting down); the rest are failures.
+   */
+  unavailableReason(): SlotDenial | null {
+    if (this._disposed) return 'disposed';
+    if (this._circuitOpen) return 'pool_circuit_open';
+    // Degraded (warmup retries exhausted): no slot will ever come.
+    if (this.sdkAvailable === false) return 'slot_unavailable';
+    return null;
   }
 
   /** Get pool statistics for status display. */
   getStats(): PoolStats {
     return {
       label: this.getPoolLabel(),
-      available: this.sdkAvailable === true,
+      available: this.isAvailable(),
       slots: this.slots.map((slot) => ({
         state: slot.state,
         requestCount: slot.resultCount,
@@ -270,11 +428,12 @@ export abstract class SlotPool {
    * Fires onPoolDegraded if the SDK is unavailable on restart.
    */
   async restart(): Promise<void> {
-    this.killAllSlots();
+    this.killAllSlots('pool_recycled');
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
     this._cliBillingError = false;
+    this._cliUsageLimitNotice = null;
     this._resolvedModel = null;
     this.sdkAvailable = null;
 
@@ -291,7 +450,8 @@ export abstract class SlotPool {
   }
 
   dispose(): void {
-    this.killAllSlots();
+    this._disposed = true;
+    this.killAllSlots('disposed');
     this.sdkAvailable = false;
     this.queryFn = null;
     this.logger.info(`${this.getPoolLabel()} provider: disposed`);
@@ -366,7 +526,10 @@ export abstract class SlotPool {
           permissionMode: 'bypassPermissions',
           allowDangerouslySkipPermissions: true,
           systemPrompt: this.getSystemPrompt(),
+          // Isolation from the host's Claude Code configuration — see SLOT_ISOLATION_ENV.
           settingSources: [],
+          strictMcpConfig: true,
+          env: slotEnv(),
           maxThinkingTokens: MAX_THINKING_TOKENS,
           maxTurns: MAX_TURNS,
           persistSession: false,
@@ -454,13 +617,27 @@ export abstract class SlotPool {
 
   /**
    * Acquire an available slot. Returns the slot index (already marked busy)
-   * or null if cancelled by a newer waiter.
+   * or null if no slot was handed out. {@link acquireSlotOrDenial} says why.
+   */
+  protected async acquireSlot(): Promise<number | null> {
+    const result = await this.acquireSlotOrDenial();
+    return typeof result === 'number' ? result : null;
+  }
+
+  /**
+   * Acquire an available slot. Returns the slot index (already marked busy),
+   * or why none was handed out: `superseded` by a newer waiter, `disposed`,
+   * or a {@link SlotFailure} when the pool was killed while this request waited.
    *
    * Fast path: find any available slot, mark busy, return.
    * Slow path: register as single waiter. A new arrival cancels the previous
-   * waiter (resolve(null)), so only the most recent request waits.
+   * waiter ('superseded'), so only the most recent request waits.
    */
-  protected async acquireSlot(): Promise<number | null> {
+  protected async acquireSlotOrDenial(signal?: AbortSignal): Promise<number | SlotDenial> {
+    // Disposed or degraded: no slot will ever come, so don't park as a waiter.
+    const denied = this.unavailableReason();
+    if (denied) return denied;
+
     // Fast path: find an available slot
     for (let i = 0; i < this.slots.length; i++) {
       const idx = (this.nextSlot + i) % this.slots.length;
@@ -473,16 +650,60 @@ export abstract class SlotPool {
 
     // Slow path: cancel existing waiter and register self
     if (this.pendingWaiter) {
-      this.pendingWaiter(null);
+      this.pendingWaiter('superseded');
     }
 
     this.logger.trace(
       `waiting for slot (${this.slots.map((s, i) => `slot${i}=${s.state}`).join(', ')})`,
     );
 
-    return new Promise<number | null>((resolve) => {
-      this.pendingWaiter = resolve;
+    // An already-aborted signal would never fire its abort listener.
+    if (signal?.aborted) return 'cancelled';
+
+    return new Promise<number | SlotDenial>((resolve) => {
+      // `signal` aborting while this request is still the waiter ends the wait
+      // (`cancelled`); once a slot was handed over the caller owns it.
+      const onAbort = () => {
+        if (this.pendingWaiter !== waiter) return;
+        this.pendingWaiter = null;
+        waiter('cancelled');
+      };
+      const waiter = (result: number | SlotDenial) => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(result);
+      };
+      this.pendingWaiter = waiter;
+      signal?.addEventListener('abort', onAbort);
     });
+  }
+
+  /**
+   * Give back a slot that was acquired but never sent anything (the caller cancelled
+   * in between). The session is untouched, so it is reused, not recycled.
+   */
+  protected releaseSlot(slotIndex: number): void {
+    const slot = this.slots[slotIndex];
+    if (slot.state !== 'busy') return;
+    slot.state = 'available';
+    this.notifyWaiter(slotIndex);
+  }
+
+  /**
+   * End the request in flight on `slot` without its answer (the caller cancelled or
+   * timed out) and retire the session: settle the caller with a null, close the input
+   * so the CLI exits, and mark the slot so the stream consumer recycles it rather than
+   * handing it on when the CLI still delivers the abandoned turn's result.
+   */
+  protected abandonRequest(slot: Slot, why: 'cancel' | 'timeout'): void {
+    slot.abandoned = why;
+    this.settleResult(slot, { text: null });
+    try {
+      slot.channel?.close();
+    } catch (err) {
+      this.logger.error(
+        `${this.getPoolLabel()}: failed to close channel: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   /**
@@ -534,9 +755,25 @@ export abstract class SlotPool {
   }
 
   protected resetResultPromise(slot: Slot): void {
-    slot.resultPromise = new Promise<string | null>((resolve) => {
+    slot.resultPromise = new Promise<SlotResult>((resolve) => {
       slot.deliverResult = resolve;
     });
+  }
+
+  /**
+   * Deliver `result` to the request holding the slot, then clear the callback so
+   * no later path (stream end, recycle, kill) can deliver a second outcome.
+   * No-op when nothing is pending.
+   */
+  protected settleResult(slot: Slot, result: SlotResult): void {
+    const deliver = slot.deliverResult;
+    slot.deliverResult = null;
+    deliver?.(result);
+  }
+
+  /** End the pending request, if any, with `failure` (see {@link settleResult}). */
+  protected failPending(slot: Slot, failure: SlotDenial): void {
+    this.settleResult(slot, { text: null, failure });
   }
 
   protected waitForWarmup(index: number): Promise<boolean> {
@@ -573,12 +810,17 @@ export abstract class SlotPool {
     const iterator = (stream as AsyncIterable<any>)[Symbol.asyncIterator]();
     try {
       let resultCount = 0;
+      // total_cost_usd and duration_api_ms are cumulative per session (this stream);
+      // track them to derive per-turn values. A new stream is a new session: reset.
+      let prevCumulativeCost = 0;
+      let prevCumulativeApiMs = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let iterResult: IteratorResult<any>;
       while (!(iterResult = await iterator.next()).done) {
         const message = iterResult.value;
         if (message.type === 'assistant') {
           slot.lastAssistantModel = message.message?.model ?? null;
+          slot.lastAssistantStopReason = message.message?.stop_reason ?? null;
           if (slot.lastAssistantModel) {
             this._resolvedModel = slot.lastAssistantModel;
           }
@@ -592,6 +834,19 @@ export abstract class SlotPool {
           const assistantModel = slot.lastAssistantModel ?? undefined;
           slot.lastAssistantModel = null;
           const meta = this.extractMetadata(message, assistantModel);
+          const stopReason = message.stop_reason ?? slot.lastAssistantStopReason;
+          slot.lastAssistantStopReason = null;
+          if (stopReason) meta.stopReason = stopReason;
+          // Only when the SDK actually reported a cost — never invent a 0.
+          if (typeof message.total_cost_usd === 'number') {
+            meta.turnCostUsd = Math.max(0, message.total_cost_usd - prevCumulativeCost);
+            prevCumulativeCost = message.total_cost_usd;
+            meta.costUsd = meta.turnCostUsd;
+          }
+          if (typeof message.duration_api_ms === 'number') {
+            meta.durationApiMs = Math.max(0, message.duration_api_ms - prevCumulativeApiMs);
+            prevCumulativeApiMs = message.duration_api_ms;
+          }
 
           if (resultCount === 1) {
             // Warmup result — validate, then signal initSlot
@@ -628,6 +883,12 @@ export abstract class SlotPool {
                 if (isCreditBalanceError(text)) {
                   this._cliBillingError = true;
                 }
+                if (
+                  cliNoticeFailure(assistantModel, message.is_error === true, text) ===
+                  'cli_usage_limit'
+                ) {
+                  this._cliUsageLimitNotice = text;
+                }
               }
             } else {
               this.logger.error(`warmup returned null on slot ${slotIndex}, recycling`);
@@ -650,9 +911,25 @@ export abstract class SlotPool {
           // Store metadata for callers to read
           slot.lastResultMeta = meta;
 
-          // Real completion result — deliver to the waiting caller
+          // Real completion result — deliver to the waiting caller. A non-success
+          // result (e.g. error_during_execution) is the CLI failing, not the model
+          // returning nothing; a Claude Code notice (usage limit etc.) is not model
+          // output either, and is logged instead of delivered.
           slot.resultCount++;
-          slot.deliverResult?.(text);
+          const notice = cliNoticeFailure(assistantModel, message.is_error === true, text);
+          if (notice) {
+            this.logger.error(
+              `${this.getPoolLabel()}: Claude Code returned a notice instead of a model reply (${notice}): ${text ?? '(no text)'}`,
+            );
+          }
+          this.settleResult(
+            slot,
+            notice
+              ? { text: null, failure: notice }
+              : message.subtype === 'success' || text !== null
+                ? { text }
+                : { text: null, failure: `cli_${String(message.subtype ?? 'error')}` },
+          );
 
           // Update pool-level statistics
           this._totalRequests++;
@@ -667,6 +944,11 @@ export abstract class SlotPool {
 
           // Stop if disposed or hit reuse limit
           if (slot.state === 'dead') {
+            break;
+          }
+          // The caller gave up on this turn and the input is closed: recycle rather
+          // than hand a session that is exiting to the next request.
+          if (slot.abandoned) {
             break;
           }
           if (slot.resultCount >= this.getMaxReuses()) {
@@ -684,6 +966,28 @@ export abstract class SlotPool {
           this.notifyWaiter(slotIndex);
         }
       }
+      // The stream ended on its own (the CLI exited, or the SDK closed it) without
+      // a result for whoever holds the slot. The breaks above land here too, after
+      // the result was delivered and the callback cleared, so this only fires for
+      // a request (or warmup) that was genuinely left waiting. Without it the
+      // finally block's recycleSlot() dropped the callback and the request's
+      // promise never settled — the completion path has no timeout.
+      if (this.slots[slotIndex].generation !== myGeneration) {
+        return;
+      }
+      // A request (busy) or warmup left waiting is a failure worth the stderr; an
+      // idle session exiting is only a recycle.
+      if ((slot.deliverResult && slot.state === 'busy') || this._warmupResolvers[slotIndex]) {
+        this.logger.error(
+          `${this.getPoolLabel()}: slot ${slotIndex} stream ended without a result${
+            this._warmupResolvers[slotIndex] ? ' (during warmup)' : ''
+          }`,
+        );
+        this.drainStderr(slotIndex, 'error');
+      }
+      this.failPending(slot, 'slot_stream_ended');
+      this._warmupResolvers[slotIndex]?.(false);
+      this._warmupResolvers[slotIndex] = null;
     } catch (err) {
       // Stale consumer guard — don't touch the new slot's state.
       // The finally block handles iterator cleanup, so just return here.
@@ -707,7 +1011,7 @@ export abstract class SlotPool {
         }
       }
       this.drainStderr(slotIndex, 'error');
-      slot.deliverResult?.(null);
+      this.failPending(slot, 'slot_stream_error');
       // Also resolve warmup if still pending (failure)
       this._warmupResolvers[slotIndex]?.(false);
       this._warmupResolvers[slotIndex] = null;
@@ -726,16 +1030,21 @@ export abstract class SlotPool {
   /**
    * Kill all slots immediately. Cancels pending waiters, resolves in-flight
    * deliverResult and warmup promises, closes channels, marks all slots dead.
+   * `reason` tells the waiting and in-flight requests why they got no result.
    */
-  protected killAllSlots(): void {
+  protected killAllSlots(reason: KillReason): void {
+    // Every caller (restart, recycleAll, warmup failure, dispose) replaces or ends
+    // the slots, so the breaker's all-dead state no longer applies.
+    this._circuitOpen = false;
     if (this.pendingWaiter) {
-      this.pendingWaiter(null);
+      const waiter = this.pendingWaiter;
       this.pendingWaiter = null;
+      waiter(reason);
     }
     for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       slot.generation++;
-      slot.deliverResult?.(null);
+      this.failPending(slot, reason);
       slot.state = 'dead';
       try {
         slot.channel?.close();
@@ -751,6 +1060,7 @@ export abstract class SlotPool {
       slot.lastResultMeta = null;
       slot.lastAssistantModel = null;
       slot.stderrChunks = [];
+      slot.abandoned = null;
       // Reset circuit breaker so intentional recycles (recycleAll) don't count
       slot.lastRecycleTime = 0;
       slot.rapidRecycleCount = 0;
@@ -767,10 +1077,11 @@ export abstract class SlotPool {
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
     this._cliBillingError = false;
+    this._cliUsageLimitNotice = null;
     // Recycles follow model changes — the new warmup will repopulate this.
     this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
-    this.killAllSlots();
+    this.killAllSlots('pool_recycled');
 
     // Reinitialize all slots
     await this.initAllSlots();
@@ -785,14 +1096,21 @@ export abstract class SlotPool {
 
     this._totalRecycles++;
 
+    // A user cancel ended this session on purpose — not a crash — so it does not
+    // count toward the rapid-recycle breaker.
+    const cancelled = slot.abandoned === 'cancel';
+    slot.abandoned = null;
+
     // Circuit breaker: detect rapid consecutive recycles
-    const now = Date.now();
-    if (now - slot.lastRecycleTime < RAPID_RECYCLE_WINDOW_MS) {
-      slot.rapidRecycleCount++;
-    } else {
-      slot.rapidRecycleCount = 1;
+    if (!cancelled) {
+      const now = Date.now();
+      if (now - slot.lastRecycleTime < RAPID_RECYCLE_WINDOW_MS) {
+        slot.rapidRecycleCount++;
+      } else {
+        slot.rapidRecycleCount = 1;
+      }
+      slot.lastRecycleTime = now;
     }
-    slot.lastRecycleTime = now;
 
     if (slot.rapidRecycleCount >= RAPID_RECYCLE_LIMIT) {
       this.logger.error(
@@ -811,11 +1129,19 @@ export abstract class SlotPool {
       slot.resultPromise = null;
       slot.deliverResult = null;
 
-      // Check if all slots are now dead → fire onPoolDegraded
+      // All slots dead → the pool is unavailable until restart or recycleAll.
+      // Fail the parked request now: no slot will free up to wake it, so it
+      // would otherwise wait until a newer request superseded it.
       if (this.slots.every((s) => s.state === 'dead')) {
+        this._circuitOpen = true;
         this.logger.error(
           `${this.getPoolLabel()}: all slots dead (circuit breaker), pool degraded`,
         );
+        if (this.pendingWaiter) {
+          const waiter = this.pendingWaiter;
+          this.pendingWaiter = null;
+          waiter('pool_circuit_open');
+        }
         this.onPoolDegraded?.('circuit breaker: all slots dead after rapid recycles');
       }
       return;
@@ -955,19 +1281,26 @@ export abstract class SlotPool {
       this.drainStderr(i, 'error');
     }
 
-    this.killAllSlots();
+    this.killAllSlots('pool_warmup_failed');
 
-    if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted || this._cliBillingError) {
+    if (
+      this._warmupFailureCount >= 2 ||
+      this._cliConfigCorrupted ||
+      this._cliBillingError ||
+      this._cliUsageLimitNotice
+    ) {
       // Exhausted retries (or a retry-won't-help failure) — shut down
       this.sdkAvailable = false;
       const authVars = detectCliAuthEnvVars();
       const reason = this._cliConfigCorrupted
         ? 'cli config file corrupted'
-        : this._cliBillingError
-          ? authVars.length > 0
-            ? `credit balance too low (${authVars.join(', ')} set in the extension host process)`
-            : 'credit balance too low'
-          : 'warmup failed after retry';
+        : this._cliUsageLimitNotice
+          ? `usage limit reached: ${this._cliUsageLimitNotice}`
+          : this._cliBillingError
+            ? authVars.length > 0
+              ? `credit balance too low (${authVars.join(', ')} set in the extension host process)`
+              : 'credit balance too low'
+            : 'warmup failed after retry';
       this.logger.error(`${this.getPoolLabel()}: ${reason}, autocomplete disabled`);
       this.logCliDiagnostics();
       this.onPoolDegraded?.(reason);

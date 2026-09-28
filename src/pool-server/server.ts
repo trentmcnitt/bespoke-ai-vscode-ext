@@ -10,8 +10,8 @@ import * as fs from 'fs';
 import { Logger } from '../utils/logger';
 import { UsageLedger } from '../utils/usage-ledger';
 import { ClaudeCodeProvider } from '../providers/claude-code';
-import { CommandPool } from '../providers/command-pool';
-import { ResultMetadata, PoolStats } from '../providers/slot-pool';
+import { CommandPool, SendPromptResult } from '../providers/command-pool';
+import { ResultMetadata, PoolStats, SlotPool, denialOutcome } from '../providers/slot-pool';
 import { ExtensionConfig, CompletionContext } from '../types';
 import {
   PoolRequest,
@@ -20,10 +20,42 @@ import {
   CompletionRequest,
   CommandRequest,
   ConfigUpdateRequest,
+  ResultMetadata as ProtocolResultMetadata,
+  detailToWireMeta,
   serializeMessage,
   parseMessage,
 } from './protocol';
 import { LOCK_PATH, getIpcPath, cleanupStaleEndpoint, ensureStateDir } from './ipc-path';
+
+/**
+ * Whitelist slot-pool command metadata onto the wire shape (shared with the local fast path).
+ * `outcome` carries why the pool returned no text; with no model metadata it goes out alone
+ * (no usage fields, so the requester does not invent zero usage).
+ */
+export function commandMetaToWire(
+  meta: ResultMetadata | null,
+  outcome?: { errorType?: string; aborted?: boolean },
+): ProtocolResultMetadata | undefined {
+  const why = {
+    ...(outcome?.errorType ? { errorType: outcome.errorType } : {}),
+    ...(outcome?.aborted ? { aborted: true } : {}),
+  };
+  if (!meta) return Object.keys(why).length > 0 ? { model: '', ...why } : undefined;
+  return {
+    ...why,
+    durationMs: meta.durationMs,
+    durationApiMs: meta.durationApiMs,
+    costUsd: meta.costUsd,
+    inputTokens: meta.inputTokens,
+    outputTokens: meta.outputTokens,
+    cacheReadTokens: meta.cacheReadTokens,
+    cacheCreationTokens: meta.cacheCreationTokens,
+    sessionId: meta.sessionId,
+    model: meta.model,
+    turnCostUsd: meta.turnCostUsd,
+    finishReason: meta.stopReason,
+  };
+}
 
 export interface PoolServerOptions {
   config: ExtensionConfig;
@@ -37,6 +69,8 @@ interface ConnectedClient {
   id: string;
   socket: net.Socket;
   buffer: string;
+  /** This connection's commands in flight, by request id, so a `cancel` can stop them. */
+  commands: Map<string, AbortController>;
 }
 
 export class PoolServer {
@@ -106,7 +140,25 @@ export class PoolServer {
 
       this.logger.debug('Pool server: providers activated');
     } catch (err) {
-      // Clean up lockfile on failure so other clients can acquire it
+      // Stop listening and remove the socket so other windows don't connect to a
+      // server whose pools never started, then release the lockfile.
+      const server = this.server;
+      this.server = null;
+      // This instance is dead; a later dispose() must not clean up paths that a
+      // newer leader may own by then.
+      this.disposed = true;
+      if (server?.listening) {
+        // close() waits for every open connection to end, and followers can connect
+        // as soon as listen() succeeds — destroy them first or start() never settles.
+        for (const client of this.clients.values()) client.socket.destroy();
+        this.clients.clear();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+      try {
+        cleanupStaleEndpoint();
+      } catch {
+        // Ignore cleanup errors
+      }
       try {
         if (fs.existsSync(LOCK_PATH)) fs.unlinkSync(LOCK_PATH);
       } catch {
@@ -130,10 +182,30 @@ export class PoolServer {
     return this.completionProvider.getCompletion(context, signal);
   }
 
+  /**
+   * Run a completion and return its text plus wire metadata (model, tokens, timing, and —
+   * only when `captureContent` — prompt/response text). Shared by the IPC handler and the
+   * leader's local fast path so both return identical detail.
+   */
+  async completeWithMeta(
+    context: CompletionContext,
+    captureContent: boolean,
+  ): Promise<{ text: string | null; meta: ProtocolResultMetadata }> {
+    // AbortSignal not used by pool (ignored once slot acquired)
+    const signal = new AbortController().signal;
+    const { text, detail } = await this.completionProvider.getCompletionWithDetail(
+      context,
+      signal,
+      { captureContent },
+    );
+    const fallbackModel = this.completionProvider.lastUsedModel || this.config.claudeCode.model;
+    return { text, meta: detailToWireMeta(detail, fallbackModel, captureContent) };
+  }
+
   async sendCommand(
     message: string,
-    options?: { timeoutMs?: number },
-  ): Promise<{ text: string | null; meta: ResultMetadata | null }> {
+    options?: { timeoutMs?: number; onCancel?: AbortSignal },
+  ): Promise<SendPromptResult> {
     return this.commandPool.sendPrompt(message, options);
   }
 
@@ -216,15 +288,16 @@ export class PoolServer {
       id: '',
       socket,
       buffer: '',
+      commands: new Map(),
     };
     this.clients.set(socket, client);
     this.logger.debug(`Pool server: client connected (${this.clients.size} total)`);
 
     socket.on('data', (data) => this.handleData(client, data));
-    socket.on('close', () => this.handleDisconnect(socket));
+    socket.on('close', () => this.handleDisconnect(client));
     socket.on('error', (err) => {
       this.logger.error(`Pool server: client socket error: ${err.message}`);
-      this.handleDisconnect(socket);
+      this.handleDisconnect(client);
     });
   }
 
@@ -270,7 +343,13 @@ export class PoolServer {
         break;
 
       case 'command':
-        response = await this.handleCommand(request);
+        response = await this.handleCommand(client, request);
+        break;
+
+      case 'cancel':
+        // No-op when the command already finished (or was never ours).
+        client.commands.get(request.requestId)?.abort();
+        response = { type: 'cancel', id: request.id, success: true };
         break;
 
       case 'status':
@@ -328,6 +407,18 @@ export class PoolServer {
     this.sendResponse(client.socket, response);
   }
 
+  /**
+   * Why an unavailable pool turned a follower's request away, as wire metadata, so the
+   * follower traces the same outcome the leader's own request would get
+   * (e.g. `pool_circuit_open`) instead of a generic `pool_error`.
+   */
+  private unavailableMeta(pool: Pick<SlotPool, 'unavailableReason'>): ProtocolResultMetadata {
+    return {
+      model: this.config.claudeCode.model,
+      ...denialOutcome(pool.unavailableReason() ?? 'slot_unavailable'),
+    };
+  }
+
   private async handleCompletion(request: CompletionRequest): Promise<PoolResponse> {
     if (!this.completionProvider.isAvailable()) {
       return {
@@ -335,6 +426,7 @@ export class PoolServer {
         id: request.id,
         success: false,
         text: null,
+        meta: this.unavailableMeta(this.completionProvider),
         error: 'Completion pool not available',
       };
     }
@@ -348,19 +440,14 @@ export class PoolServer {
       filePath: request.filePath || '',
     };
 
-    // AbortSignal not used by pool (ignored once slot acquired)
-    const abortController = new AbortController();
-
     try {
-      const text = await this.completionProvider.getCompletion(context, abortController.signal);
-      // Include model in response for tracking (full metadata would require interface changes)
-      const model = this.completionProvider.lastUsedModel || this.config.claudeCode.model;
+      const { text, meta } = await this.completeWithMeta(context, request.captureContent === true);
       return {
         type: 'completion',
         id: request.id,
         success: true,
         text,
-        meta: { model },
+        meta,
       };
     } catch (err) {
       return {
@@ -373,20 +460,28 @@ export class PoolServer {
     }
   }
 
-  private async handleCommand(request: CommandRequest): Promise<PoolResponse> {
+  private async handleCommand(
+    client: ConnectedClient,
+    request: CommandRequest,
+  ): Promise<PoolResponse> {
     if (!this.commandPool.isAvailable()) {
       return {
         type: 'command',
         id: request.id,
         success: false,
         text: null,
+        meta: this.unavailableMeta(this.commandPool),
         error: 'Command pool not available',
       };
     }
 
+    // A follower that never sends `cancel` (older client) leaves this unaborted.
+    const cancel = new AbortController();
+    client.commands.set(request.id, cancel);
     try {
       const result = await this.commandPool.sendPrompt(request.message, {
         timeoutMs: request.timeoutMs,
+        onCancel: cancel.signal,
       });
 
       return {
@@ -394,19 +489,7 @@ export class PoolServer {
         id: request.id,
         success: true,
         text: result.text,
-        meta: result.meta
-          ? {
-              durationMs: result.meta.durationMs,
-              durationApiMs: result.meta.durationApiMs,
-              costUsd: result.meta.costUsd,
-              inputTokens: result.meta.inputTokens,
-              outputTokens: result.meta.outputTokens,
-              cacheReadTokens: result.meta.cacheReadTokens,
-              cacheCreationTokens: result.meta.cacheCreationTokens,
-              sessionId: result.meta.sessionId,
-              model: result.meta.model,
-            }
-          : undefined,
+        meta: commandMetaToWire(result.meta, result),
       };
     } catch (err) {
       return {
@@ -416,6 +499,8 @@ export class PoolServer {
         text: null,
         error: err instanceof Error ? err.message : String(err),
       };
+    } finally {
+      if (client.commands.get(request.id) === cancel) client.commands.delete(request.id);
     }
   }
 
@@ -447,8 +532,12 @@ export class PoolServer {
     }
   }
 
-  private handleDisconnect(socket: net.Socket): void {
-    this.clients.delete(socket);
+  private handleDisconnect(client: ConnectedClient): void {
+    // Nobody is left to read these answers: stop the commands instead of letting
+    // them hold the command slot until they finish or time out.
+    for (const cancel of client.commands.values()) cancel.abort();
+    client.commands.clear();
+    this.clients.delete(client.socket);
     this.logger.debug(`Pool server: client disconnected (${this.clients.size} remaining)`);
   }
 
@@ -510,6 +599,18 @@ export function readLockfile(): LockInfo | null {
   }
 }
 
+/** Grace period before an unparseable lockfile is treated as stale (a writer may be mid-write). */
+const CORRUPT_LOCK_GRACE_MS = 1000;
+
+function isCorruptLockfile(): boolean {
+  try {
+    const stat = fs.statSync(LOCK_PATH);
+    return readLockfile() === null && Date.now() - stat.mtimeMs > CORRUPT_LOCK_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
 export function isProcessAlive(pid: number): boolean {
   try {
     // Signal 0 checks if process exists without actually sending a signal
@@ -517,6 +618,15 @@ export function isProcessAlive(pid: number): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Delete the lockfile only if it names `pid`, so we never remove another process's lock. */
+export function releaseLock(pid: number): void {
+  try {
+    if (readLockfile()?.pid === pid) fs.unlinkSync(LOCK_PATH);
+  } catch {
+    // Ignore — another process may have removed or replaced it
   }
 }
 
@@ -532,8 +642,10 @@ export function acquireLock(pid: number): boolean {
       return false;
     }
 
-    // Stale lock exists — remove it first
-    if (existing) {
+    // Stale lock exists — remove it first. An unparseable lockfile (truncated
+    // write, crash mid-write) is also stale once it is older than a moment;
+    // without this it would block every acquire until someone deletes it by hand.
+    if (existing || isCorruptLockfile()) {
       try {
         fs.unlinkSync(LOCK_PATH);
       } catch {

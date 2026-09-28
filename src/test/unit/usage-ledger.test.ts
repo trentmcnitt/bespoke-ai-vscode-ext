@@ -1,7 +1,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Records the ledger file's mode at the moment of each append (fs exports can't be spied on).
+const appendModes = vi.hoisted(() => [] as Array<{ path: string; mode: number | null }>);
+vi.mock('fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('fs')>();
+  const appendFileSync: typeof real.appendFileSync = (file, ...rest) => {
+    let mode: number | null = null;
+    try {
+      mode = real.statSync(file as string).mode & 0o777;
+    } catch {
+      /* not created yet */
+    }
+    appendModes.push({ path: String(file), mode });
+    return real.appendFileSync(file, ...rest);
+  };
+  return { ...real, default: { ...real, appendFileSync }, appendFileSync };
+});
 import { UsageLedger, LedgerEntry } from '../../utils/usage-ledger';
 import { makeLedger, makeLogger } from '../helpers';
 
@@ -352,5 +369,33 @@ describe('UsageLedger', () => {
     expect(e.costUsd).toBe(0.003);
     expect(e.slotIndex).toBe(1);
     expect(e.sessionId).toBe('sess-abc123');
+  });
+
+  describe.skipIf(process.platform === 'win32')('file mode (0600)', () => {
+    const mode = (p: string) => fs.statSync(p).mode & 0o777;
+    const entry = {
+      source: 'completion' as const,
+      model: 'haiku',
+      durationMs: 1,
+      inputChars: 1,
+      outputChars: 1,
+    };
+
+    it('creates a new ledger file 0600', () => {
+      ledger.record(entry);
+      expect(mode(filePath)).toBe(0o600);
+    });
+
+    it('tightens an existing 0644 ledger before the first append, once', () => {
+      fs.writeFileSync(filePath, '');
+      fs.chmodSync(filePath, 0o644);
+      appendModes.length = 0;
+      const fresh = new UsageLedger(filePath, makeLogger());
+      fresh.record(entry);
+      fresh.record(entry);
+      const forFile = appendModes.filter((a) => a.path === filePath);
+      expect(forFile.map((a) => a.mode)).toEqual([0o600, 0o600]);
+      expect(mode(filePath)).toBe(0o600);
+    });
   });
 });

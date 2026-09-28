@@ -5,6 +5,12 @@ import { UsageLedger } from './utils/usage-ledger';
 import { BackendRouter } from './providers/backend-router';
 import { buildFullEditPrompt, parseEditResponse } from './utils/suggest-edit-utils';
 import { getWorkspaceRoot } from './utils/workspace';
+import {
+  commandFailureType,
+  commandUnavailableMessage,
+  describeCommandFailure,
+} from './utils/command-failure';
+import type { ApiCommandProvider } from './providers/api/api-command-provider';
 
 const TIMEOUT_MS = 90_000;
 
@@ -29,6 +35,7 @@ export async function suggestEdit(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   if (inFlight) {
     vscode.window.setStatusBarMessage('Bespoke AI: Request already in progress', 2000);
@@ -36,7 +43,14 @@ export async function suggestEdit(
   }
   inFlight = true;
   try {
-    await doSuggestEdit(router, logger, ledger);
+    await doSuggestEdit(router, logger, ledger, apiCommand);
+  } catch (err) {
+    // Command features are their own entry point (no orchestrator above them),
+    // so log and surface errors here. The toast is deliberately not awaited:
+    // awaiting it would hold the in-flight guard until the user dismisses it.
+    logger.error('Suggest edit failed', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Bespoke AI: Suggest edit failed — ${msg}`);
   } finally {
     inFlight = false;
   }
@@ -46,12 +60,15 @@ async function doSuggestEdit(
   router: BackendRouter,
   logger: Logger,
   ledger?: UsageLedger,
+  apiCommand?: ApiCommandProvider,
 ): Promise<void> {
   logger.info('Suggest edit started');
 
-  // Check pool availability
+  // Check backend availability; on the API backend, say why (no key, paused, bad preset)
   if (!router.isCommandAvailable()) {
-    vscode.window.showWarningMessage('Bespoke AI: Command pool not ready. Try again in a moment.');
+    const backend = router.getBackend();
+    const reason = backend === 'api' ? apiCommand?.unavailableReason() : null;
+    vscode.window.showWarningMessage(`Bespoke AI: ${commandUnavailableMessage(backend, reason)}`);
     return;
   }
 
@@ -102,7 +119,7 @@ async function doSuggestEdit(
 
   // 5. Send to command pool with progress
   const startTime = Date.now();
-  const { text, meta } = await vscode.window.withProgress(
+  const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Bespoke AI: Suggesting edits...',
@@ -115,13 +132,24 @@ async function doSuggestEdit(
       return router.sendCommand(fullMessage, {
         timeoutMs: TIMEOUT_MS,
         onCancel: controller.signal,
+        traceSource: 'suggest-edit',
       });
     },
   );
 
   const durationMs = Date.now() - startTime;
+  const { text, meta } = result;
 
   if (text === null) {
+    // The pool (or API) ended the request without a reply: say why. A cancellation
+    // or supersession stays silent. Not awaited, so the in-flight guard is released.
+    const failure = commandFailureType(result);
+    if (failure) {
+      logger.error(`Suggest edit failed: ${failure}`);
+      void vscode.window.showErrorMessage(
+        `Bespoke AI: Suggest edit failed — ${describeCommandFailure(failure)}`,
+      );
+    }
     return;
   }
 
@@ -177,6 +205,7 @@ async function doSuggestEdit(
   const correctedUri = vscode.Uri.from({ scheme: 'bespoke-edit-corrected', path: key });
 
   let choice: string | undefined;
+  let diffOpened = false;
   try {
     await vscode.commands.executeCommand(
       'vscode.diff',
@@ -184,6 +213,7 @@ async function doSuggestEdit(
       correctedUri,
       `Suggest Edits — ${fileName}`,
     );
+    diffOpened = true;
 
     choice = await vscode.window.showInformationMessage(
       'Bespoke AI: Apply suggested edits?',
@@ -193,7 +223,12 @@ async function doSuggestEdit(
   } finally {
     // Close the diff tab before cleaning up virtual document content,
     // so VS Code doesn't re-request content from empty providers.
-    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    // Close only the tab showing our diff, never "the active editor": if the diff
+    // failed to open, or the user switched tabs while the prompt was up, the active
+    // editor is the user's own file.
+    if (diffOpened) {
+      await closeDiffTabs(originalUri, correctedUri);
+    }
     contentStore.delete(`original:${key}`);
     contentStore.delete(`corrected:${key}`);
   }
@@ -217,4 +252,23 @@ async function doSuggestEdit(
 
   vscode.window.setStatusBarMessage('Bespoke AI: Edits applied (Ctrl+Z to undo)', 4000);
   logger.info('Suggest edit: edits applied');
+}
+
+function sameUri(a: vscode.Uri, b: vscode.Uri): boolean {
+  return a.scheme === b.scheme && a.path === b.path;
+}
+
+/** Close every tab (in any group) whose input is the diff of exactly these two URIs. */
+async function closeDiffTabs(originalUri: vscode.Uri, correctedUri: vscode.Uri): Promise<void> {
+  const tabs = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputTextDiff &&
+        sameUri(tab.input.original, originalUri) &&
+        sameUri(tab.input.modified, correctedUri),
+    );
+  if (tabs.length > 0) {
+    await vscode.window.tabGroups.close(tabs);
+  }
 }

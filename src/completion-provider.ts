@@ -10,6 +10,42 @@ import { LRUCache } from './utils/cache';
 import { Debouncer } from './utils/debouncer';
 import { Logger, generateRequestId } from './utils/logger';
 import { UsageTracker } from './utils/usage-tracker';
+import { getPreset } from './providers/api/presets';
+import {
+  CompletionWithDetail,
+  GenerationDetail,
+  TraceOutcome,
+  TraceRecorder,
+  detailFromError,
+  errorTypeOf,
+  genAiProviderName,
+  newSpanId,
+  nullResultOutcome,
+  newTraceId,
+} from './utils/trace';
+
+/** Provider/model the config would route a request to — used when no detail is available. */
+export function configuredTraceModel(
+  config: ExtensionConfig,
+  mode: 'prose' | 'code',
+): { backend: 'claude-code' | 'api'; providerName: string; requestModel: string } {
+  const override = mode === 'code' && config.codeOverride.backend ? config.codeOverride : null;
+  const backend = (override?.backend || config.backend) as 'claude-code' | 'api';
+  if (backend === 'api') {
+    const presetId = override?.model || config.api.preset;
+    const preset = getPreset(presetId);
+    return {
+      backend,
+      providerName: preset ? genAiProviderName(preset.provider) : 'unknown',
+      requestModel: preset?.modelId ?? presetId,
+    };
+  }
+  return {
+    backend,
+    providerName: 'anthropic',
+    requestModel: override?.model || config.claudeCode.model,
+  };
+}
 
 /** Characters that suppress auto-completion when they are the last typed character.
  * In prose mode, these typically end a thought or open a new context where triggering
@@ -28,6 +64,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
   private onRequestStart?: () => void;
   private onRequestEnd?: () => void;
   private lastErrorToastTime = 0;
+  private tracer?: TraceRecorder;
 
   constructor(
     config: ExtensionConfig,
@@ -41,6 +78,11 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     this.debouncer = new Debouncer(config.debounceMs);
     this.logger = logger;
     this.tracker = tracker;
+  }
+
+  /** Attach the per-request trace recorder (see utils/trace.ts). */
+  setTraceRecorder(recorder: TraceRecorder | undefined): void {
+    this.tracer = recorder;
   }
 
   setRequestCallbacks(onStart: () => void, onEnd: () => void): void {
@@ -117,6 +159,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
     // Generate request ID for log correlation
     const reqId = generateRequestId();
+    const receivedAtMs = Date.now();
 
     // Check cache
     const cacheKey = LRUCache.makeKey(mode, docContext.prefix, docContext.suffix);
@@ -125,6 +168,9 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
       this.logger.cacheHit(reqId, cached.length);
       this.logger.traceBlock('← cached value', cached);
       this.tracker?.recordCacheHit();
+      this.recordTrace(reqId, completionContext, 'cache_hit', receivedAtMs, receivedAtMs, {
+        finalText: cached,
+      });
       const item = new vscode.InlineCompletionItem(cached, new vscode.Range(position, position));
       this.logger.trace(
         `returning cache hit: insertText=${JSON.stringify(cached.slice(0, 50))}... range=${position.line}:${position.character}`,
@@ -135,17 +181,22 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     // Debounce — explicit triggers fire immediately (zero delay)
     const signal = await this.debouncer.debounce(token, isExplicitTrigger ? 0 : undefined);
     if (!signal || token.isCancellationRequested) {
+      // Cancelled before anything was sent — not recorded (it would be pure noise).
       this.logger.trace(`#${reqId} debounce cancelled`);
-      return null;
-    }
-
-    // Check provider availability
-    if (!this.provider.isAvailable()) {
       return null;
     }
 
     // Get completion from provider
     const startTime = Date.now();
+
+    // Check provider availability
+    // Mode-aware: a code-override preset has its own backend/breaker.
+    if (!this.provider.isAvailable(mode)) {
+      this.recordTrace(reqId, completionContext, 'error', receivedAtMs, startTime, {
+        errorType: 'backend_unavailable',
+      });
+      return null;
+    }
 
     // Log request start with structured format
     this.logger.requestStart(reqId, {
@@ -164,11 +215,19 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
 
     this.tracker?.recordCacheMiss();
     this.onRequestStart?.();
+    let detail: GenerationDetail | undefined;
     try {
-      const result = await this.provider.getCompletion(completionContext, signal);
+      const response: CompletionWithDetail = this.provider.getCompletionWithDetail
+        ? await this.provider.getCompletionWithDetail(completionContext, signal, {
+            captureContent: this.tracer !== undefined && this.config.trace.captureContent,
+          })
+        : { text: await this.provider.getCompletion(completionContext, signal) };
+      const result = response.text;
+      detail = response.detail;
       const durationMs = Date.now() - startTime;
 
       if (!result) {
+        const cancelled = token.isCancellationRequested || signal.aborted;
         this.logger.requestEnd(reqId, {
           durationMs,
           resultLen: null,
@@ -177,6 +236,18 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
         this.logger.trace(
           `#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`,
         );
+        const outcome: TraceOutcome = nullResultOutcome(detail, cancelled);
+        // A usage-limit notice from Claude Code means completions stop until the plan
+        // resets; say so (rate-limited like other errors) rather than going quiet.
+        if (outcome === 'error' && detail?.errorType === 'cli_usage_limit') {
+          this.showErrorToast(
+            'Claude plan usage limit reached — completions resume when it resets (details in the Bespoke AI output log).',
+          );
+        }
+        this.recordTrace(reqId, completionContext, outcome, receivedAtMs, startTime, {
+          detail,
+          finalText: result,
+        });
         return null;
       }
 
@@ -191,6 +262,11 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
         this.config.backend === 'api' ? this.config.api.preset : this.config.claudeCode.model;
       this.tracker?.record(modelLabel, inputChars, result.length);
 
+      this.recordTrace(reqId, completionContext, 'ok', receivedAtMs, startTime, {
+        detail,
+        finalText: result,
+      });
+
       // Cache and return
       this.cache.set(cacheKey, result);
       const item = new vscode.InlineCompletionItem(result, new vscode.Range(position, position));
@@ -201,15 +277,71 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
     } catch (err: unknown) {
       this.logger.error(`✗ #${reqId} | error`, err);
       this.tracker?.recordError();
-      const now = Date.now();
-      if (now - this.lastErrorToastTime > 60_000) {
-        this.lastErrorToastTime = now;
-        const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Bespoke AI: error — ${msg}`);
-      }
+      this.recordTrace(reqId, completionContext, 'error', receivedAtMs, startTime, {
+        detail: detail ?? detailFromError(err),
+        errorType: errorTypeOf(err),
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+      const msg = err instanceof Error ? err.message : String(err);
+      this.showErrorToast(`error — ${msg}`);
       return null;
     } finally {
       this.onRequestEnd?.();
+    }
+  }
+
+  /** Show an error notification, at most one per 60 s across all completion errors. */
+  private showErrorToast(message: string): void {
+    const now = Date.now();
+    if (now - this.lastErrorToastTime <= 60_000) return;
+    this.lastErrorToastTime = now;
+    void vscode.window.showErrorMessage(`Bespoke AI: ${message}`);
+  }
+
+  /**
+   * Hand one record to the trace recorder. Synchronous and cheap (object assembly only);
+   * the recorder never throws and its sinks never block this path.
+   */
+  private recordTrace(
+    requestId: string,
+    context: CompletionContext,
+    outcome: TraceOutcome,
+    receivedAtMs: number,
+    startTimeMs: number,
+    extra: {
+      detail?: GenerationDetail;
+      finalText?: string | null;
+      errorType?: string;
+      errorMessage?: string;
+    },
+  ): void {
+    const tracer = this.tracer;
+    if (!tracer) return;
+    try {
+      const configured = configuredTraceModel(this.config, context.mode);
+      tracer.record({
+        traceId: newTraceId(),
+        spanId: newSpanId(),
+        requestId,
+        source: 'completion',
+        operation: 'text_completion',
+        backend: configured.backend,
+        mode: context.mode,
+        languageId: context.languageId,
+        outcome,
+        providerName: extra.detail?.providerName ?? configured.providerName,
+        requestModel: extra.detail?.requestModel ?? configured.requestModel,
+        receivedAtMs,
+        startTimeMs,
+        endTimeMs: outcome === 'cache_hit' ? startTimeMs : Date.now(),
+        debounceMs: startTimeMs - receivedAtMs,
+        detail: extra.detail,
+        finalText: extra.finalText,
+        errorType: extra.errorType,
+        errorMessage: extra.errorMessage,
+      });
+    } catch {
+      // Tracing must never affect completions.
     }
   }
 

@@ -646,6 +646,9 @@ export const codeFullWindowScenarios: TestScenario[] = [
     fileName: 'pipeline.py',
     prefix: anchorD_prefix_2,
     suffix: anchorD_suffix_2,
+    // The prefix ends on a complete line and the suffix already starts the
+    // next statement, so an empty fill is correct (error analysis 2026-03).
+    expect_empty_ok: true,
     saturation: { prefix: 'saturated', suffix: 'saturated' },
     requirements: {
       must_not_include: ['\`\`\`', 'import', 'class Pipeline'],

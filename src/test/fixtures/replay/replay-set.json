@@ -1,0 +1,2116 @@
+{
+  "description": "Recorded model outputs from synthetic quality scenarios, replayed through the current extraction + post-processing pipeline by src/test/unit/replay.test.ts. See evals/replay/README.md.",
+  "generated_by": "src/test/quality/replay/build-replay-set.ts",
+  "cases": [
+    {
+      "id": "2026-03-01T20-13-58-api-xai-grok-code/code-long-prefix-ts",
+      "source_run": "quality-2026-03-01T20-13-58-api-xai-grok-code",
+      "scenario": "code-long-prefix-ts",
+      "model": "api/xai-grok-code",
+      "backend": "api",
+      "preset": "xai-grok-code",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "typescript",
+      "prefix": "  }\n\n  /**\n   * Wait for a specific event to fire, with an optional timeout.\n   */\n  waitFor<T extends EventName>(event: T, timeoutMs?: number): Promise<EventMap[T]> {\n    return new Promise((resolve, reject) => {\n      ",
+      "suffix": "\n    });\n  }\n\n  removeAllListeners(event?: EventName): void {\n    if (event) {\n      this.emitter.removeAllListeners(event);\n      this.subscriptions = this.subscriptions.filter(s => s.event !== event);\n    } else {\n      this.emitter.removeAllListeners();\n      this.subscriptions = [];\n    }\n  }\n\n  /**\n   * Returns the number of listeners registered for a specific event,\n   * or the total number of listeners across all events if no event is specified.\n",
+      "prefix_omitted_chars": 2244,
+      "suffix_omitted_chars": 1532,
+      "raw": "<COMPLETION>      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }</COMPLETION>",
+      "expected_final": "      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }",
+      "tags": ["drift:code-delimiter-overlap", "drift:code-bracket-guard"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [],
+      "recorded_final": "      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }",
+      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char, which trimmed the recorded output's final \"}\" as a duplicate of the suffix. Then: code-bracket-guard: trimSuffixOverlap (code mode) no longer trims a closing bracket that closes a scope the completion itself opened; that \"}\" closes the model's own `if (timeoutMs !== undefined) {` block, so the recorded output was already correct and is expected again."
+    },
+    {
+      "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-go-goroutine",
+      "source_run": "quality-2026-03-01T22-26-45-api-anthropic-haiku",
+      "scenario": "code-go-goroutine",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "go",
+      "prefix": "func processItems(items []string) []string {\n\tresults := make(chan string, len(items))\n\tfor _, item := range items {\n\t\tgo func(s string) {\n\t\t\t",
+      "suffix": "\n\t\t}(item)\n\t}\n\tclose(results)\n\tvar out []string\n\tfor r := range results {\n\t\tout = append(out, r)\n\t}\n\treturn out\n}",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "\n\t\t\tresults <- processItem(s)\n\t\t}(item)\n\t}\n\tclose(results)</COMPLETION>\n\nWait, let me reconsider. The structure shows `close(results)` comes after the loop, so I should only fill what goes inside the goroutine:\n\n<COMPLETION>results <- processItem(s)</COMPLETION>",
+      "expected_final": "results <- processItem(s)",
+      "tags": ["drift:prefill-thinking-leak", "suffix-trim"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        },
+        {
+          "kind": "suffix-overlap",
+          "value": "}(item)\n\t}\n\tclose(results)",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        }
+      ],
+      "recorded_final": "\n\t\t\tresults <- processItem(s)\n\t\t}(item)\n\t}\n\tclose(results)</COMPLETION>\n\nWait, let me reconsider. The structure shows `close(results)` comes after the loop, so I should only fill what goes inside the goroutine:\n\n<COMPLETION>results <- processItem(s)",
+      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text. Then: prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
+    },
+    {
+      "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-js-arrow-function",
+      "source_run": "quality-2026-03-01T22-26-45-api-anthropic-haiku",
+      "scenario": "code-js-arrow-function",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "javascript",
+      "prefix": "const users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => ",
+      "suffix": ");\n",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "{{FILL_HERE}}</COMPLETION>\n\nWait, let me reconsider. Looking at the code structure:\n\n```javascript\nconst users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => {{FILL_HERE}});\n```\n\nThe `.map()` callback needs to extract the name from each user object.\n\n<COMPLETION>user.name</COMPLETION>",
+      "expected_final": "user.name",
+      "tags": ["drift:prefill-thinking-leak", "drift:prefill-scaffold-retry", "prefill-retry-used"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ],
+      "recorded_final": "{{FILL_HERE}}</COMPLETION>\n\nWait, let me reconsider. Looking at the code structure:\n\n```javascript\nconst users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => {{FILL_HERE}});\n```\n\nThe `.map()` callback needs to extract the name from each user object.\n\n<COMPLETION>user.name",
+      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text. Then: prefill-scaffold-retry: the thinking-leak retry now also applies when the first block is only prompt scaffolding ({{FILL_HERE}}); that block used to count as substantive, post-processing stripped the marker, and the retry's `user.name` was lost (final null). `user.name` is the right fill for `users.map(user => ` + `);`."
+    },
+    {
+      "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-py-list-comprehension",
+      "source_run": "quality-2026-03-01T22-26-45-api-anthropic-haiku",
+      "scenario": "code-py-list-comprehension",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\nevens = [x for x in numbers if ",
+      "suffix": "]\n",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": " x % 2 == 0]</COMPLETION>",
+      "expected_final": "x % 2 == 0",
+      "tags": ["drift:code-delimiter-overlap", "suffix-trim"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "suffix-overlap",
+          "value": "]",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        }
+      ],
+      "recorded_final": " x % 2 == 0]",
+      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char; the recorded output duplicated closing delimiters already in the suffix (\"]\"). Then: prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
+    },
+    {
+      "id": "2026-03-01T22-26-53-api-openai-gpt-4.1-nano/code-mid-file-rs-full",
+      "source_run": "quality-2026-03-01T22-26-53-api-openai-gpt-4.1-nano",
+      "scenario": "code-mid-file-rs-full",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "rust",
+      "prefix": "                num_str.push(ch);\n                self.advance();\n            } else if ch == '.' && !is_float {\n                is_float = true;\n                num_str.push(ch);\n                self.advance();\n            } else {\n                break;\n            }\n        }\n\n",
+      "suffix": "    }\n\n    fn read_identifier(&mut self, first: char) -> Token {\n        let mut ident = String::from(first);\n        while let Some(&ch) = self.peek() {\n            if ch.is_alphanumeric() || ch == '_' {\n                ident.push(ch);\n                self.advance();\n            } else {\n                break;\n            }\n        }\n\n        match ident.as_str() {\n            \"let\" => Token::Let,\n            \"fn\" => Token::Fn,\n            \"if\" => Token::If,\n            \"else\" => Token::Else,\n            \"return\" => Token::Return,\n            \"while\" => Token::While,\n            \"true\" => Token::Boolean(true),\n            \"false\" => Token::Boolean(false),\n            \"null\" => Token::Null,\n            _ => Token::Ident(ident),\n        }\n    }\n\n    /// Produce the next token from the input.\n    pub fn next_token(&mut self) -> Result<Token> {\n        self.skip_whitespace();\n\n        let line = self.line;\n",
+      "prefix_omitted_chars": 2199,
+      "suffix_omitted_chars": 1083,
+      "raw": "<COMPLETION>        self.advance();\n        Ok(Token::LessEqual)\n    } else {\n        Ok(Token::Less)\n    }\n}\nSome('>') => {\n    if self.peek() == Some(&'=') {\n        self.advance();\n        Ok(Token::GreaterEqual)\n    } else {\n        Ok(Token::Greater)\n    }\n}\nSome('&') => {\n    if self.peek() == Some(&'&') {\n        self.advance();\n        Ok(Token::AndAnd)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '&'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('|') => {\n    if self.peek() == Some(&'|') {\n        self.advance();\n        Ok(Token::OrOr)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '|'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('(') => Ok(Token::",
+      "expected_final": "        self.advance();\n        Ok(Token::LessEqual)\n    } else {\n        Ok(Token::Less)\n    }\n}\nSome('>') => {\n    if self.peek() == Some(&'=') {\n        self.advance();\n        Ok(Token::GreaterEqual)\n    } else {\n        Ok(Token::Greater)\n    }\n}\nSome('&') => {\n    if self.peek() == Some(&'&') {\n        self.advance();\n        Ok(Token::AndAnd)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '&'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('|') => {\n    if self.peek() == Some(&'|') {\n        self.advance();\n        Ok(Token::OrOr)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '|'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('(') => Ok(Token::",
+      "tags": ["drift:leaked-tag", "tag-strip"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ],
+      "recorded_final": "<COMPLETION>        self.advance();\n        Ok(Token::LessEqual)\n    } else {\n        Ok(Token::Less)\n    }\n}\nSome('>') => {\n    if self.peek() == Some(&'=') {\n        self.advance();\n        Ok(Token::GreaterEqual)\n    } else {\n        Ok(Token::Greater)\n    }\n}\nSome('&') => {\n    if self.peek() == Some(&'&') {\n        self.advance();\n        Ok(Token::AndAnd)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '&'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('|') => {\n    if self.peek() == Some(&'|') {\n        self.advance();\n        Ok(Token::OrOr)\n    } else {\n        Err(ParseError {\n            message: \"unexpected character '|'\".into(),\n            line,\n            column: col,\n        })\n    }\n}\nSome('(') => Ok(Token::",
+      "drift": "leaked-tag: ad1839e (2026-03-01) added stripLeakedTags() to post-processing; the recorded output contained an unclosed <COMPLETION> / {{FILL_HERE}} scaffold."
+    },
+    {
+      "id": "2026-03-01T22-27-02-api-google-gemini-flash/code-go-goroutine",
+      "source_run": "quality-2026-03-01T22-27-02-api-google-gemini-flash",
+      "scenario": "code-go-goroutine",
+      "model": "api/google-gemini-flash",
+      "backend": "api",
+      "preset": "google-gemini-flash",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "go",
+      "prefix": "func processItems(items []string) []string {\n\tresults := make(chan string, len(items))\n\tfor _, item := range items {\n\t\tgo func(s string) {\n\t\t\t",
+      "suffix": "\n\t\t}(item)\n\t}\n\tclose(results)\n\tvar out []string\n\tfor r := range results {\n\t\tout = append(out, r)\n\t}\n\treturn out\n}",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>processed := \"",
+      "expected_final": "processed := \"",
+      "tags": ["drift:leaked-tag", "tag-strip"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ],
+      "recorded_final": "<COMPLETION>processed := \"",
+      "drift": "leaked-tag: ad1839e (2026-03-01) added stripLeakedTags() to post-processing; the recorded output contained an unclosed <COMPLETION> / {{FILL_HERE}} scaffold."
+    },
+    {
+      "id": "2026-03-01T22-27-06-api-xai-grok/prose-journal-jnl-full-window",
+      "source_run": "quality-2026-03-01T22-27-06-api-xai-grok",
+      "scenario": "prose-journal-jnl-full-window",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n02-03-26\n\n",
+      "suffix": "**Car maintenance — oil change and tire rotation**\n\nTook the car in for its 30k service. Oil change, tire rotation, cabin air filter. $180 total which isn't bad. The mechanic mentioned the brake pads are getting thin — probably need replacing in the next 10k miles. I'll keep an eye on it but not going to do it preemptively since the car still stops fine.\n",
+      "prefix_omitted_chars": 2460,
+      "suffix_omitted_chars": 1635,
+      "raw": "<COMPLETION>\n**Car maintenance — oil change and tire rotation**\n</COMPLETION>",
+      "expected_final": null,
+      "tags": [
+        "drift:suffix-overlap-trailing-ws",
+        "suffix-trim",
+        "final-null",
+        "check-fail:non-empty",
+        "check-fail:suffix-echo"
+      ],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (empty after post-processing)"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": false,
+          "detail": "raw output contains suffix head \"**Car maintenance — oil change\" at char 0 of 50"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "suffix-overlap",
+          "value": "**Car maintenance — oil change and tire rotation**",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        },
+        {
+          "kind": "check-stays-failing",
+          "value": "suffix-echo",
+          "note": "raw output regurgitates the suffix; post-processing hides most of it, so the raw-based suffix-echo check must keep flagging it"
+        }
+      ],
+      "recorded_final": "\n**Car maintenance — oil change and tire rotation**",
+      "drift": "suffix-overlap-trailing-ws: f0edfc3 (2026-03-01) made trimSuffixOverlap skip trailing whitespace before matching; the completion's trailing newline used to defeat the trim, so text already in the suffix was shown again."
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/code-full-react-select-all",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "code-full-react-select-all",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "typescriptreact",
+      "prefix": "      const next = current.includes(value)\n        ? current.filter((v) => v !== value)\n        : [...current, value];\n      return {\n        ...prev,\n        activeFilters: { ...prev.activeFilters, [columnKey]: next },\n      };\n    });\n  }, []);\n\n  const handleSelectAll = useCallback(() => {\n",
+      "suffix": "  }, [pageData]);\n\n  const handleRowSelect = useCallback((id: string | number) => {\n    setSelectedRows((prev) => {\n      const next = new Set(prev);\n      if (next.has(id)) {\n        next.delete(id);\n      } else {\n        next.add(id);\n      }\n      return next;\n    });\n  }, []);\n\n  const handleClearFilters = useCallback(() => {\n    setFilter({ searchText: '', activeFilters: {} });\n    setSelectedRows(new Set());\n  }, []);\n\n  const filterOptions = useMemo(() => {\n",
+      "prefix_omitted_chars": 2193,
+      "suffix_omitted_chars": 1525,
+      "raw": "<COMPLETION>\n    setSelectedRows((prev) => {\n      if (pageData.length === 0) return prev;\n      const allOnPageSelected = pageData.every((r) => prev.has(r.id));\n      const next = new Set(prev);\n      if (allOnPageSelected) {\n        pageData.forEach((r) => next.delete(r.id));\n      } else {\n        pageData.forEach((r) => next.add(r.id));\n      }\n      return next;\n    });\n</COMPLETION>",
+      "expected_final": "\n    setSelectedRows((prev) => {\n      if (pageData.length === 0) return prev;\n      const allOnPageSelected = pageData.every((r) => prev.has(r.id));\n      const next = new Set(prev);\n      if (allOnPageSelected) {\n        pageData.forEach((r) => next.delete(r.id));\n      } else {\n        pageData.forEach((r) => next.add(r.id));\n      }\n      return next;\n    });\n",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/code-js-arrow-function",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "code-js-arrow-function",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "javascript",
+      "prefix": "const users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => ",
+      "suffix": ");\n",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>user.name</COMPLETION>",
+      "expected_final": "user.name",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/code-mid-file-ts-handler-full",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "code-mid-file-ts-handler-full",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "typescript",
+      "prefix": ");\n\n/**\n * PUT /users/:id\n * Update an existing user's profile fields.\n */\nrouter.put(\n  '/users/:id',\n  authenticateToken,\n  validateBody(schemas.updateUser),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const { displayName, role, avatarUrl, bio } = req.body;\n\n",
+      "suffix": "\n      await invalidateUserCache(req.params.id);\n      logger.info({ userId: req.params.id, changes: req.body }, 'User updated');\n\n      res.json(updated);\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * DELETE /users/:id\n * Soft-delete a user account and revoke all sessions.\n */\nrouter.delete(\n  '/users/:id',\n  authenticateToken,\n  requireRole('admin'),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const user = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      // Prevent self-deletion\n      const requestingUser = (req as any).user;\n      if (requestingUser.id === req.params.id) {\n        throw new ForbiddenError('Cannot delete your own account');\n      }\n\n      // Soft-delete: mark as deleted rather than removing the row\n      await db('users').where('id', req.params.id).update({\n",
+      "prefix_omitted_chars": 2200,
+      "suffix_omitted_chars": 1006,
+      "raw": "<COMPLETION>\n      // Verify user exists and belongs to requesting user (self or admin)\n      const user = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      const requestingUser = (req as any).user;\n      if (requestingUser.id !== user.id && requestingUser.role !== 'admin') {\n        throw new ForbiddenError('Insufficient permissions');\n      }\n\n      const updates: any = {};\n      if (displayName !== undefined) updates.display_name = displayName;\n      if (role !== undefined) updates.role = role;\n      if (avatarUrl !== undefined) updates.avatar_url = avatarUrl;\n      if (bio !== undefined) updates.bio = bio;\n      updates.updated_at = new Date();\n\n      const [updated] = await db('users')\n        .where('",
+      "expected_final": "\n      // Verify user exists and belongs to requesting user (self or admin)\n      const user = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      const requestingUser = (req as any).user;\n      if (requestingUser.id !== user.id && requestingUser.role !== 'admin') {\n        throw new ForbiddenError('Insufficient permissions');\n      }\n\n      const updates: any = {};\n      if (displayName !== undefined) updates.display_name = displayName;\n      if (role !== undefined) updates.role = role;\n      if (avatarUrl !== undefined) updates.avatar_url = avatarUrl;\n      if (bio !== undefined) updates.bio = bio;\n      updates.updated_at = new Date();\n\n      const [updated] = await db('users')\n        .where('",
+      "tags": ["tag-strip"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/edge-short-prefix",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "edge-short-prefix",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "However, the results suggest that",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION> the intervention had a statistically significant effect on reducing anxiety levels (p < 0.01), though the effect size was moderate (Cohen's d = 0.45). These findings align with prior studies on mindfulness-based therapies but highlight the need for longer-term follow-up to assess sustained benefits.</COMPLETION>",
+      "expected_final": " the intervention had a statistically significant effect on reducing anxiety levels (p < 0.01), though the effect size was moderate (Cohen's d = 0.45). These findings align with prior studies on mindfulness-based therapies but highlight the need for longer-term follow-up to assess sustained benefits.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-bridge-large-explanation",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-bridge-large-explanation",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nThe key idea behind zero-downtime migrations is to break a single dangerous change into multiple safe steps, each of which is backward-compatible with the currently-running application code. This is sometimes called the \"expand and contract\" pattern (or \"parallel change\" in some literature).",
+      "suffix": "For example, suppose you need to rename a column from `userName` to `user_name`. A naive approach would be a single `ALTER TABLE ... RENAME COLUMN` statement, but this breaks any application code that references the old name. The expand-and-contract approach looks like this:\n\n1. **Expand:** Add the new column `user_name` alongside the old one. Deploy application code that writes to both columns but reads from `userName`.\n",
+      "prefix_omitted_chars": 1029,
+      "suffix_omitted_chars": 1494,
+      "raw": "<COMPLETION>\n\n</COMPLETION>",
+      "expected_final": null,
+      "tags": ["extract-whitespace", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "whitespace-final",
+          "note": "whitespace-only model output must surface as null, not blank ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-bridge-medium-transition",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-bridge-medium-transition",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n### Failure Handling and Retry",
+      "suffix": "When a handler throws an unrecoverable error (after exhausting retries), the event is routed to a dead-letter topic (`events.deadletter`) with the original payload, the handler class name, the exception message, and a retry count. A separate process monitors the dead-letter topic and alerts the on-call engineer via PagerDuty if the dead-letter rate exceeds 0.01% of total throughput over a 5-minute window.\n",
+      "prefix_omitted_chars": 2289,
+      "suffix_omitted_chars": 1589,
+      "raw": "<COMPLETION>\n\n</COMPLETION>",
+      "expected_final": null,
+      "tags": ["extract-whitespace", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "whitespace-final",
+          "note": "whitespace-only model output must surface as null, not blank ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-bridge-small-clause",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-bridge-small-clause",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nWe tested this approach on the staging fleet and found that a 15-minute warm-up window was sufficient to bring the ARC cache to ~90% of its steady-state hit rate. The remaining 10% takes another 30-45 minutes to converge, mostly long-tail items that are accessed infrequently. For the production cutover, we plan to run the shadow warm-up during the 4am-6am low-traffic window,",
+      "suffix": " before switching the read path. This shadow-warming approach has the advantage of producing a cache state that accurately reflects live traffic, but it doubles the read load on the backend during the warm-up window. Given our current headroom (~35% spare capacity on the DB read replicas), this should be feasible during off-peak hours but risky during the daily traffic peak between 10am-2pm ET.\n",
+      "prefix_omitted_chars": 2059,
+      "suffix_omitted_chars": 1601,
+      "raw": "<COMPLETION>which gives us plenty of time to reach steady state</COMPLETION>",
+      "expected_final": "which gives us plenty of time to reach steady state",
+      "tags": ["check-fail:boundary-whitespace"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" low-traffic window,\" + \"which gives us plent…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-formal-legal",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-formal-legal",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "plaintext",
+      "prefix": "By accessing or using the Service, you agree to be bound by these Terms. If you do not agree to all the terms and conditions of this agreement, you may not access or use the Service. The Company reserves the right to modify these Terms at any time, and such modifications shall be effective immediately upon",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>publication on the website or through other reasonable notice to users. It is your responsibility to check these Terms periodically for changes. Your continued use of the Service after any modifications constitutes acceptance of those changes</COMPLETION>",
+      "expected_final": "publication on the website or through other reasonable notice to users. It is your responsibility to check these Terms periodically for changes. Your continued use of the Service after any modifications constitutes acceptance of those changes",
+      "tags": ["check-fail:boundary-whitespace"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"ive immediately upon\" + \"publication on the w…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-journal-full-new-entry",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-journal-full-new-entry",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n---\n\n## 02-07-26\n\n### Debugging the flaky integration test\n\nThe `test_concurrent_writes` test has been failing intermittently for weeks. It runs 50 goroutines that each write 100 records, then checks the final count. Expected: 5000. Actual: sometimes 4998 or 4999.\n\nAt first I suspected a race condition in the write path, but adding `-race` to the test flags showed nothing. Then I thought it might be a counting issue in the test itself, but the test logic is dead simple — insert, then `SELECT COUNT(*)`.\n\nThe real cause: two of the goroutines were occasionally hitting a unique constraint violation (the test generates IDs with `uuid.New()`, but two goroutines were sharing a seeded random source due to a test helper bug). The insert would fail silently because the error handling in the test was `if err != nil { continue }` instead of `if err != nil { t.Fatal(err) }`. So the writes weren't lost — they were never attempted.\n\nFixed the test helper to use `crypto/rand` for UUID generation and changed the error handling from `continue` to `t.Errorf` so we actually see failures instead of silently skipping them.\n\n---\n\n## 02-06-26\n\n",
+      "suffix": "### Caddy vs nginx for the API gateway\n\nEvaluating Caddy as a potential replacement for our nginx setup. Current nginx config is ~400 lines across 6 files and handles: TLS termination, reverse proxy, rate limiting, static file serving, and WebSocket upgrade. The config works but it's gnarly — every change requires careful testing because the interaction between location blocks, upstream definitions, and lua-resty modules is fragile.\n\nCaddy's pitch: automatic HTTPS (via ACME), simpler config syntax, and built-in reverse proxy with health checking. The Caddyfile equivalent of our nginx config is about 60 lines, which is suspiciously concise but actually covers all the same functionality.\n\nConcerns:\n- **Performance**: nginx is battle-tested at scale. Caddy is Go-based and handles less traffic per core in benchmarks. For our traffic (~2000 req/s peak) this probably doesn't matter, but I want to load test before committing.\n- **Rate limiting**: Caddy has a rate limiter plugin, but it's not as configurable as nginx's `limit_req_zone`. Specifically, we need per-API-key rate limiting and Caddy's plugin only supports per-IP out of the box. Might need to write a custom module.\n- **Operational familiarity**: Everyone on the team knows nginx. Nobody knows Caddy. There's a learning curve cost that's easy to underestimate.\n",
+      "prefix_omitted_chars": 1218,
+      "suffix_omitted_chars": 660,
+      "raw": "<COMPLETION>## 02-06-26\n\n</COMPLETION>",
+      "expected_final": "## 02-06-26\n\n",
+      "tags": ["check-fail:journal-date"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "duplicate 02-06-26 (×2)"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-journal-jnl-after-bold-heading",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-journal-jnl-after-bold-heading",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n---\n\n**Tried the new ramen place — Koko's Noodle House**\n\n",
+      "suffix": "Sarah and I went for dinner. We both got the tonkotsu — rich, porky broth with good noodles (not too soft, which is my pet peeve with a lot of ramen places). The chashu was melt-in-your-mouth tender. The only downside was the wait — 45 minutes even with a reservation, and the space is tiny. But the food was worth it. Definitely going back, maybe for a weekday lunch when it's less packed.\n\n---\n\n02-05-26\n\nWorked from the coffee shop today since the house was getting repainted (exterior trim). Hard to focus with the noise, but the espresso was good and I got through most of my TODO list. Main accomplishment: finally wrote tests for the suggest-edit feature. The parsing logic for extracting corrections from the `<corrected>` tags was more complex than I remembered — there are edge cases around nested tags and escaped angle brackets that I hadn't covered.\n",
+      "prefix_omitted_chars": 2171,
+      "suffix_omitted_chars": 1132,
+      "raw": "<COMPLETION>Sarah and I went for dinner. We both got the tonkotsu — rich, porky broth with good noodles (not too soft, which is my pet peeve with a lot of ramen places). The chashu was melt-in-your-mouth tender. The only downside was the wait — 45 minutes even with a reservation, and the space is tiny. But the food was worth it. Definitely going back, maybe for a weekday lunch when it's less packed.</COMPLETION>",
+      "expected_final": null,
+      "tags": ["suffix-trim", "final-null", "check-fail:non-empty", "check-fail:suffix-echo"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (empty after post-processing)"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": false,
+          "detail": "raw output contains suffix head \"Sarah and I went for dinner. W\" at char 0 of 390"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "suffix-overlap",
+          "value": "Sarah and I went for dinner. We both got the tonkotsu — rich, porky broth with good noodles (not too soft, which is my pet peeve with a lot of ramen places). The chashu was melt-in-your-mouth tender. The only downside was the wait — 45 minutes even with a reservation, and the space is tiny. But the food was worth it. Definitely going back, maybe for a weekday lunch when it's less packed.",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        },
+        {
+          "kind": "check-stays-failing",
+          "value": "suffix-echo",
+          "note": "raw output regurgitates the suffix; post-processing hides most of it, so the raw-based suffix-echo check must keep flagging it"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-43-41-api-xai-grok/prose-journal-jnl-new-date",
+      "source_run": "quality-2026-03-02T01-43-41-api-xai-grok",
+      "scenario": "prose-journal-jnl-new-date",
+      "model": "api/xai-grok",
+      "backend": "api",
+      "preset": "xai-grok",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nNeed to order seeds soon — last year I waited too long and the good varieties were sold out at Baker Creek. Should also check whether the raised bed needs new soil. The tomato bed looked pretty depleted by the end of last season.\n\n---\n\n02-10-26\n\nHad a good conversation with Mom on the phone. She's thinking about downsizing — the house is too big now that it's just her. We talked about condos vs townhouses vs apartments. She's leaning toward a townhouse so she can still have a small garden. I told her I'd help look at listings when she's ready. It's a big decision and she shouldn't rush it.\n\n---\n\n**Debugging a weird TypeScript narrowing issue**\n\nHit a TypeScript compiler bug (or at least a behavior I didn't expect). I had a discriminated union type and was narrowing it in a switch statement, but the narrowed type inside the case block was still the full union. Turns out the issue was that I was using `switch (obj.kind)` where `kind` was typed as `string` instead of a string literal union. The discriminant has to be a literal type for narrowing to work. Changed the type to `kind: 'a' | 'b' | 'c'` and the narrowing kicked in immediately.\n\n02-11-26\n\n",
+      "suffix": "02-09-26\n\nSpent the morning reorganizing my dotfiles repo. It's gotten messy — configs for tools I don't use anymore (`tmux`, `vim`), platform-specific stuff mixed in with portable stuff, and no clear structure. Decided to restructure it:\n\n- `common/` — configs that work everywhere (git, zsh, starship)\n- `macos/` — Homebrew bundle, macOS defaults\n- `linux/` — systemd user services, apt packages\n- `archive/` — old configs I might want to reference but don't actively use\n\nWrote a new install script using GNU `stow` for symlinking. Much cleaner than the old bash script that was full of `ln -sf` commands and broke every time I moved a file.\n\n---\n\n**First attempt at sourdough**\n\nMade my first sourdough loaf. Results: edible but dense. The crust was good (crispy, nice color) but the crumb was way too tight — basically no holes. I think my starter wasn't active enough yet. It's only been 10 days since I started feeding it and the recipes say to wait at least 14 days for a mature starter. Also probably should have done a longer bulk fermentation — I got impatient and shaped it after only 4 hours instead of the recommended 6-8.\n\nWill try again next weekend with a longer ferment and see if the starter has more life by then. Jake recommended the [Tartine bread book](https://example.com/tartine) which supposedly has a foolproof sourdough method.\n",
+      "prefix_omitted_chars": 1027,
+      "suffix_omitted_chars": 644,
+      "raw": "<COMPLETION>02-10-26\n\n</COMPLETION>",
+      "expected_final": "02-10-26\n\n",
+      "tags": ["check-fail:journal-date"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "duplicate 02-10-26 (×2)"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-42-claude-code-haiku/code-full-py-pipeline-dispatch",
+      "source_run": "quality-2026-03-02T01-43-42-claude-code-haiku",
+      "scenario": "code-full-py-pipeline-dispatch",
+      "model": "claude-code/haiku",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "            logger.info(\"Pipeline stopped: %s\", self._stats.__dict__)\n\n    async def _consume_loop(self) -> None:\n        async for batch in read_queue(self._config.source_queue_url):\n            if not self._running:\n                break\n            self._stats.records_received += len(batch)\n",
+      "suffix": "            tasks = [self._process_record(r) for r in batch]\n            await asyncio.gather(*tasks, return_exceptions=True)\n\n    async def _flush_loop(self) -> None:\n        while self._running:\n            await asyncio.sleep(self._config.flush_interval_seconds)\n            if self._writer and await self._writer.should_flush():\n",
+      "prefix_omitted_chars": 2201,
+      "suffix_omitted_chars": 1653,
+      "raw": "<COMPLETION>\n            \n</COMPLETION>",
+      "expected_final": null,
+      "tags": ["extract-whitespace", "final-null"],
+      "scenario_flags": {
+        "expect_empty_ok": true
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "empty (model returned whitespace only (inside tags)); scenario allows empty"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "whitespace-final",
+          "note": "whitespace-only model output must surface as null, not blank ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-43-42-claude-code-haiku/code-full-py-pipeline-flush",
+      "source_run": "quality-2026-03-02T01-43-42-claude-code-haiku",
+      "scenario": "code-full-py-pipeline-flush",
+      "model": "claude-code/haiku",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "        async with self._lock:\n            if not self._buffer:\n                return 0\n            to_write = list(self._buffer)\n            self._buffer.clear()\n\n        table = self._config.table_name\n        async with self._pool.acquire() as conn:\n            async with conn.transaction():\n",
+      "suffix": "\n        self._last_flush = time.monotonic()\n        return len(to_write)\n\n\nclass Pipeline:\n    \"\"\"Orchestrates the full read-process-write pipeline.\"\"\"\n\n    def __init__(self, config: PipelineConfig, chain: ProcessorChain) -> None:\n        self._config = config\n        self._chain = chain\n        self._pool: asyncpg.Pool | None = None\n",
+      "prefix_omitted_chars": 2179,
+      "suffix_omitted_chars": 1650,
+      "raw": "<COMPLETION>await conn.copy_records_to_table(\n                table, records=to_write, columns=[\"id\", \"payload\", \"processed_at\"]\n            )</COMPLETION>",
+      "expected_final": "await conn.copy_records_to_table(\n                table, records=to_write, columns=[\"id\", \"payload\", \"processed_at\"]\n            )",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-42-claude-code-haiku/edge-short-prefix",
+      "source_run": "quality-2026-03-02T01-43-42-claude-code-haiku",
+      "scenario": "edge-short-prefix",
+      "model": "claude-code/haiku",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "However, the results suggest that",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION> a more nuanced approach may be warranted.</COMPLETION>",
+      "expected_final": " a more nuanced approach may be warranted.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-43-42-claude-code-haiku/prose-bridge-large-detail",
+      "source_run": "quality-2026-03-02T01-43-42-claude-code-haiku",
+      "scenario": "prose-bridge-large-detail",
+      "model": "claude-code/haiku",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "- **`reshape`** — Similar to pgroll but written in Rust. Handles Postgres migrations with automatic expand/contract phases.\n\nThese tools are great when they support your specific use case, but they have limitations. `gh-ost` doesn't handle foreign key constraints well and requires binlog access, `pgroll` doesn't yet support all DDL operations (no enum or constraint changes as of v0.6), and `reshape` requires that your application connect through a migration-aware proxy. For many teams, the pragmatic choice is to use a standard migration tool and manually apply expand-and-contract discipline,",
+      "suffix": " Regardless of which tool you use (or whether you roll your own), the most important practice is to test every migration against a production-sized dataset before running it in production. A migration that takes 50ms on your dev database with 1000 rows might take 45 minutes on a production table with 200 million rows — and that's the difference between a non-event and a major incident.\n",
+      "prefix_omitted_chars": 1270,
+      "suffix_omitted_chars": 1133,
+      "raw": "<COMPLETION>ideally with a time budget in mind.</COMPLETION>",
+      "expected_final": "ideally with a time budget in mind.",
+      "tags": ["check-fail:boundary-whitespace"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"contract discipline,\" + \"ideally with a time …\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/code-full-py-pipeline-dispatch",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "code-full-py-pipeline-dispatch",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "            logger.info(\"Pipeline stopped: %s\", self._stats.__dict__)\n\n    async def _consume_loop(self) -> None:\n        async for batch in read_queue(self._config.source_queue_url):\n            if not self._running:\n                break\n            self._stats.records_received += len(batch)\n",
+      "suffix": "            tasks = [self._process_record(r) for r in batch]\n            await asyncio.gather(*tasks, return_exceptions=True)\n\n    async def _flush_loop(self) -> None:\n        while self._running:\n            await asyncio.sleep(self._config.flush_interval_seconds)\n            if self._writer and await self._writer.should_flush():\n",
+      "prefix_omitted_chars": 2201,
+      "suffix_omitted_chars": 1653,
+      "raw": "<COMPLETION>time.monotonic() * 1000 - start_ms</COMPLETION>",
+      "expected_final": "time.monotonic() * 1000 - start_ms",
+      "tags": ["ordinary"],
+      "scenario_flags": {
+        "expect_empty_ok": true
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/code-html-tag",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "code-html-tag",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "html",
+      "prefix": "<nav class=\"main-nav\">\n  <ul>\n    <li><a href=\"/\">Home</a></li>\n    <li><a href=\"/about\">About</a></li>\n    <li><a href=\"",
+      "suffix": "</a></li>\n  </ul>\n</nav>",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>Contact</COMPLETION>",
+      "expected_final": "Contact",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/prose-after-heading",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "prose-after-heading",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "## Error Handling\n\n",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>Proper error handling is crucial for building resilient applications. Always anticipate potential failure points and implement try-catch blocks or equivalent mechanisms to manage exceptions gracefully. Logging errors with sufficient context helps in debugging and maintaining the system effectively.</COMPLETION>",
+      "expected_final": "Proper error handling is crucial for building resilient applications. Always anticipate potential failure points and implement try-catch blocks or equivalent mechanisms to manage exceptions gracefully. Logging errors with sufficient context helps in debugging and maintaining the system effectively.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/prose-full-api-versioning",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "prose-full-api-versioning",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nMy recommendation: use URL-based versioning, limit yourself to two active versions at any time, and invest heavily in backward-compatible changes to avoid needing new versions. Most \"breaking changes\" can be reframed as additions if you think carefully",
+      "suffix": " about deprecation timelines and migration paths. The worst thing you can do is surprise your integrators with a breaking change, even if you technically followed your deprecation policy. I once had a customer escalate to our CEO because we removed a field from a v2 response — a field we had marked as deprecated six months earlier and warned them about in three separate emails. They had not read the emails. The field was still in their integration code. From their perspective, we broke their system without warning. From our perspective, we had done everything right. We were both correct, and both wrong.\n",
+      "prefix_omitted_chars": 2223,
+      "suffix_omitted_chars": 1386,
+      "raw": "<COMPLETION>carefully consider how you communicate deprecation to your users, providing clear timelines and multiple channels of notification to ensure they are well-informed before breaking changes occur.</COMPLETION>",
+      "expected_final": "carefully consider how you communicate deprecation to your users, providing clear timelines and multiple channels of notification to ensure they are well-informed before breaking changes occur.",
+      "tags": ["check-fail:boundary-whitespace", "check-fail:over-length"],
+      "scenario_flags": {
+        "max_completion_chars": 120
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" you think carefully\" + \"carefully consider h…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "over-length",
+          "pass": false,
+          "detail": "193 chars > max 120"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/prose-journal-full-between-topics",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "prose-journal-full-between-topics",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n**Takeaway:** Always check kernel logs when containers restart unexpectedly. Docker/containerd logs don't always surface OOM kills — the process just vanishes from the container's perspective.\n\n---\n\n## 02-09-26\n\n### SQLite WAL mode footgun\n\nDiscovered something fun today. The background sync job (runs every 5 min via cron) was occasionally failing with `SQLITE_BUSY`. The main app serves reads via WAL mode, which should allow concurrent readers and writers... but the sync job was opening its own connection with default journal mode.\n\nTurns out if you open a SQLite database with `journal_mode = DELETE` (the default) while another process has it open in WAL mode, you get conflicts. The WAL mode is per-database, not per-connection — but only if the first connection sets it. If a second connection opens the file before WAL mode is established, or if it explicitly requests a different journal mode, you get weird locking behavior.\n\nFixed by adding `PRAGMA journal_mode = WAL` to the sync job's connection setup. Also added a check to the app startup that verifies the journal mode after setting it (because `PRAGMA journal_mode = WAL` can silently fail if the database is locked by another process — it returns `delete` instead of `wal` and doesn't error).\n\nAlso learned that `PRAGMA busy_timeout` is essential for multi-process SQLite. Set it to 5000ms on both the app and the sync job. Without it, the first `SQLITE_BUSY` is an immediate error; with it, SQLite retries internally for up to the specified duration. Should've known this — it's in every \"SQLite in production\" blog post.\n\nRelated note: I found that the `wal_checkpoint` pragma is also useful for controlling when checkpointing happens. By default SQLite checkpoints automatically when the WAL file reaches 1000 pages (about 4MB with the default page size). For our workload that's fine, but if you have write-heavy bursts you might want to set it higher or trigger manual checkpoints during quiet periods.\n\nWhile I was in the SQLite rabbit hole, I also discovered that `PRAGMA optimize` (added in SQLite 3.18.0) should be called when closing the database connection. It runs `ANALYZE` on tables that need it based on query statistics, which keeps the query planner up to date without the overhead of running `ANALYZE` on every table. Added it to the app shutdown handler and the sync job cleanup.\n\n",
+      "suffix": "Ran `nix flake update` and the dev shell stopped building. The error was somewhere deep in a dependency chain — something about `openssl` version mismatch between the Python derivation and the Node derivation. I've hit this pattern before: Nix is great until it isn't, and when it isn't, the error messages assume you have a PhD in Nix expression evaluation.\n\nRolled back the lock file (`git checkout flake.lock`) and pinned the nixpkgs input to the commit from yesterday. I'll update again next week when I have more patience. Or maybe I'll just switch to mise for version management and use plain shell scripts for the dev environment. Less reproducible, but also less time spent fighting the package manager.\n\n---\n\n## 02-08-26\n\n### Finally got the SSE streaming working\n\nSpent most of the morning on Server-Sent Events for the real-time dashboard. The concept is simple — server pushes events over a long-lived HTTP connection — but the devil is in the middleware.\n\nProblem #1: The nginx reverse proxy was buffering the response. SSE needs unbuffered streaming, so I added `X-Accel-Buffering: no` to the response headers and `proxy_buffering off` to the nginx config. That fixed the \"events arrive in batches every 30 seconds\" behavior.\n\nProblem #2: The Go HTTP handler was setting `Content-Type: text/event-stream` but wasn't flushing after each event. In Go, the `http.ResponseWriter` buffers by default. You need to type-assert it to `http.Flusher` and call `.Flush()` after every `fmt.Fprintf`. Or use `http.NewResponseController` (Go 1.20+) which is slightly cleaner.\n\nProblem #3: Client reconnection. When the browser auto-reconnects after a dropped connection, it sends a `Last-Event-ID` header. My handler wasn't reading this, so reconnecting clients missed all events during the disconnect window. Added a ring buffer (last 1000 events) keyed by event ID, and on reconnect the handler replays everything after the client's last seen ID.\n\nThe dashboard now updates in ~50ms after a backend",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>After updating the SQLite configurations and adding `PRAGMA optimize`, I also ran `nix flake update` and encountered dependency issues related to `openssl` versions. To resolve this, I reverted the lock file and pinned the nixpkgs input to a previous commit, which stabilized the environment temporarily. Planning to explore alternative version management tools like mise for more flexibility in the future.</COMPLETION>",
+      "expected_final": "After updating the SQLite configurations and adding `PRAGMA optimize`, I also ran `nix flake update` and encountered dependency issues related to `openssl` versions. To resolve this, I reverted the lock file and pinned the nixpkgs input to a previous commit, which stabilized the environment temporarily. Planning to explore alternative version management tools like mise for more flexibility in the future.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": true,
+          "detail": "dates consistent (desc): 02-09-26 → 02-08-26"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-02T01-47-56-api-openai-gpt-4.1-nano/prose-structured-inventory",
+      "source_run": "quality-2026-03-02T01-47-56-api-openai-gpt-4.1-nano",
+      "scenario": "prose-structured-inventory",
+      "model": "api/openai-gpt-4.1-nano",
+      "backend": "api",
+      "preset": "openai-gpt-4.1-nano",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n**Rack A1:**\n- 2x Dell PowerEdge R750 (web servers, Ubuntu 22.04)\n- 1x Dell PowerEdge R650 (database primary, Ubuntu 22.04)\n- 1x Juniper EX4300 (ToR switch, 48-port)\n\n**Rack A2:**\n- 2x Dell PowerEdge R750 (application servers, Ubuntu 22.04)\n- 1x Synology RS3621xs+ (NAS, 12-bay, RAID 6)\n- ",
+      "suffix": "",
+      "prefix_omitted_chars": 25,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>- 1x Cisco ASA 5506-X (firewall, ASA OS)</COMPLETION>",
+      "expected_final": "1x Cisco ASA 5506-X (firewall, ASA OS)",
+      "tags": ["prefix-trim"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "prefix-echo",
+          "value": "- ",
+          "note": "model echoed the current line fragment; the echo must be trimmed"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/code-full-py-pipeline-dispatch",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "code-full-py-pipeline-dispatch",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "            logger.info(\"Pipeline stopped: %s\", self._stats.__dict__)\n\n    async def _consume_loop(self) -> None:\n        async for batch in read_queue(self._config.source_queue_url):\n            if not self._running:\n                break\n            self._stats.records_received += len(batch)\n",
+      "suffix": "            tasks = [self._process_record(r) for r in batch]\n            await asyncio.gather(*tasks, return_exceptions=True)\n\n    async def _flush_loop(self) -> None:\n        while self._running:\n            await asyncio.sleep(self._config.flush_interval_seconds)\n            if self._writer and await self._writer.should_flush():\n",
+      "prefix_omitted_chars": 2201,
+      "suffix_omitted_chars": 1653,
+      "raw": "\n            async with self._semaphore:\n</COMPLETION>",
+      "expected_final": "            async with self._semaphore:\n",
+      "tags": ["ordinary"],
+      "scenario_flags": {
+        "expect_empty_ok": true
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [],
+      "recorded_final": "\n            async with self._semaphore:\n",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/code-mid-file-ts-handler-full",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "code-mid-file-ts-handler-full",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "typescript",
+      "prefix": ");\n\n/**\n * PUT /users/:id\n * Update an existing user's profile fields.\n */\nrouter.put(\n  '/users/:id',\n  authenticateToken,\n  validateBody(schemas.updateUser),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const { displayName, role, avatarUrl, bio } = req.body;\n\n",
+      "suffix": "\n      await invalidateUserCache(req.params.id);\n      logger.info({ userId: req.params.id, changes: req.body }, 'User updated');\n\n      res.json(updated);\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * DELETE /users/:id\n * Soft-delete a user account and revoke all sessions.\n */\nrouter.delete(\n  '/users/:id',\n  authenticateToken,\n  requireRole('admin'),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const user = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      // Prevent self-deletion\n      const requestingUser = (req as any).user;\n      if (requestingUser.id === req.params.id) {\n        throw new ForbiddenError('Cannot delete your own account');\n",
+      "prefix_omitted_chars": 2200,
+      "suffix_omitted_chars": 1142,
+      "raw": "\n\n      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
+      "expected_final": "      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
+      "tags": ["prefill-no-close"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [],
+      "recorded_final": "\n\n      // Only admins can change role; users can only update their own profile\n      if (role && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Only admins can assign roles');\n      }\n\n      // Users can only update their own profile unless they're an admin\n      if ((req as any).user.id !== req.params.id && (req as any).user.role !== 'admin') {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      const updated = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role: role,\n          avatar_url: avatarUrl,\n          bio: bio,\n          updated_at: new Date(),\n        })\n        .returning",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/code-ts-partial-word",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "code-ts-partial-word",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "code",
+      "languageId": "typescript",
+      "prefix": "import { useState } from 'react';\n\ninterface FormState {\n  email: string;\n  password: string;\n  errors: Record<string, string>;\n}\n\nexport function useLoginForm() {\n  const [state, setState] = useState<FormState>({\n    email: '',\n    password: '',\n    errors: {},\n  });\n\n  const handleSu",
+      "suffix": "\n\n  return { state, handleSubmit: handleSu",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "</COMPLETION>\n\nWait, let me reconsider. The marker is mid-word in `handleSu{{FILL_HERE}}`. Looking at the return statement, it references `handleSubmit: handleSu`, which means the function name is `handleSubmit`. So the fill completes the variable name being assigned:\n\n<COMPLETION>bmit = (e: React.FormEvent) => {\n    const newErrors: Record<string, string> = {};\n    \n    if (!state.email) {\n      newErrors.email = 'Email is required';\n    }\n    if (!state.password) {\n      newErrors.password = 'Password is required';\n    }\n    \n    if (Object.keys(newErrors).length > 0) {\n      setState(prev => ({ ...prev, errors: newErrors }));\n      return;\n    }\n    \n    ",
+      "expected_final": null,
+      "tags": [
+        "prefill-immediate-close",
+        "raw-text-after-close",
+        "extract-null",
+        "final-null",
+        "check-fail:non-empty"
+      ],
+      "scenario_flags": {
+        "mid_word": true
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (empty after post-processing)"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/edge-short-prefix",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "edge-short-prefix",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "However, the results suggest that",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "</COMPLETION>\n\nWait — I need to reconsider. The text ends with \"that\" and there's nothing after the marker. I should continue the sentence substantively:\n\n<COMPLETION>the initial hypothesis requires revision. The data shows a stronger correlation than anticipated, particularly in the subset of participants over 40, which contradicts our earlier assumptions about age-independent effects.</COMPLETION>",
+      "expected_final": "the initial hypothesis requires revision. The data shows a stronger correlation than anticipated, particularly in the subset of participants over 40, which contradicts our earlier assumptions about age-independent effects.",
+      "tags": ["prefill-retry-used", "check-fail:boundary-whitespace"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"results suggest that\" + \"the initial hypothes…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-after-heading",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-after-heading",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "## Error Handling\n\n",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "\n\nProper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.</COMPLETION>",
+      "expected_final": "Proper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": [],
+      "recorded_final": "\n\nProper error handling ensures your application fails gracefully and provides useful feedback to users and developers. This section covers strategies for catching, logging, and recovering from errors in your codebase.",
+      "drift": "prefill-trailing-ws: prefill extraction now drops the part of the output that re-emits whitespace trimmed off the prefill anchor (it is already before the cursor); the recorded output doubled it."
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-bridge-large-detail",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-bridge-large-detail",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "- **`reshape`** — Similar to pgroll but written in Rust. Handles Postgres migrations with automatic expand/contract phases.\n\nThese tools are great when they support your specific use case, but they have limitations. `gh-ost` doesn't handle foreign key constraints well and requires binlog access, `pgroll` doesn't yet support all DDL operations (no enum or constraint changes as of v0.6), and `reshape` requires that your application connect through a migration-aware proxy. For many teams, the pragmatic choice is to use a standard migration tool and manually apply expand-and-contract discipline,",
+      "suffix": " Regardless of which tool you use (or whether you roll your own), the most important practice is to test every migration against a production-sized dataset before running it in production. A migration that takes 50ms on your dev database with 1000 rows might take 45 minutes on a production table with 200 million rows — and that's the difference between a non-event and a major incident.\n",
+      "prefix_omitted_chars": 1270,
+      "suffix_omitted_chars": 1133,
+      "raw": "</COMPLETION>",
+      "expected_final": null,
+      "tags": ["prefill-immediate-close", "extract-null", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-bridge-large-explanation",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-bridge-large-explanation",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nThe key idea behind zero-downtime migrations is to break a single dangerous change into multiple safe steps, each of which is backward-compatible with the currently-running application code. This is sometimes called the \"expand and contract\" pattern (or \"parallel change\" in some literature).",
+      "suffix": "For example, suppose you need to rename a column from `userName` to `user_name`. A naive approach would be a single `ALTER TABLE ... RENAME COLUMN` statement, but this breaks any application code that references the old name. The expand-and-contract approach looks like this:\n\n1. **Expand:** Add the new column `user_name` alongside the old one. Deploy application code that writes to both columns but reads from `userName`.\n",
+      "prefix_omitted_chars": 1029,
+      "suffix_omitted_chars": 1494,
+      "raw": "\n\n</COMPLETION>",
+      "expected_final": null,
+      "tags": ["prefill-immediate-close", "extract-null", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-bridge-small-clause",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-bridge-small-clause",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nWe tested this approach on the staging fleet and found that a 15-minute warm-up window was sufficient to bring the ARC cache to ~90% of its steady-state hit rate. The remaining 10% takes another 30-45 minutes to converge, mostly long-tail items that are accessed infrequently. For the production cutover, we plan to run the shadow warm-up during the 4am-6am low-traffic window,",
+      "suffix": " before switching the read path. This shadow-warming approach has the advantage of producing a cache state that accurately reflects live traffic, but it doubles the read load on the backend during the warm-up window. Given our current headroom (~35% spare capacity on the DB read replicas), this should be feasible during off-peak hours but risky during the daily traffic peak between 10am-2pm ET.\n",
+      "prefix_omitted_chars": 2059,
+      "suffix_omitted_chars": 1601,
+      "raw": "</COMPLETION>\n\nWait, let me reconsider. The text already says \"during the 4am-6am low-traffic window,\" so I should not repeat that.\n\n<COMPLETION>then switch the read path.</COMPLETION>\n\nActually, reviewing more carefully: the sentence reads \"...we plan to run the shadow warm-up during the 4am-6am low-traffic window,{{FILL_HERE}} before switching the read path.\"\n\nThe word \"before\" is already there after the marker. So I need to bridge to it without repeating \"before\".\n\n<COMPLETION>and then</COMPLETION>",
+      "expected_final": "then switch the read path.",
+      "tags": ["prefill-retry-used", "check-fail:boundary-whitespace", "check-fail:suffix-echo"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\" low-traffic window,\" + \"then switch the read…\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": false,
+          "detail": "raw output contains suffix head \"before switching the read path\" at char 185 of 345"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        },
+        {
+          "kind": "check-stays-failing",
+          "value": "suffix-echo",
+          "note": "raw output regurgitates the suffix; post-processing hides most of it, so the raw-based suffix-echo check must keep flagging it"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-full-essay-parallels",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-full-essay-parallels",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nI did not start this essay intending to draw parallels between woodworking and programming. That kind of crossover analogy is usually forced and rarely illuminating. But I would be dishonest if I said the parallels had not occurred to me, because they have, repeatedly, and some of them have",
+      "suffix": " genuinely changed how I approach my day job.\n\nThe first lesson is about measuring. In woodworking there is a maxim — \"measure twice, cut once\" — that is so overused it has become a cliche. But the underlying principle is more subtle than the bumper-sticker version suggests. It is not really about measuring twice. It is about understanding that certain operations are irreversible, and that the cost of checking your assumptions before committing is trivially small compared to the cost of being wrong after. In my garage, this means holding the board against the saw fence and visually confirming the cut line before I turn on the blade. In my code, this means writing the test before the implementation — not because test-driven development is a religion, but because a test is a measurement, and measuring before cutting is just common sense.\n",
+      "prefix_omitted_chars": 2196,
+      "suffix_omitted_chars": 1152,
+      "raw": "</COMPLETION>\n\nWait — I need to reconsider. Looking at the text:\n\n\"But I would be dishonest if I said the parallels had not occurred to me, because they have, repeatedly, and some of them have{{FILL_HERE}} genuinely changed how I approach my day job.\"\n\nThe word \"have\" already appears twice in that sentence. The marker should be filled with what comes between \"have\" and \"genuinely\". \n\n<COMPLETION>genuinely</COMPLETION>\n\nActually, re-reading more carefully: \"they have, repeatedly, and some of them have{{FILL_HERE}} genuinely changed\"\n\nThe structure is: \"some of them have [FILL] genuinely changed\". The word \"genuinely\" is already there after the marker. So I need to fill what logically goes between \"have\" and \"genuinely\" — which would be nothing, or a connector. But that",
+      "expected_final": "genuinely",
+      "tags": ["prefill-retry-used", "raw-text-after-close", "check-fail:boundary-whitespace"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": false,
+          "detail": "missing separator at start: …\"nd some of them have\" + \"genuinely\""
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-journal-chronological-notes",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-journal-chronological-notes",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nTimeline discussion got complicated by the fact that Jamie is on vacation the last week of February and Dana has a conference in mid-February. Marcus will adjust the project timeline and share an updated",
+      "suffix": " schedule by end of week.\n\n### Tooling Updates\n\nKenji demoed the new query analyzer tool he built over the holidays. It hooks into the Postgres `pg_stat_statements` extension and flags queries that:\n- Have mean execution time > 100ms\n- Are called more than 1000 times per hour\n- Have a significant gap between estimated and actual row counts (indicating stale statistics)\n",
+      "prefix_omitted_chars": 2224,
+      "suffix_omitted_chars": 1628,
+      "raw": "</COMPLETION>",
+      "expected_final": null,
+      "tags": ["prefill-immediate-close", "extract-null", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-journal-jnl-mid-paragraph",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-journal-jnl-mid-paragraph",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nAfter the vet, stopped by the hardware store for some wood screws and ended up buying a whole shelf organizer system for the garage. Classic scope creep. The garage has been bothering me for months though — tools everywhere, no system, can't find anything when I need it. Spent the afternoon assembling the organizer and sorting tools into categories. It's not done but it already looks",
+      "suffix": " so much better than before. Tomorrow I'll tackle the workbench area and hang the pegboard I bought last month.\n\n---\n\n**Evening — movie night**\n\nWatched \"The Martian\" with Sarah after the kids went to bed. We've both seen it before but it holds up. Matt Damon's performance is great and the science is mostly plausible (I looked it up afterwards — the initial dust storm that strands him is the least realistic part, since Mars's atmosphere is too thin for winds to be that destructive). Good comfort movie.\n",
+      "prefix_omitted_chars": 1996,
+      "suffix_omitted_chars": 1491,
+      "raw": "</COMPLETION>\n\nWait, let me reconsider. The text reads \"it already looks{{FILL_HERE}} so much better than before.\" The word \"so\" comes after the marker, so I need to bridge to it naturally.\n\n<COMPLETION>so much better</COMPLETION>\n\nActually, that repeats \"so much better\" which appears after. Let me read more carefully: \"it already looks{{FILL_HERE}} so much better than before.\"\n\nThe author is saying the garage looks [something] so much better. The natural completion is just a connecting word or minimal phrase that leads into \"so much better.\"\n\n<COMPLETION>already</COMPLETION>\n\nNo — \"already\" is already in the text before the marker. Let me re-read: \"it already looks{{FILL_HERE}} so much better\"\n\nThe structure is: \"it already looks [FILL] so much better than before\"",
+      "expected_final": null,
+      "tags": ["prefill-retry-used", "raw-text-after-close", "suffix-trim", "final-null"],
+      "scenario_flags": {
+        "expect_empty_ok": true
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "empty (empty after post-processing); scenario allows empty"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "tag-leak",
+          "note": "raw output contains prompt scaffolding; it must never reach the ghost text"
+        },
+        {
+          "kind": "suffix-overlap",
+          "value": "so much better",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-02T01-51-23-api-anthropic-haiku/prose-long-prefix-narrative",
+      "source_run": "quality-2026-03-02T01-51-23-api-anthropic-haiku",
+      "scenario": "prose-long-prefix-narrative",
+      "model": "api/anthropic-haiku",
+      "backend": "api",
+      "preset": "anthropic-haiku",
+      "strategy": "prefill-extraction",
+      "prefill": true,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nThe walk to the post office took seven minutes. Eleanor used every one of them trying to decide what to tell Margaret behind the counter, who would certainly ask why she looked",
+      "suffix": " so pale on such a fine morning.\n\nMargaret Ellerby had run the Thornfield post office for as long as anyone could remember. She was a broad, cheerful woman with steel-grey hair and an unerring instinct for other people's business. Nothing happened in the village without Margaret knowing about it, usually before it had finished happening. She kept the post office stocked with gossip the way other shops stocked biscuits — generously and with an eye toward variety.\n\n\"Morning, Eleanor,\" Margaret said, looking up from her stamp drawer. \"You look like you've seen a ghost. Sit down, love, I'll put the kettle on.\"\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n",
+      "prefix_omitted_chars": 1851,
+      "suffix_omitted_chars": 871,
+      "raw": " so pale on such a fine morning.\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n\n\"He died three weeks ago in Melbourne. Liver failure, the solicitor says, though the letter is somewhat vague on the details.\" Eleanor paused. \"He left everything to me.\"\n\nThe silence that followed was the kind unique to small villages, where every piece of news is weighed not just for its content but for its implications — who it would affect, what it would change,",
+      "expected_final": " so pale on such a fine morning.\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n\n\"He died three weeks ago in Melbourne. Liver failure, the solicitor says, though the letter is somewhat vague on the details.\" Eleanor paused. \"He left everything to me.\"\n\nThe silence that followed was the kind unique to small villages, where every piece of news is weighed not just for its content but for its implications — who it would affect, what it would change,",
+      "tags": ["prefill-no-close", "check-fail:suffix-echo"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": false,
+          "detail": "raw output contains suffix head \"so pale on such a fine morning\" at char 0 of 907"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "check-stays-failing",
+          "value": "suffix-echo",
+          "note": "raw output regurgitates the suffix; post-processing hides most of it, so the raw-based suffix-echo check must keep flagging it"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-04T01-22-51-api-ollama-qwen35-9b/code-full-py-pipeline-flush",
+      "source_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "scenario": "code-full-py-pipeline-flush",
+      "model": "api/ollama-qwen35-9b",
+      "backend": "api",
+      "preset": "ollama-qwen35-9b",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "python",
+      "prefix": "        async with self._lock:\n            if not self._buffer:\n                return 0\n            to_write = list(self._buffer)\n            self._buffer.clear()\n\n        table = self._config.table_name\n        async with self._pool.acquire() as conn:\n            async with conn.transaction():\n",
+      "suffix": "\n        self._last_flush = time.monotonic()\n        return len(to_write)\n\n\nclass Pipeline:\n    \"\"\"Orchestrates the full read-process-write pipeline.\"\"\"\n\n    def __init__(self, config: PipelineConfig, chain: ProcessorChain) -> None:\n        self._config = config\n        self._chain = chain\n        self._pool: asyncpg.Pool | None = None\n",
+      "prefix_omitted_chars": 2179,
+      "suffix_omitted_chars": 1650,
+      "raw": "<COMPLETION>self._writer.should_flush() and await self._writer.flush()\n            await asyncio.sleep(0.01)\n        </COMPLETION>",
+      "expected_final": "self._writer.should_flush() and await self._writer.flush()\n            await asyncio.sleep(0.01)\n        ",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-04T01-22-51-api-ollama-qwen35-9b/code-mid-file-go-full",
+      "source_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "scenario": "code-mid-file-go-full",
+      "model": "api/ollama-qwen35-9b",
+      "backend": "api",
+      "preset": "ollama-qwen35-9b",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "go",
+      "prefix": "\tif err := s.validateOrder(order); err != nil {\n\t\treturn fmt.Errorf(\"validate order: %w\", err)\n\t}\n\n\torder.ID = generateID()\n\torder.Status = StatusPending\n\torder.CreatedAt = time.Now().UTC()\n\torder.UpdatedAt = order.CreatedAt\n\torder.TotalCents = s.calculateTotal(order.Items)\n\n",
+      "suffix": "\n\ts.logger.Printf(\"order created: id=%s customer=%s total=%d\", order.ID, order.CustomerID, order.TotalCents)\n\n\t// Send confirmation asynchronously — don't block the create response\n\tgo func() {\n\t\tnotifyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\tif err := s.notifier.SendOrderConfirmation(notifyCtx, order); err != nil {\n",
+      "prefix_omitted_chars": 2212,
+      "suffix_omitted_chars": 1620,
+      "raw": "<COMPLETION>\n\t// Persist the order immediately before logging\n\tif err := s.repo.Create(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"persist order %s: %w\", order.ID, err)\n\t}\n</COMPLETION>",
+      "expected_final": "\n\t// Persist the order immediately before logging\n\tif err := s.repo.Create(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"persist order %s: %w\", order.ID, err)\n\t}\n",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-04T01-22-51-api-ollama-qwen35-9b/prose-conversational-dialogue",
+      "source_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "scenario": "prose-conversational-dialogue",
+      "model": "api/ollama-qwen35-9b",
+      "backend": "api",
+      "preset": "ollama-qwen35-9b",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nJames leaned back in his chair. \"You told me a lot of things. Most of them turned out to be wrong.\"\n\n\"Name one time I was wrong about something important.\"\n\nHe opened his mouth, then closed it. After a moment, he said, \"",
+      "suffix": "",
+      "prefix_omitted_chars": 100,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>\"The time you said the merger would fail. It didn't. Or when you claimed the new client was a scam. They signed the contract. You're right about one thing, though — you're wrong about me.\"</COMPLETION>",
+      "expected_final": "\"The time you said the merger would fail. It didn't. Or when you claimed the new client was a scam. They signed the contract. You're right about one thing, though — you're wrong about me.\"",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-04T01-22-51-api-ollama-qwen35-9b/prose-numbered-list-continuation",
+      "source_run": "quality-2026-03-04T01-22-51-api-ollama-qwen35-9b",
+      "scenario": "prose-numbered-list-continuation",
+      "model": "api/ollama-qwen35-9b",
+      "backend": "api",
+      "preset": "ollama-qwen35-9b",
+      "strategy": "instruction-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "## Migration Steps\n\n1. Back up the existing database\n2. Run the schema migration script\n3. Verify data integrity with the check tool\n4. ",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>Perform a final consistency check across all related tables to ensure no orphaned records remain after the migration completes.</COMPLETION>",
+      "expected_final": "Perform a final consistency check across all related tables to ensure no orphaned records remain after the migration completes.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T20-54-50-claude-code-sonnet/code-full-react-select-all",
+      "source_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "scenario": "code-full-react-select-all",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "typescriptreact",
+      "prefix": "      const next = current.includes(value)\n        ? current.filter((v) => v !== value)\n        : [...current, value];\n      return {\n        ...prev,\n        activeFilters: { ...prev.activeFilters, [columnKey]: next },\n      };\n    });\n  }, []);\n\n  const handleSelectAll = useCallback(() => {\n",
+      "suffix": "  }, [pageData]);\n\n  const handleRowSelect = useCallback((id: string | number) => {\n    setSelectedRows((prev) => {\n      const next = new Set(prev);\n      if (next.has(id)) {\n        next.delete(id);\n      } else {\n        next.add(id);\n      }\n      return next;\n    });\n  }, []);\n\n  const handleClearFilters = useCallback(() => {\n    setFilter({ searchText: '', activeFilters: {} });\n    setSelectedRows(new Set());\n  }, []);\n",
+      "prefix_omitted_chars": 2193,
+      "suffix_omitted_chars": 1566,
+      "raw": "<COMPLETION>setSelectedRows((prev) => {\n      const allSelected = pageData.length > 0 && pageData.every((r) => prev.has(r.id));\n      const next = new Set(prev);\n      if (allSelected) {\n        pageData.forEach((r) => next.delete(r.id));\n      } else {\n        pageData.forEach((r) => next.add(r.id));\n      }\n      return next;\n    });</COMPLETION>",
+      "expected_final": "setSelectedRows((prev) => {\n      const allSelected = pageData.length > 0 && pageData.every((r) => prev.has(r.id));\n      const next = new Set(prev);\n      if (allSelected) {\n        pageData.forEach((r) => next.delete(r.id));\n      } else {\n        pageData.forEach((r) => next.add(r.id));\n      }\n      return next;\n    });",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T20-54-50-claude-code-sonnet/prose-after-heading",
+      "source_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "scenario": "prose-after-heading",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "## Error Handling\n\n",
+      "suffix": "",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>The system uses a centralized error handling approach with custom exception classes for different failure modes. All errors are logged with full context (stack trace, request ID, user session) and surfaced to users via standardized error responses that include actionable guidance where possible.</COMPLETION>",
+      "expected_final": "The system uses a centralized error handling approach with custom exception classes for different failure modes. All errors are logged with full context (stack trace, request ID, user session) and surfaced to users via standardized error responses that include actionable guidance where possible.",
+      "tags": ["ordinary"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T20-54-50-claude-code-sonnet/prose-full-api-versioning",
+      "source_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "scenario": "prose-full-api-versioning",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nMy recommendation: use URL-based versioning, limit yourself to two active versions at any time, and invest heavily in backward-compatible changes to avoid needing new versions. Most \"breaking changes\" can be reframed as additions if you think carefully",
+      "suffix": " about deprecation timelines and migration paths. The worst thing you can do is surprise your integrators with a breaking change, even if you technically followed your deprecation policy. I once had a customer escalate to our CEO because we removed a field from a v2 response — a field we had marked as deprecated six months earlier and warned them about in three separate emails. They had not read the emails. The field was still in their integration code. From their perspective, we broke their system without warning. From our perspective, we had done everything right. We were both correct, and both wrong.\n\nThe lesson I took from that: deprecation is not communication. Sending deprecation warnings is necessary but not sufficient. You also need to actively monitor who is still using deprecated features and reach out to them directly. At my current company, we have a deprecation dashboard that shows which API keys are still hitting deprecated endpoints, and we assign an engineer to personally contact each integrator who is lagging behind. It is labor-intensive but it has eliminated surprise breakages almost entirely.\n",
+      "prefix_omitted_chars": 2223,
+      "suffix_omitted_chars": 867,
+      "raw": "<COMPLETION> — think in terms of additive changes, optional fields, and sensible defaults rather than removing or renaming things. When you add a new field, make it optional and provide a default. When you want to change behavior, add a new parameter that opts into the new behavior and keep the old behavior as the default. When you absolutely must remove something, go through a multi-stage deprecation: first mark it deprecated and log a warning when it is used, then make it return a specific deprecation error, then finally remove it after a long grace period. Document not just what is changing but why, and provide concrete migration examples</COMPLETION>",
+      "expected_final": " — think in terms of additive changes, optional fields, and sensible defaults rather than removing or renaming things. When you add a new field, make it optional and provide a default. When you want to change behavior, add a new parameter that opts into the new behavior and keep the old behavior as the default. When you absolutely must remove something, go through a multi-stage deprecation: first mark it deprecated and log a warning when it is used, then make it return a specific deprecation error, then finally remove it after a long grace period. Document not just what is changing but why, and provide concrete migration examples",
+      "tags": ["check-fail:over-length"],
+      "scenario_flags": {
+        "max_completion_chars": 120
+      },
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "over-length",
+          "pass": false,
+          "detail": "637 chars > max 120"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T20-54-50-claude-code-sonnet/prose-journal-full-between-topics",
+      "source_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "scenario": "prose-journal-full-between-topics",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n**Takeaway:** Always check kernel logs when containers restart unexpectedly. Docker/containerd logs don't always surface OOM kills — the process just vanishes from the container's perspective.\n\n---\n\n## 02-09-26\n\n### SQLite WAL mode footgun\n\nDiscovered something fun today. The background sync job (runs every 5 min via cron) was occasionally failing with `SQLITE_BUSY`. The main app serves reads via WAL mode, which should allow concurrent readers and writers... but the sync job was opening its own connection with default journal mode.\n\nTurns out if you open a SQLite database with `journal_mode = DELETE` (the default) while another process has it open in WAL mode, you get conflicts. The WAL mode is per-database, not per-connection — but only if the first connection sets it. If a second connection opens the file before WAL mode is established, or if it explicitly requests a different journal mode, you get weird locking behavior.\n\nFixed by adding `PRAGMA journal_mode = WAL` to the sync job's connection setup. Also added a check to the app startup that verifies the journal mode after setting it (because `PRAGMA journal_mode = WAL` can silently fail if the database is locked by another process — it returns `delete` instead of `wal` and doesn't error).\n\nAlso learned that `PRAGMA busy_timeout` is essential for multi-process SQLite. Set it to 5000ms on both the app and the sync job. Without it, the first `SQLITE_BUSY` is an immediate error; with it, SQLite retries internally for up to the specified duration. Should've known this — it's in every \"SQLite in production\" blog post.\n\nRelated note: I found that the `wal_checkpoint` pragma is also useful for controlling when checkpointing happens. By default SQLite checkpoints automatically when the WAL file reaches 1000 pages (about 4MB with the default page size). For our workload that's fine, but if you have write-heavy bursts you might want to set it higher or trigger manual checkpoints during quiet periods.\n\nWhile I was in the SQLite rabbit hole, I also discovered that `PRAGMA optimize` (added in SQLite 3.18.0) should be called when closing the database connection. It runs `ANALYZE` on tables that need it based on query statistics, which keeps the query planner up to date without the overhead of running `ANALYZE` on every table. Added it to the app shutdown handler and the sync job cleanup.\n\n",
+      "suffix": "Ran `nix flake update` and the dev shell stopped building. The error was somewhere deep in a dependency chain — something about `openssl` version mismatch between the Python derivation and the Node derivation. I've hit this pattern before: Nix is great until it isn't, and when it isn't, the error messages assume you have a PhD in Nix expression evaluation.\n\nRolled back the lock file (`git checkout flake.lock`) and pinned the nixpkgs input to the commit from yesterday. I'll update again next week when I have more patience. Or maybe I'll just switch to mise for version management and use plain shell scripts for the dev environment. Less reproducible, but also less time spent fighting the package manager.\n\n---\n\n## 02-08-26\n\n### Finally got the SSE streaming working\n\nSpent most of the morning on Server-Sent Events for the real-time dashboard. The concept is simple — server pushes events over a long-lived HTTP connection — but the devil is in the middleware.\n\nProblem #1: The nginx reverse proxy was buffering the response. SSE needs unbuffered streaming, so I added `X-Accel-Buffering: no` to the response headers and `proxy_buffering off` to the nginx config. That fixed the \"events arrive in batches every 30 seconds\" behavior.\n\nProblem #2: The Go HTTP handler was setting `Content-Type: text/event-stream` but wasn't flushing after each event. In Go, the `http.ResponseWriter` buffers by default. You need to type-assert it to `http.Flusher` and call `.Flush()` after every `fmt.Fprintf`. Or use `http.NewResponseController` (Go 1.20+) which is slightly cleaner.\n\nProblem #3: Client reconnection. When the browser auto-reconnects after a dropped connection, it sends a `Last-Event-ID` header. My handler wasn't reading this, so reconnecting clients missed all events during the disconnect window. Added a ring buffer (last 1000 events) keyed by event ID, and on reconnect the handler replays everything after the client's last seen ID.\n\nThe dashboard now updates in ~50ms after a backend",
+      "prefix_omitted_chars": 0,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>One other thing I should mention: I added retry logic to the sync job's database connection. Sometimes the WAL checkpoint is mid-flight when the job starts, and even with `busy_timeout` set, there's a small window where the connection fails. Now it tries three times with exponential backoff (500ms, 2s, 5s) before giving up. Haven't seen a failure since.\n\n---\n\n## 02-10-26\n\n### Nix flake hell\n\n</COMPLETION>",
+      "expected_final": "One other thing I should mention: I added retry logic to the sync job's database connection. Sometimes the WAL checkpoint is mid-flight when the job starts, and even with `busy_timeout` set, there's a small window where the connection fails. Now it tries three times with exponential backoff (500ms, 2s, 5s) before giving up. Haven't seen a failure since.\n\n---\n\n## 02-10-26\n\n### Nix flake hell\n\n",
+      "tags": ["check-fail:journal-date"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "breaks reverse-chronological order: 02-09-26 → 02-10-26 → 02-08-26"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T20-54-50-claude-code-sonnet/prose-journal-full-new-entry",
+      "source_run": "quality-2026-03-26T20-54-50-claude-code-sonnet",
+      "scenario": "prose-journal-full-new-entry",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n---\n\n## 02-07-26\n\n### Debugging the flaky integration test\n\nThe `test_concurrent_writes` test has been failing intermittently for weeks. It runs 50 goroutines that each write 100 records, then checks the final count. Expected: 5000. Actual: sometimes 4998 or 4999.\n\nAt first I suspected a race condition in the write path, but adding `-race` to the test flags showed nothing. Then I thought it might be a counting issue in the test itself, but the test logic is dead simple — insert, then `SELECT COUNT(*)`.\n\nThe real cause: two of the goroutines were occasionally hitting a unique constraint violation (the test generates IDs with `uuid.New()`, but two goroutines were sharing a seeded random source due to a test helper bug). The insert would fail silently because the error handling in the test was `if err != nil { continue }` instead of `if err != nil { t.Fatal(err) }`. So the writes weren't lost — they were never attempted.\n\nFixed the test helper to use `crypto/rand` for UUID generation and changed the error handling from `continue` to `t.Errorf` so we actually see failures instead of silently skipping them.\n\n---\n\n## 02-06-26\n\n",
+      "suffix": "### Caddy vs nginx for the API gateway\n\nEvaluating Caddy as a potential replacement for our nginx setup. Current nginx config is ~400 lines across 6 files and handles: TLS termination, reverse proxy, rate limiting, static file serving, and WebSocket upgrade. The config works but it's gnarly — every change requires careful testing because the interaction between location blocks, upstream definitions, and lua-resty modules is fragile.\n\nCaddy's pitch: automatic HTTPS (via ACME), simpler config syntax, and built-in reverse proxy with health checking. The Caddyfile equivalent of our nginx config is about 60 lines, which is suspiciously concise but actually covers all the same functionality.\n\nConcerns:\n- **Performance**: nginx is battle-tested at scale. Caddy is Go-based and handles less traffic per core in benchmarks. For our traffic (~2000 req/s peak) this probably doesn't matter, but I want to load test before committing.\n- **Rate limiting**: Caddy has a rate limiter plugin, but it's not as configurable as nginx's `limit_req_zone`. Specifically, we need per-API-key rate limiting and Caddy's plugin only supports per-IP out of the box. Might need to write a custom module.\n- **Operational familiarity**: Everyone on the team knows nginx. Nobody knows Caddy. There's a learning curve cost that's easy to underestimate.\n\nPlan: Set up Caddy on the staging environment alongside nginx (different ports), mirror production traffic to both, and compare latency distributions. If Caddy is within 10% on p99 latency and handles our rate limiting needs, we'll schedule the migration.\n\n### New hire onboarding checklist updates\n\nAdded three items to the engineering onboarding doc based on feedback from the last two hires:\n\n1. How to get access to the internal Grafana dashboards (requires VPN + LDAP group membership, which nobody mentioned to either hire for their first week)\n2. Where the architecture decision records live (they're in a `docs/adr/` directory in the monorepo, not in ",
+      "prefix_omitted_chars": 1218,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>### Switching to structured logging\n\nThe application logs were a mess — a mix of `fmt.Printf`, `log.Println`, and a handful of places using `logrus`. No consistent format, no structured fields, impossible to query in our log aggregator. Searching for \"error\" returned thousands of irrelevant hits because half the codebase logged stack traces as unstructured text.\n\nMigrated everything to `slog` (Go 1.21's standard library logger). Now every log entry is JSON with consistent fields: `timestamp`, `level`, `msg`, `service`, `trace_id`. Added a custom handler that automatically injects request context (user ID, API key, endpoint) into every log line within an HTTP handler.\n\nThe migration took about 3 days:\n- Day 1: Set up the slog handler and middleware\n- Day 2: Grep for `fmt.Printf` and `log.Println` in the main services, replace with `slog.Info`/`slog.Error`\n- Day 3: Update error handling to use structured fields instead of string interpolation\n\nThe payoff is immediate. I can now query logs like `level:error AND service:api AND user_id:12345` and actually get useful results. Error alerting is more accurate because we're not triggering on false positives from log messages that happen to contain the word \"error\".\n\nOne gotcha: `slog` doesn't log stack traces by default on errors. Had to write a small wrapper that captures the stack using `runtime.Callers` and adds it as a structured field. Otherwise debugging panics would be painful.\n\n---\n\n## 02-07-26\n\n</COMPLETION>",
+      "expected_final": "### Switching to structured logging\n\nThe application logs were a mess — a mix of `fmt.Printf`, `log.Println`, and a handful of places using `logrus`. No consistent format, no structured fields, impossible to query in our log aggregator. Searching for \"error\" returned thousands of irrelevant hits because half the codebase logged stack traces as unstructured text.\n\nMigrated everything to `slog` (Go 1.21's standard library logger). Now every log entry is JSON with consistent fields: `timestamp`, `level`, `msg`, `service`, `trace_id`. Added a custom handler that automatically injects request context (user ID, API key, endpoint) into every log line within an HTTP handler.\n\nThe migration took about 3 days:\n- Day 1: Set up the slog handler and middleware\n- Day 2: Grep for `fmt.Printf` and `log.Println` in the main services, replace with `slog.Info`/`slog.Error`\n- Day 3: Update error handling to use structured fields instead of string interpolation\n\nThe payoff is immediate. I can now query logs like `level:error AND service:api AND user_id:12345` and actually get useful results. Error alerting is more accurate because we're not triggering on false positives from log messages that happen to contain the word \"error\".\n\nOne gotcha: `slog` doesn't log stack traces by default on errors. Had to write a small wrapper that captures the stack using `runtime.Callers` and adds it as a structured field. Otherwise debugging panics would be painful.\n\n---\n\n## 02-07-26\n\n",
+      "tags": ["check-fail:journal-date"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        },
+        {
+          "id": "journal-date",
+          "pass": false,
+          "detail": "duplicate 02-07-26 (×2); breaks reverse-chronological order: 02-07-26 → 02-06-26 → 02-07-26"
+        }
+      ],
+      "must_avoid": []
+    },
+    {
+      "id": "2026-03-26T21-32-33-claude-code-sonnet/code-java-mid-file",
+      "source_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "scenario": "code-java-mid-file",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "code",
+      "languageId": "java",
+      "prefix": "\npublic class UserService {\n    private final UserRepository repository;\n\n    public UserService(UserRepository repository) {\n        this.repository = repository;\n    }\n\n    public List<UserDTO> getActiveUsers() {\n        return repository.findAll().stream()\n            .filter(user -> ",
+      "suffix": ")\n            .map(this::toDTO)\n            .collect(Collectors.toList());\n    }\n\n    private UserDTO toDTO(User user) {\n        return new UserDTO(user.getId(), user.getName(), user.getEmail());\n    }\n}",
+      "prefix_omitted_chars": 116,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION>user.isActive()</COMPLETION>",
+      "expected_final": "user.isActive()",
+      "tags": ["drift:code-bracket-guard"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [],
+      "recorded_final": "user.isActive(",
+      "drift": "code-bracket-guard: trimSuffixOverlap (code mode) no longer trims a closing bracket that closes a scope the completion itself opened; the 1-char overlap match removed the model's own closer and left that scope unclosed. The recorded output \"user.isActive(\" left `.filter(` unclosed (the suffix \")\" closes `.filter(`, not `isActive(`)."
+    },
+    {
+      "id": "2026-03-26T21-32-33-claude-code-sonnet/prose-bridge-medium-transition",
+      "source_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "scenario": "prose-bridge-medium-transition",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\n### Failure Handling and Retry",
+      "suffix": "When a handler throws an unrecoverable error (after exhausting retries), the event is routed to a dead-letter topic (`events.deadletter`) with the original payload, the handler class name, the exception message, and a retry count. A separate process monitors the dead-letter topic and alerts the on-call engineer via PagerDuty if the dead-letter rate exceeds 0.01% of total throughput over a 5-minute window.\n",
+      "prefix_omitted_chars": 2289,
+      "suffix_omitted_chars": 1589,
+      "raw": "<COMPLETION>\n\n</COMPLETION>",
+      "expected_final": null,
+      "tags": ["extract-whitespace", "final-null", "check-fail:non-empty"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": false,
+          "detail": "empty completion (model returned whitespace only (inside tags))"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": true,
+          "detail": "suffix head not in raw output"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "whitespace-final",
+          "note": "whitespace-only model output must surface as null, not blank ghost text"
+        }
+      ]
+    },
+    {
+      "id": "2026-03-26T21-32-33-claude-code-sonnet/prose-long-prefix-narrative",
+      "source_run": "quality-2026-03-26T21-32-33-claude-code-sonnet",
+      "scenario": "prose-long-prefix-narrative",
+      "model": "claude-code/sonnet",
+      "backend": "claude-code",
+      "preset": null,
+      "strategy": "tag-extraction",
+      "prefill": false,
+      "mode": "prose",
+      "languageId": "markdown",
+      "prefix": "\nThe walk to the post office took seven minutes. Eleanor used every one of them trying to decide what to tell Margaret behind the counter, who would certainly ask why she looked",
+      "suffix": " so pale on such a fine morning.\n\nMargaret Ellerby had run the Thornfield post office for as long as anyone could remember. She was a broad, cheerful woman with steel-grey hair and an unerring instinct for other people's business. Nothing happened in the village without Margaret knowing about it, usually before it had finished happening. She kept the post office stocked with gossip the way other shops stocked biscuits — generously and with an eye toward variety.\n\n\"Morning, Eleanor,\" Margaret said, looking up from her stamp drawer. \"You look like you've seen a ghost. Sit down, love, I'll put the kettle on.\"\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n\n\"He died three weeks ago in Melbourne. Liver failure, the solicitor says, though the letter is somewhat vague on the details.\" Eleanor paused. \"He left everything to me.\"\n\nThe silence that followed was the kind unique to small villages, where every piece of news is weighed not just for its content but for its implications — who it would affect, what it would change, which alliances it might disturb. Margaret processed information the way a computer processes data: quickly, thoroughly, and with an output that was always slightly different from what you expected.\n\n\"To you,\" Margaret repeated. \"Not to David.\"\n\n\"Not to David.\"\n\nMargaret pulled two mugs from beneath the counter. She filled the electric kettle and switched it on without taking her eyes off Eleanor. \"Well,\" she said carefully, \"I imagine David will have some questions about that.\"\n\nEleanor nodded. ",
+      "prefix_omitted_chars": 1851,
+      "suffix_omitted_chars": 0,
+      "raw": "<COMPLETION> — so pale on such a fine morning.\n\nMargaret Ellerby had run the Thornfield post office for as long as anyone could remember. She was a broad, cheerful woman with steel-grey hair and an unerring instinct for other people's business. Nothing happened in the village without Margaret knowing about it, usually before it had finished happening. She kept the post office stocked with gossip the way other shops stocked biscuits — generously and with an eye toward variety.\n\n\"Morning, Eleanor,\" Margaret said, looking up from her stamp drawer. \"You look like you've seen a ghost. Sit down, love, I'll put the kettle on.\"\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n\n\"He died three weeks ago in Melbourne. Liver failure, the solicitor says, though the letter is somewhat vague on the details.\" Eleanor paused. \"He left everything to me.\"\n\nThe silence that followed was the kind unique to small villages, where every piece of news is weighed not just for its content but for its implications — who it would affect, what it would change, which alliances it might disturb. Margaret processed information the way a computer processes data: quickly, thoroughly, and with an output that was always slightly different from what you expected.\n\n\"To you,\" Margaret repeated. \"Not to David.\"\n\n\"Not to David.\"\n\nMargaret pulled two mugs from beneath the counter. She filled the electric kettle and switched it on without taking her eyes off Eleanor. \"Well,\" she said carefully, \"I imagine David will have some questions about that.\"\n\nEleanor nodded.</COMPLETION>",
+      "expected_final": " —",
+      "tags": ["suffix-trim", "check-fail:suffix-echo"],
+      "scenario_flags": {},
+      "expected_checks": [
+        {
+          "id": "non-empty",
+          "pass": true,
+          "detail": "completion has content"
+        },
+        {
+          "id": "boundary-whitespace",
+          "pass": true,
+          "detail": "both seams separated"
+        },
+        {
+          "id": "double-space",
+          "pass": true,
+          "detail": "no doubled space at either seam"
+        },
+        {
+          "id": "suffix-echo",
+          "pass": false,
+          "detail": "raw output contains suffix head \"so pale on such a fine morning\" at char 2 of 1985"
+        }
+      ],
+      "must_avoid": [
+        {
+          "kind": "suffix-overlap",
+          "value": "so pale on such a fine morning.\n\nMargaret Ellerby had run the Thornfield post office for as long as anyone could remember. She was a broad, cheerful woman with steel-grey hair and an unerring instinct for other people's business. Nothing happened in the village without Margaret knowing about it, usually before it had finished happening. She kept the post office stocked with gossip the way other shops stocked biscuits — generously and with an eye toward variety.\n\n\"Morning, Eleanor,\" Margaret said, looking up from her stamp drawer. \"You look like you've seen a ghost. Sit down, love, I'll put the kettle on.\"\n\nEleanor did not sit down. She stood at the counter and produced the letter from her pocket, smoothing it flat against the glass surface that covered a display of commemorative envelopes. She had not planned to show it to anyone. The words came out before she could stop them.\n\n\"Robert is dead,\" she said.\n\nMargaret set down the stamps. Her expression shifted through surprise, calculation, and something that might have been recognition, all in the space of a heartbeat. \"Robert Moss? David's brother Robert?\"\n\n\"He died three weeks ago in Melbourne. Liver failure, the solicitor says, though the letter is somewhat vague on the details.\" Eleanor paused. \"He left everything to me.\"\n\nThe silence that followed was the kind unique to small villages, where every piece of news is weighed not just for its content but for its implications — who it would affect, what it would change, which alliances it might disturb. Margaret processed information the way a computer processes data: quickly, thoroughly, and with an output that was always slightly different from what you expected.\n\n\"To you,\" Margaret repeated. \"Not to David.\"\n\n\"Not to David.\"\n\nMargaret pulled two mugs from beneath the counter. She filled the electric kettle and switched it on without taking her eyes off Eleanor. \"Well,\" she said carefully, \"I imagine David will have some questions about that.\"\n\nEleanor nodded.",
+          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
+        },
+        {
+          "kind": "check-stays-failing",
+          "value": "suffix-echo",
+          "note": "raw output regurgitates the suffix; post-processing hides most of it, so the raw-based suffix-echo check must keep flagging it"
+        }
+      ]
+    }
+  ]
+}

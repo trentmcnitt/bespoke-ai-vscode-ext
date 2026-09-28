@@ -165,7 +165,7 @@ class VariantProvider extends SlotPool {
     if (!slot.channel || !slot.resultPromise) return null;
     slot.channel.push(message);
 
-    const raw = await slot.resultPromise;
+    const raw = (await slot.resultPromise).text;
     this.logger.traceBlock('← raw', raw ?? '(null)');
     if (!raw) return null;
 

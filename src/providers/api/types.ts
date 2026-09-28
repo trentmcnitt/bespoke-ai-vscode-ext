@@ -18,7 +18,20 @@ export interface Preset {
 
   features?: {
     promptCaching?: boolean;
+    /** Anthropic models: the request ends with an assistant prefill (`prefill-extraction`). */
     prefill?: boolean;
+    /**
+     * `false` when the model rejects sampling parameters (HTTP 400 on
+     * `temperature`): adapters then leave `temperature` out of the request.
+     * Absent means sampling parameters are sent. See `model-capabilities.ts`.
+     */
+    sampling?: boolean;
+    /**
+     * Direct Anthropic API: turn thinking off for a model that thinks by default,
+     * with the setting that model accepts — `thinking: {type: "disabled"}` (Sonnet 5,
+     * Opus 5) or `{type: "between_tools"}` (Sonnet 5.5). See `model-capabilities.ts`.
+     */
+    thinkingOff?: 'disabled' | 'between_tools';
   };
 
   /** Extra parameters merged into the API request body. */
@@ -30,11 +43,21 @@ export interface Preset {
 
 export interface ApiAdapterResult {
   text: string | null;
-  usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number };
+  /** `inputTokens` is NON-cached input across all adapters; cache reads/writes are separate. */
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   model: string;
   durationMs: number;
   /** True when the request was cancelled by an AbortSignal (not a real failure). */
   aborted?: boolean;
+  /** Provider's stop/finish reason (e.g. `end_turn`, `stop`, `length`), when reported. */
+  finishReason?: string;
+  /** Set when the adapter swallowed a failure and returned null text (e.g. HTTP "429"). */
+  errorType?: string;
 }
 
 export interface ApiAdapter {

@@ -240,7 +240,10 @@ export const regressionScenarios: RegressionScenario[] = [
       '| No anchor date (causes snooze drift) | CANON',
     saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
-      must_not_include: ['```', '- '],
+      // "- " is only wrong at the start: every item in this list uses an
+      // inline " - " separator, so a must_not_include on it false-failed.
+      must_not_include: ['```'],
+      must_not_start_with: ['- '],
       quality_notes:
         'The prefix ends with "- " (the user has already typed the list marker). ' +
         'The completion MUST NOT start with "- " or any list marker — it should provide ' +
@@ -263,6 +266,7 @@ export const regressionScenarios: RegressionScenario[] = [
     languageId: 'markdown',
     fileName: 'journal.md',
     prefix: '#journal\n\n' + '#### *Notes about anything*\n\n' + '0',
+    mid_word: true,
     suffix:
       '\n\n' +
       '01-30-26\n\n' +
@@ -324,6 +328,7 @@ export const regressionScenarios: RegressionScenario[] = [
       '#### *Notes about anything*\n\n\n\n' +
       '01-30-26\n\n' +
       "Set `EDITOR` and `VISUAL` environment variables to `codium` in `~/.zshrc` so Claude Code's Ctrl+G opens VS Codium instead of VS Code. This sol",
+    mid_word: true,
     suffix:
       '\n\n' +
       '01-29-26\n\n' +

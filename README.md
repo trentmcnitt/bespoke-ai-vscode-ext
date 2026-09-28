@@ -11,10 +11,13 @@
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-blue?logo=visualstudiocode" alt="Install from VS Code Marketplace"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/visual-studio-marketplace/v/trentmcnitt.bespoke-ai" alt="VS Code Marketplace"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/visual-studio-marketplace/i/trentmcnitt.bespoke-ai" alt="Installs"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai&ssr=false#review-details"><img src="https://img.shields.io/visual-studio-marketplace/r/trentmcnitt.bespoke-ai" alt="Rating"></a>
+  <a href="https://github.com/trentmcnitt/bespoke-ai-vscode-ext/actions/workflows/ci.yml"><img src="https://github.com/trentmcnitt/bespoke-ai-vscode-ext/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
-> **Early release** — Please bear with the rough edges. 👷 Expect occasional bugs and fluctuating (or poor) quality in some scenarios. [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if you run into any problems.
+> Actively developed. Completion quality varies by model and context — see [How quality is measured](#how-quality-is-measured) and [Known issues](#known-issues). [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if something looks wrong.
 
 **💻 macOS, Linux, and Windows** — Also works in VSCodium.
 
@@ -46,12 +49,12 @@
 
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search for "Bespoke AI")
 2. On first launch, the extension detects whether you have the Claude Code CLI — if not, it offers to help you set it up or switch to **API key** mode
-3. Start typing — completions appear as gray suggestion text after a ~2-second pause
+3. Start typing — completions appear as gray suggestion text after a ~2-second pause plus the model's response time (typically another 2–3 seconds on the Claude Code backend)
 
 That's it. For API mode, set `bespokeAI.backend` to `api` and choose a model from the status bar menu. Details for each path below.
 
 <details>
-<summary><strong>Claude subscription</strong> — no per-token costs, uses your existing Claude Pro/Team/Enterprise plan</summary>
+<summary><strong>Claude subscription</strong> — no per-token costs, uses your existing paid Claude plan (Pro, Max, Team, or Enterprise)</summary>
 
 1. [Install Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup): `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) or `npm install -g @anthropic-ai/claude-code` (any platform)
 2. Run `claude` in your terminal and follow the login prompts
@@ -93,29 +96,55 @@ Override via settings or the status bar menu.
 
 I tried every open-source AI autocomplete extension I could find. Most handled code fine but fell apart with prose — breaking paragraphs mid-thought, injecting code syntax into journal entries, producing gibberish outside of source files. Nothing came close to Copilot for non-code text.
 
-So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering, but the result handles writing just as well as code.
+So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering.
 
-_The Claude Code backend uses your existing subscription (Pro, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider._
+_The Claude Code backend uses your existing paid Claude plan (Pro, Max, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider._
+
+<a id="how-quality-is-measured"></a>
+
+## 🧪 How quality is measured
+
+Autocomplete fails quietly — you just dismiss bad ghost text — so quality is measured offline against ~105 scenarios modelled on real use: journal entries, prompts to Claude, mid-document edits, gaps between paragraphs, and code in several languages. Each run generates completions through the production prompt and extraction code, runs seven deterministic checks, and has an LLM judge score what the user would actually see. Details and all numbers: [`evals/`](evals/).
+
+What this has caught so far:
+
+- **Reading outputs beats trusting the judge.** An error analysis of the last full run (by an AI agent: every failed output, a spot check of passes, and a mechanical whitespace check over all 99) found the judge had passed 15 completions that glued two words together (`behind` + `inadequate` → `behindinadequate`) and had given opposite verdicts to identical completions. Those failures are now caught by deterministic checks, and the judge is being validated against human labels before its pass rates are treated as more than relative.
+- **A prompt fix for the missing space.** Glued words at a word boundary: CLI Sonnet 59% → 0%, xAI Grok 90% → 0% (targeted test, 2–3 samples per scenario); in the full suite, missing-space failures went from 27 to 0 and 36 to 1. On the scenarios the fix does not target, the judge's pass rate was mixed: Sonnet slightly down, Grok up. GPT-4.1 Nano did not respond to any of five prompt variants.
+- **A whitespace bug on the Anthropic API path** that doubled spaces and blank lines at the cursor (blank lines: 100% → 0% after the fix).
+
+**Latency** on the Claude Code backend, from real use: p50 1.9–2.6 s, p95 4.1–6.1 s depending on model, measured from request to response and separate from the deliberate ~2 s pause before a request is sent.
+
+CI replays 52 recorded model outputs through the current extraction and cleanup code on every push, so a change to that code shows up as a test diff without calling a model.
+
+### Known issues
+
+- **GPT-4.1 Nano often glues the completion to the previous word** (no leading space). Prompting did not fix it; prefer another model for prose.
+- **Models sometimes copy the text after the cursor.** The copy is trimmed, which can leave no suggestion at all. xAI Grok does this more often since the whitespace fix.
+- **The `anthropic-haiku` API preset sometimes returns nothing, and occasionally shows its own reasoning.** In one test (348 requests per arm), 16–17% of requests produced no suggestion, mostly because the model closed its answer immediately or ran out of room while second-guessing itself. Rarely, text the model writes before its answer (such as a repeated line of the instruction) reaches the ghost text. Fourteen prompt variants did not fix this without breaking other completions ([details](evals/2026-09-28-reasoning-leakage.md)); the Claude Code backend and the other presets are not affected in the same way.
+- **Cost is only shown for the Claude Code backend**, where the CLI reports it; the API backend shows tokens only.
+
+<a id="available-models"></a>
 
 ## 🧩 Available Models
 
 The API backend includes presets for popular providers. Change the active preset via the status bar menu or the `bespokeAI.api.preset` setting.
 
-| Preset                    | Provider                                      | Model                       |
-| ------------------------- | --------------------------------------------- | --------------------------- |
-| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning |
-| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1            |
-| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                 |
-| `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5            |
-| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5             |
-| `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                |
-| `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                 |
-| `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash            |
-| `openrouter-haiku`        | [OpenRouter](https://openrouter.ai/)          | anthropic/claude-haiku-4.5  |
-| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)          | openai/gpt-4.1-nano         |
-| `ollama-default`          | [Ollama](https://ollama.com/) _(local, free)_ | qwen2.5-coder:7b            |
-| `ollama-qwen3-4b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:4b                    |
-| `ollama-qwen3-8b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:8b                    |
+| Preset                    | Provider                                      | Model                                                          |
+| ------------------------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning                                    |
+| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1                                               |
+| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                                                    |
+| `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5-20251001                                      |
+| `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5                                                |
+| `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                                                   |
+| `openai-gpt-4o-mini`      | [OpenAI](https://platform.openai.com/)        | gpt-4o-mini                                                    |
+| `google-gemini-flash`     | [Google](https://aistudio.google.com/)        | gemini-2.5-flash                                               |
+| `openrouter-haiku`        | [OpenRouter](https://openrouter.ai/)          | anthropic/claude-haiku-4.5                                     |
+| `openrouter-gpt-4.1-nano` | [OpenRouter](https://openrouter.ai/)          | openai/gpt-4.1-nano                                            |
+| `ollama-default`          | [Ollama](https://ollama.com/) _(local, free)_ | qwen2.5-coder:7b                                               |
+| `ollama-qwen3-4b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:4b                                                       |
+| `ollama-qwen3-8b`         | [Ollama](https://ollama.com/) _(local, free)_ | qwen3:8b                                                       |
+| `ollama-qwen35-9b`        | [Ollama](https://ollama.com/) _(local, free)_ | qwen3.5:9b _(experimental; many empty completions in testing)_ |
 
 **API keys:** Store keys via the **Enter API Key** command (Command Palette → "Enter API Key"). Keys are saved in your OS keychain. As a fallback, the extension also checks environment variables and `~/.creds/api-keys.env`:
 
@@ -136,13 +165,14 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>General</strong></summary>
 
-| Setting         | Default     | Description                                                                     |
-| --------------- | ----------- | ------------------------------------------------------------------------------- |
-| `enabled`       | `true`      | Master on/off toggle                                                            |
-| `mode`          | `"auto"`    | Completion mode (auto-detects)                                                  |
-| `triggerPreset` | `"relaxed"` | Trigger preset: `relaxed` (~2s), `eager` (~800ms), `on-demand` (Alt+Enter only) |
-| `debounceMs`    | `2000`      | Override the debounce delay from your trigger preset                            |
-| `logLevel`      | `"info"`    | Logging verbosity in Output channel                                             |
+| Setting              | Default     | Description                                                                                                                                                                               |
+| -------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`            | `true`      | Master on/off toggle                                                                                                                                                                      |
+| `mode`               | `"auto"`    | Completion mode (auto-detects)                                                                                                                                                            |
+| `triggerPreset`      | `"relaxed"` | Trigger preset: `relaxed` (~2s), `eager` (~800ms), `on-demand` (Alt+Enter only)                                                                                                           |
+| `debounceMs`         | `2000`      | Override the debounce delay from your trigger preset                                                                                                                                      |
+| `logLevel`           | `"info"`    | Logging verbosity in Output channel                                                                                                                                                       |
+| `customInstructions` | `""`        | Standing instructions appended to the inline-completion prompt to steer output (e.g. `Follow MISRA C rules`). Both backends; completions only. Use Workspace scope for per-project rules. |
 
 </details>
 
@@ -159,10 +189,10 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>Model (Claude Code backend)</strong></summary>
 
-| Setting             | Default                       | Description                              |
-| ------------------- | ----------------------------- | ---------------------------------------- |
-| `claudeCode.model`  | `"sonnet"`                    | Active model (sonnet, haiku, opus, etc.) |
-| `claudeCode.models` | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
+| Setting             | Default                                | Description                              |
+| ------------------- | -------------------------------------- | ---------------------------------------- |
+| `claudeCode.model`  | `"sonnet"`                             | Active model (sonnet, haiku, opus, etc.) |
+| `claudeCode.models` | `["haiku", "sonnet", "opus", "fable"]` | Available models catalog                 |
 
 </details>
 
@@ -184,11 +214,10 @@ All settings live under `bespokeAI.*` in VS Code settings.
 
 Route code completions to a different backend or model than prose. For example, use Claude Code CLI for writing and an xAI preset for code — or vice versa.
 
-| Setting                | Default | Description                                                                                                                                                                               |
-| ---------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codeOverride.backend` | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                                                                                               |
-| `codeOverride.model`   | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default.                                                                             |
-| `customInstructions`   | `""`    | Standing instructions appended to the inline-completion prompt to steer output (e.g. `Follow MISRA C rules`). Both backends; completions only. Use Workspace scope for per-project rules. |
+| Setting                | Default | Description                                                                                                   |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| `codeOverride.backend` | `""`    | Backend for code files: `claude-code`, `api`, or empty (use global default)                                   |
+| `codeOverride.model`   | `""`    | Model for code files. CLI: model name (e.g. `haiku`). API: preset ID (e.g. `xai-grok-code`). Empty = default. |
 
 </details>
 
@@ -215,23 +244,39 @@ Permission mode options (Claude Code):
 
 </details>
 
+<details>
+<summary><strong>Tracing</strong></summary>
+
+User settings only. See [Seeing what the model saw](#seeing-what-the-model-saw).
+
+| Setting                     | Default                  | Description                                                                                |
+| --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| `trace.captureContent`      | `true`                   | Keep prompt and output text in trace records (Recent Completions view, trace file, export) |
+| `trace.file`                | `false`                  | Append trace records to `~/.bespokeai/traces.jsonl`                                        |
+| `trace.otlp.endpoint`       | `""`                     | OTLP/HTTP (JSON) endpoint to export trace records to. Empty = off                          |
+| `trace.otlp.headersEnvVar`  | `"BESPOKE_OTLP_HEADERS"` | Environment variable holding exporter headers (`key=value,key2=value2`)                    |
+| `trace.otlp.captureContent` | `false`                  | Include prompt and output text in exported spans (needs `trace.captureContent` on too)     |
+
+</details>
+
 ## 📋 Commands
 
-| Command                   | Keybinding  | Description                             |
-| ------------------------- | ----------- | --------------------------------------- |
-| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion           |
-| `Toggle Enabled`          | —           | Toggle the extension on/off             |
-| `Cycle Mode`              | —           | Cycle through auto → prose → code       |
-| `Clear Completion Cache`  | —           | Clear the LRU cache                     |
-| `Show Menu`               | —           | Status bar menu                         |
-| `Generate Commit Message` | —           | AI commit message from staged diffs     |
-| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text  |
-| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text   |
-| `Enter API Key`           | —           | Store an API key in the OS keychain     |
-| `Remove API Key`          | —           | Remove a stored API key                 |
-| `Add Custom Model`        | —           | Guided wizard to add a custom API model |
-| `Remove Custom Model`     | —           | Remove a custom API model               |
-| `Restart Pools`           | —           | Restart Claude Code subprocesses        |
+| Command                   | Keybinding  | Description                                         |
+| ------------------------- | ----------- | --------------------------------------------------- |
+| `Trigger Completion`      | `Alt+Enter` | Manually trigger a completion                       |
+| `Toggle Enabled`          | —           | Toggle the extension on/off                         |
+| `Cycle Mode`              | —           | Cycle through auto → prose → code                   |
+| `Clear Completion Cache`  | —           | Clear the LRU cache                                 |
+| `Show Recent Completions` | —           | Browse the last 200 requests and what the model saw |
+| `Show Menu`               | —           | Status bar menu                                     |
+| `Generate Commit Message` | —           | AI commit message from staged diffs                 |
+| `Suggest Edits`           | —           | Fix typos/grammar/bugs in visible text              |
+| `Explain` / `Fix` / `Do`  | —           | Context menu actions on selected text               |
+| `Enter API Key`           | —           | Store an API key in the OS keychain                 |
+| `Remove API Key`          | —           | Remove a stored API key                             |
+| `Add Custom Model`        | —           | Guided wizard to add a custom API model             |
+| `Remove Custom Model`     | —           | Remove a custom API model                           |
+| `Restart Pools`           | —           | Restart Claude Code subprocesses                    |
 
 <details>
 <summary><strong>Architecture</strong></summary>
@@ -243,7 +288,7 @@ User types → Mode detection → Context extraction → LRU cache check
 
 A **backend router** dispatches requests to the active backend. The **Claude Code CLI** backend uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and manages subprocesses through a shared pool server — multiple VS Code windows share subprocesses via IPC (Unix sockets on macOS/Linux, named pipes on Windows). The **API** backend makes direct HTTP calls to Anthropic, OpenAI-compatible (OpenAI, Google Gemini, xAI, OpenRouter), or local Ollama endpoints.
 
-All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Anthropic API, preamble stripping for OpenAI-compat).
+All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETION>` tags) with backend-specific extraction (prefill for Claude models that accept one, such as Haiku 4.5; tag extraction for newer Claude models, which reject a prefill; preamble stripping for OpenAI-compat).
 
 **Key design decisions:**
 
@@ -255,6 +300,43 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 | No streaming           | VS Code's inline completion API requires complete strings        |
 | LRU cache (50 entries) | 5-minute TTL prevents redundant calls when revisiting positions  |
 | Session reuse (CLI)    | One subprocess serves many requests — avoids cold-start per call |
+
+</details>
+
+<a id="seeing-what-the-model-saw"></a>
+
+## 🔎 Seeing what the model saw
+
+Every completion request produces a trace record: what the model was sent, what it returned, how long it took, tokens used, cost (when the backend reports it), and what happened to the result — `shown`, `cached`, `empty`, `aborted`, or `error`.
+
+Run **Bespoke AI: Show Recent Completions** (or pick **Recent Completions** from the status bar menu) to browse the last 200 requests in the current window, newest first. Click a row to see the system instructions, the exact message sent, the raw model output, the ghost text that was shown, and a timing breakdown (debounce, pool-slot wait, model time). Commit-message and Suggest Edits requests appear in the same list.
+
+<img src="images/recent-completions.png" alt="Show Recent Completions view: recent requests with outcome, model, latency and tokens, one expanded to show the prompt and response" width="700">
+
+_Rendered from the view's own HTML with synthetic requests and VS Code's Dark Modern theme colours._
+
+Records use the attribute names of the [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai) (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, …; the conventions are still in development; the extension follows semantic-conventions-genai 1.42.0-dev, checked 2026-09-27). That makes the same records usable outside the editor:
+
+- `bespokeAI.trace.file` appends them to `~/.bespokeai/traces.jsonl`, one span per line (rotated at 5 MB; archives older than 7 days are deleted).
+- `bespokeAI.trace.otlp.endpoint` exports them over OTLP/HTTP (JSON) to your own backend. See [Privacy and data flow](#privacy-and-data-flow) for what is sent and when.
+- `bespokeAI.trace.captureContent: false` keeps prompt and output text out of trace records (the Recent Completions view, the trace file, and any export); timing, tokens, and outcomes are still recorded. It does not govern the Output channel log: at `bespokeAI.logLevel: trace` the extension writes full prompts there, and VS Code keeps output logs on disk. Leave `logLevel` at `info` or `debug` if that matters to you. `logLevel` can only be set in user settings, so a repository cannot turn it on.
+
+<details>
+<summary><strong>Sending traces to Langfuse or an OpenTelemetry Collector</strong></summary>
+
+**Langfuse**
+
+1. Create an API key pair in your Langfuse project and base64-encode `publicKey:secretKey`.
+2. Put the headers in an environment variable (header values never go in `settings.json`):
+   ```bash
+   BESPOKE_OTLP_HEADERS="Authorization=Basic <base64>,x-langfuse-ingestion-version=4"
+   ```
+3. Set `"bespokeAI.trace.otlp.endpoint": "https://cloud.langfuse.com/api/public/otel"` (or your region / self-hosted URL; `/v1/traces` is appended).
+4. Optionally set `"bespokeAI.trace.otlp.captureContent": true` to see prompts and outputs in Langfuse.
+
+**OpenTelemetry Collector** (Jaeger, Tempo, Phoenix, …): point the endpoint at the Collector's OTLP/HTTP receiver, e.g. `http://localhost:4318`. The exporter sends JSON encoding only, so protobuf-only backends such as Arize Phoenix need a Collector in between.
+
+Spans are batched (every 5 s or 20 spans), each request times out after 5 s, and failures are dropped with at most one log line per minute. The exporter never delays a completion. Cost goes in `gen_ai.usage.cost`, which is not part of the standard (Langfuse reads it).
 
 </details>
 
@@ -276,7 +358,7 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 **"Authentication required"?**
 
 - Run `claude` in your terminal and follow the login prompts.
-- Ensure you have an active Claude subscription (Pro, Team, or Enterprise).
+- Ensure you have an active paid Claude plan (Pro, Max, Team, or Enterprise).
 
 **Explain/Fix/Do says the Claude Code executable was not found (Windows)?**
 
@@ -290,9 +372,25 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 - Check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
 - Disable and re-enable the extension.
 
-## 🔒 Privacy
+<a id="privacy-and-data-flow"></a>
 
-Bespoke AI sends the text surrounding your cursor (prefix and suffix context) to the configured backend for completion. Commit message generation sends your staged diff, and suggest edits sends the visible editor content. No other files or data are transmitted. When using the Claude Code CLI backend, requests go through your local Claude Code installation. When using the API backend, requests go directly to your chosen provider's API endpoint. All API keys are stored in your OS keychain via VS Code SecretStorage.
+## 🔒 Privacy and data flow
+
+**What leaves your machine.** The text around your cursor (prefix and suffix context) goes to the backend you configured. Commit message generation sends your staged diff; Suggest Edits sends the visible editor text. With the Claude Code backend, requests go through your local Claude Code installation; with the API backend, they go directly to your chosen provider's endpoint (or to Ollama on your machine). Nothing else is sent.
+
+**No telemetry.** The extension collects no usage analytics and makes no network calls other than to your configured backend — plus the optional trace export below, which you have to point at an endpoint yourself. (The Claude Code CLI, when you use that backend, has its own telemetry settings.)
+
+**What stays on your machine**, in `~/.bespokeai/` (a folder only your user account can open):
+
+| File                     | Contents                                                                                                                                                            | When                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `usage-ledger.jsonl`     | Per-request model, token counts, duration, cost where reported, the workspace folder name, and (Claude Code backend) the CLI session id. No prompt or document text | Always (feeds the Usage view in the status menu). Owner-only (0600) |
+| `traces.jsonl`           | Per-request trace records; includes prompt and output text unless you turn capture off. Rotated at 5 MB; archives older than 7 days are deleted                     | Only with `bespokeAI.trace.file` on. Owner-only (0600)              |
+| `pool.lock`, `pool.sock` | Coordination between VS Code windows sharing one Claude Code pool                                                                                                   | Claude Code backend                                                 |
+
+**Optional trace export.** `bespokeAI.trace.otlp.endpoint` sends trace records to an OpenTelemetry backend you run or subscribe to (for example Langfuse, or an OTel Collector). It is off by default, pauses while VS Code telemetry is disabled (`telemetry.telemetryLevel`; VSCodium ships with telemetry off, so there export stays paused until you turn telemetry on), and exports prompt text only if you also turn on `bespokeAI.trace.otlp.captureContent`. The first export to a non-local host shows a notice saying what will be sent where.
+
+**Keys.** API keys are stored in your OS keychain via VS Code SecretStorage. Settings that choose a backend, endpoint, model, or key variable can only be set in your user (or remote-machine) settings, never by a repository's `.vscode/settings.json`.
 
 ## 🛠️ Development
 
@@ -300,34 +398,41 @@ Bespoke AI sends the text surrounding your cursor (prefix and suffix context) to
 npm install && npm run compile    # Build
 npm run watch                     # Watch mode (F5 to launch dev host)
 npm run check                     # Lint + type-check
-npm run test:unit                 # Unit tests
-npm run test:quality              # LLM-as-judge quality tests
+npm run test:unit                 # Unit tests (incl. the replay set)
+npm run test:coverage             # Unit tests with v8 coverage
+npm run test:quality              # Generate completions for every eval scenario (Layer 1)
+npm run test:quality:rescore      # Re-run the deterministic checks over saved eval runs
+npm run latency-report            # p50/p90/p95 from your local usage ledger
 ```
+
+**CI** runs on every push and pull request to `main`: lint, type-check, Prettier, the unit suite with coverage on Ubuntu, macOS, and Windows (the pool IPC is platform-specific), and a VSIX build for pull requests. The unit suite is ~1,540 tests at ~71% line coverage; most of what is uncovered is VS Code wiring in `extension.ts`. Tests that call real models (`test:api`, `test:quality`) need keys or a Claude subscription and run locally, not in CI.
+
+**Model choice for code.** Dedicated autocomplete products mostly use small models trained for fill-in-the-middle (FIM). This extension sends the same instruction-style prompt to general chat models for both prose and code, because prose is its main use and FIM models are trained mostly on code. For code, a FIM-trained model may well be faster and more accurate; that comparison has not been run yet. Any OpenAI-compatible or Ollama model can be added as a custom preset, and `bespokeAI.codeOverride` can route code to it.
 
 ### Tested Models
 
-These are the models the quality test suite runs against. Contributors should test prompt changes against at least one model per extraction strategy (e.g., CLI sonnet, GPT-4.1 Nano, xAI Grok).
+The quality suite has been run against these models. The reference set for prompt changes is CLI sonnet, `xai-grok` and `openai-gpt-4.1-nano`, one per extraction strategy; the others were last run before the 2026-09 prompt change.
 
-| #   | Backend | Preset ID             | Model                       |
-| --- | ------- | --------------------- | --------------------------- |
-| 1   | CLI     | _(default)_           | sonnet                      |
-| 2   | CLI     | —                     | haiku                       |
-| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning |
-| 4   | API     | `xai-grok-code`       | grok-code-fast-1            |
-| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   |
-| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             |
-| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                |
-| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            |
-| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            |
+| #   | Backend | Preset ID             | Model                       | Last full run                               |
+| --- | ------- | --------------------- | --------------------------- | ------------------------------------------- |
+| 1   | CLI     | _(default)_           | sonnet                      | 2026-09-28                                  |
+| 2   | CLI     | —                     | haiku                       | 2026-03-02                                  |
+| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning | 2026-09-28                                  |
+| 4   | API     | `xai-grok-code`       | grok-code-fast-1            | 2026-03-01                                  |
+| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   | 2026-03-02                                  |
+| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             | sampled 51 of 106 (2026-09-28); no full run |
+| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                | 2026-09-28                                  |
+| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            | 2026-03-01                                  |
+| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            | 2026-03-01                                  |
 
-Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `CLAUDE.md` for testing commands.
+Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `AGENTS.md` for testing commands.
 
 ## 🤝 Contributing
 
 Contributions welcome — fork the repo, create a branch, and open a pull request.
 
 - Run `npm run check` before submitting (must pass)
-- See `CLAUDE.md` for architecture details, testing workflows, and coding conventions
+- See `AGENTS.md` for architecture details, testing workflows, and coding conventions
 - [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) for bugs or feature ideas
 
 ## 👤 Author

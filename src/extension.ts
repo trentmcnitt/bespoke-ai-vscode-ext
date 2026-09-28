@@ -27,22 +27,36 @@ import {
   isPresetAvailable,
   findFirstAvailablePreset,
 } from './providers/api/presets';
-import { Logger } from './utils/logger';
+import { Logger, LogLevel, LOG_LEVELS, isLogLevel } from './utils/logger';
 import { displayModelName, shortenModelName } from './utils/model-name';
 import { generateCommitMessage } from './commit-message';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from './suggest-edit';
 import { explainSelection, fixSelection, doSelection } from './commands/context-menu';
 import { UsageTracker } from './utils/usage-tracker';
 import { UsageLedger } from './utils/usage-ledger';
+import { TraceFileSink, TraceRecorder } from './utils/trace';
+import { TraceViewPanel } from './trace-view';
+import {
+  OtlpExporter,
+  isValidEnvVarName,
+  isValidOtlpEndpoint,
+  otlpTracesUrl,
+  otlpRemoteNotice,
+  parseOtlpHeaders,
+  redactUrl,
+  stopOtlpExport,
+} from './utils/otlp-exporter';
 import {
   initSecretStorage,
   loadSecretKey,
   storeSecretKey,
   removeSecretKey,
+  resolveApiKey,
   resolveApiKeySource,
   type ApiKeySource,
 } from './utils/api-key-store';
 import { STATE_DIR } from './pool-server';
+import { ensureStateDir } from './pool-server/ipc-path';
 import { detectMode } from './mode-detector';
 import {
   ApiConnectionErrorKind,
@@ -117,6 +131,10 @@ let activeRequests = 0;
 let lastConfig: ExtensionConfig;
 let usageTracker: UsageTracker;
 let usageLedger: UsageLedger;
+let traceRecorder: TraceRecorder;
+/** Env var the current OTLP exporter reads headers from (to detect changes). */
+let otlpHeadersEnvVar = '';
+const OTLP_WARNED_HOSTS_KEY = 'bespokeAI.trace.otlpWarnedHosts';
 let extensionContext: vscode.ExtensionContext;
 let autoSelectedPresetId: string | null = null;
 /** Result of the last background API health check, tied to the preset it tested.
@@ -175,6 +193,13 @@ export function activate(context: vscode.ExtensionContext) {
   for (const w of registerCustomPresets(config.api.customPresets)) logger.info(w);
   void runPresetAudit(context);
 
+  // Owner-only state dir (0700) on every backend — the API backend never starts the pool server,
+  // which is the other place this runs.
+  try {
+    ensureStateDir();
+  } catch (err) {
+    logger.error(`Could not create ${STATE_DIR}: ${err instanceof Error ? err.message : err}`);
+  }
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
 
@@ -195,6 +220,8 @@ export function activate(context: vscode.ExtensionContext) {
         // Pick a user-facing message based on the reason
         const isConfigCorrupted = reason.includes('config file corrupted');
         const isBillingError = reason.includes('credit balance');
+        // "usage limit reached: <Claude Code's own notice, which names the reset time>"
+        const usageLimitNotice = /^usage limit reached: (.+)$/s.exec(reason)?.[1];
         // Set when the pool server found CLI auth env vars in its own process
         // env at degrade time — e.g. "credit balance too low (ANTHROPIC_API_KEY
         // set in the extension host process)".
@@ -203,17 +230,19 @@ export function activate(context: vscode.ExtensionContext) {
         )?.[1];
         const isWarmup = reason.includes('warmup') || reason.includes('timed out');
         const isCircuitBreaker = reason.includes('circuit breaker');
-        const userMsg = isConfigCorrupted
-          ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
-          : isBillingError
-            ? envOverrideVars
-              ? `Bespoke AI: Autocomplete unavailable. ${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
-              : 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
-            : isWarmup
-              ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
-              : isCircuitBreaker
-                ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
-                : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
+        const userMsg = usageLimitNotice
+          ? `Bespoke AI: Autocomplete paused — your Claude plan hit its usage limit (${usageLimitNotice.trim()}). Run Restart Pools after it resets.`
+          : isConfigCorrupted
+            ? 'Bespoke AI: Claude CLI config file is corrupted. Delete ~/.claude.json (Windows: %USERPROFILE%\\.claude.json), then restart VS Code.'
+            : isBillingError
+              ? envOverrideVars
+                ? `Bespoke AI: Autocomplete unavailable. ${envOverrideVars} is set inside VS Code's extension host process, overriding your Claude subscription login — and that API account has no credit balance. If it isn't in your system environment, another extension likely set it: restart VS Code to clear it, and if it comes back, disable other Anthropic/Claude extensions.`
+                : 'Bespoke AI: Autocomplete unavailable. Claude Code is billing a pay-per-token API account with no credit balance. If you have a Claude subscription, run `claude` and log in with it — and remove any ANTHROPIC_API_KEY from your environment, since it overrides the subscription.'
+              : isWarmup
+                ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess failed to initialize.'
+                : isCircuitBreaker
+                  ? 'Bespoke AI: Autocomplete unavailable. The CLI subprocess is crashing repeatedly.'
+                  : 'Bespoke AI: Autocomplete unavailable. Claude Code may need authentication — run `claude` in your terminal to log in.';
 
         const action = await vscode.window.showErrorMessage(userMsg, 'Restart Pools', 'Open Log');
         if (action === 'Restart Pools') {
@@ -251,6 +280,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Create API providers (lightweight — no subprocess, just hold config)
+  const overridePauseNotified = new Set<string>();
   const apiCompletion = new ApiCompletionProvider(
     config,
     logger,
@@ -265,6 +295,20 @@ export function activate(context: vscode.ExtensionContext) {
       // Circuit breaker recovered
       setupReason = null;
       updateStatusBar(lastConfig, 'ready');
+    },
+    (preset, open) => {
+      // Code-override preset breaker. The status bar describes the main preset, so
+      // say it once per preset per session (it can re-open every 30 s while the
+      // preset keeps failing; the breaker logs each time).
+      if (!open) {
+        logger.info(`API code override (${preset.displayName}): resumed`);
+        return;
+      }
+      if (overridePauseNotified.has(preset.id)) return;
+      overridePauseNotified.add(preset.id);
+      void vscode.window.showWarningMessage(
+        `Bespoke AI: code completions paused for 30 s — the code override preset "${preset.displayName}" failed 5 times in a row. Prose completions are unaffected. See the Bespoke AI output for the errors.`,
+      );
     },
   );
   const apiCommand = new ApiCommandProvider(config, logger, usageLedger);
@@ -324,6 +368,17 @@ export function activate(context: vscode.ExtensionContext) {
   completionProvider = new CompletionProvider(config, backendRouter, logger, usageTracker);
   context.subscriptions.push({ dispose: () => completionProvider.dispose() });
 
+  // Per-request trace records (ring buffer + opt-in sinks)
+  traceRecorder = new TraceRecorder({ captureContent: config.trace.captureContent, logger });
+  applyTraceConfig(config);
+  completionProvider.setTraceRecorder(traceRecorder);
+  backendRouter.setTraceRecorder(traceRecorder);
+  context.subscriptions.push({ dispose: () => void traceRecorder.dispose() });
+  // OTLP export follows VS Code's global telemetry setting (see applyOtlpConfig).
+  context.subscriptions.push(
+    vscode.env.onDidChangeTelemetryEnabled(() => applyOtlpConfig(lastConfig ?? config)),
+  );
+
   completionProvider.setRequestCallbacks(
     () => {
       activeRequests++;
@@ -369,6 +424,13 @@ export function activate(context: vscode.ExtensionContext) {
       const next = MODE_LABELS[(idx + 1) % MODE_LABELS.length];
       ws.update('mode', next, vscode.ConfigurationTarget.Global);
     }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bespoke-ai.showRecentCompletions', () => {
+      TraceViewPanel.show(traceRecorder);
+    }),
+    { dispose: () => TraceViewPanel.disposeCurrent() },
   );
 
   context.subscriptions.push(
@@ -541,6 +603,15 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI');
       });
 
+      const recentItem: vscode.QuickPickItem = {
+        label: '$(history) Recent Completions',
+        description: 'what the model saw and returned, timing, tokens',
+      };
+      items.push(recentItem);
+      handlers.set(recentItem, () => {
+        vscode.commands.executeCommand('bespoke-ai.showRecentCompletions');
+      });
+
       const openLogItem: vscode.QuickPickItem = {
         label: '$(output) Open Output Log',
       };
@@ -551,8 +622,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       // --- Log Level section ---
       items.push({ label: 'Log Level', kind: vscode.QuickPickItemKind.Separator });
-      const logLevels = ['info', 'debug', 'trace'] as const;
-      for (const level of logLevels) {
+      for (const level of LOG_LEVELS) {
         const isCurrent = config.logLevel === level;
         const icon = level === 'info' ? '$(info)' : level === 'debug' ? '$(bug)' : '$(list-tree)';
         const item: vscode.QuickPickItem = {
@@ -672,7 +742,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await generateCommitMessage(backendRouter, logger, usageLedger);
+      await generateCommitMessage(backendRouter, logger, usageLedger, apiCommand);
     }),
   );
 
@@ -693,7 +763,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Bespoke AI is disabled. Enable it first.');
         return;
       }
-      await suggestEdit(backendRouter, logger, usageLedger);
+      await suggestEdit(backendRouter, logger, usageLedger, apiCommand);
     }),
   );
 
@@ -1038,6 +1108,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         backendRouter.updateConfig(newConfig);
         completionProvider.updateConfig(newConfig);
+        applyTraceConfig(newConfig);
 
         // Update context menu visibility when backend or context menu agent changes
         if (
@@ -1205,6 +1276,128 @@ export function activate(context: vscode.ExtensionContext) {
   logger.info(`Starting up | ${backendInfo} | logLevel=${config.logLevel}`);
 }
 
+/** Apply `bespokeAI.trace.*` settings to the recorder and its sinks (live, no restart). */
+function applyTraceConfig(config: ExtensionConfig): void {
+  if (!traceRecorder) return;
+  traceRecorder.setCaptureContent(config.trace.captureContent);
+  const hasFileSink = traceRecorder.getSink('file') !== undefined;
+  if (config.trace.file && !hasFileSink) {
+    traceRecorder.setSink('file', new TraceFileSink(path.join(STATE_DIR, 'traces.jsonl'), logger));
+    logger.info(`Trace: writing records to ${path.join(STATE_DIR, 'traces.jsonl')}`);
+  } else if (!config.trace.file && hasFileSink) {
+    traceRecorder.setSink('file', null);
+  }
+  applyOtlpConfig(config);
+}
+
+/** Log the telemetry-off pause once, not on every settings change. */
+let otlpTelemetryOffLogged = false;
+
+/**
+ * Create, replace, or remove the OTLP exporter to match settings.
+ *
+ * Every "off" path (endpoint cleared, endpoint invalid, VS Code telemetry off) uses
+ * `stopOtlpExport()`, which drops queued spans and aborts the request in flight: the user said
+ * stop sending, so nothing is flushed. Only an endpoint/settings *change* replaces the sink
+ * normally, and there the old exporter flushes its queue to its own (old) endpoint — the one
+ * the user had configured when those spans were recorded.
+ */
+function applyOtlpConfig(config: ExtensionConfig): void {
+  const { endpoint, headersEnvVar } = config.trace.otlp;
+  const includeContent = config.trace.captureContent && config.trace.otlp.captureContent;
+  const current = traceRecorder.getSink('otlp') as OtlpExporter | undefined;
+
+  if (!endpoint) {
+    if (current) {
+      stopOtlpExport(traceRecorder);
+      logger.info('Trace: OTLP export off');
+    }
+    return;
+  }
+  if (!isValidOtlpEndpoint(endpoint)) {
+    stopOtlpExport(traceRecorder);
+    logger.error(`Trace: ignoring bespokeAI.trace.otlp.endpoint — not an http(s) URL`);
+    return;
+  }
+  // Export is the user's own opt-in to their own backend, but it still sends data off
+  // the machine, so it also honors VS Code's global telemetry switch.
+  if (!vscode.env.isTelemetryEnabled) {
+    if (current || !otlpTelemetryOffLogged) {
+      logger.info(
+        'Trace: OTLP export is configured but paused because VS Code telemetry is disabled (telemetry.telemetryLevel). Spans stay local.',
+      );
+      otlpTelemetryOffLogged = true;
+    }
+    stopOtlpExport(traceRecorder);
+    return;
+  }
+  otlpTelemetryOffLogged = false;
+  const envVar = isValidEnvVarName(headersEnvVar) ? headersEnvVar : '';
+  if (headersEnvVar && !envVar) {
+    logger.error(
+      'Trace: ignoring bespokeAI.trace.otlp.headersEnvVar — not an environment variable name',
+    );
+  }
+  if (envVar) loadSecretKey(envVar).catch(() => {});
+  if (
+    current &&
+    current.endpoint === endpoint &&
+    current.includeContent === includeContent &&
+    otlpHeadersEnvVar === envVar
+  ) {
+    return;
+  }
+  otlpHeadersEnvVar = envVar;
+  // Replacing the sink flushes the old exporter's queue (to the old endpoint); don't let it
+  // ship content that otlp.captureContent no longer allows.
+  if (current && current.includeContent && !includeContent) current.stripQueuedContent();
+  traceRecorder.setSink(
+    'otlp',
+    new OtlpExporter({
+      endpoint,
+      getHeaders: () =>
+        envVar ? parseOtlpHeaders(resolveApiKey(envVar), (key) => logInvalidOtlpHeader(key)) : {},
+      serviceVersion: String(extensionContext.extension.packageJSON?.version ?? '0.0.0'),
+      includeContent,
+      logger,
+    }),
+  );
+  logger.info(
+    `Trace: exporting spans to ${redactUrl(otlpTracesUrl(endpoint))}${includeContent ? ' (with prompt content)' : ''}`,
+  );
+  void warnRemoteOtlpEndpoint(endpoint, includeContent);
+}
+
+/** Headers are re-parsed at every flush; report each invalid header once per session. */
+const loggedInvalidOtlpHeaders = new Set<string>();
+
+function logInvalidOtlpHeader(key: string | undefined): void {
+  const id = key ?? '';
+  if (loggedInvalidOtlpHeaders.has(id)) return;
+  loggedInvalidOtlpHeaders.add(id);
+  logger.error(
+    key
+      ? `Trace: ignoring OTLP header "${key}" — its value contains characters not allowed in an HTTP header`
+      : 'Trace: ignoring an OTLP header with an invalid name',
+  );
+}
+
+/**
+ * Tell the user once per host that trace data is leaving the machine — and again if prompt
+ * content starts being sent to a host that was only warned about metadata, or the endpoint
+ * switches to plain http:// (unencrypted). Message logic: `otlpRemoteNotice()`.
+ */
+async function warnRemoteOtlpEndpoint(endpoint: string, includeContent: boolean): Promise<void> {
+  const warned = extensionContext.globalState.get<string[]>(OTLP_WARNED_HOSTS_KEY) ?? [];
+  const notice = otlpRemoteNotice(endpoint, includeContent, warned);
+  if (!notice) return;
+  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, notice.key]);
+  const choice = await vscode.window.showInformationMessage(notice.message, 'Open Settings');
+  if (choice === 'Open Settings') {
+    vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI.trace');
+  }
+}
+
 /**
  * One-time review of custom presets already persisted in User settings.
  *
@@ -1274,6 +1467,17 @@ function readPermissionMode(ws: vscode.WorkspaceConfiguration): PermissionMode {
 }
 
 /**
+ * Read `logLevel`, falling back to `info` for anything outside the declared enum
+ * (e.g. `"error"`, which reads like a level but is not one). The Logger enforces
+ * the same fallback; validating here also keeps the status menu's "(current)" mark
+ * and the startup log line honest.
+ */
+function readLogLevel(ws: vscode.WorkspaceConfiguration): LogLevel {
+  const raw = ws.get<string>('logLevel', 'info');
+  return isLogLevel(raw) ? raw : 'info';
+}
+
+/**
  * Read `contextMenu.agent`, rejecting anything outside the declared union.
  * Same reasoning as `readPermissionMode()`: the value selects what runs in the terminal.
  */
@@ -1332,7 +1536,7 @@ function loadConfig(): ExtensionConfig {
     },
     claudeCode: {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
-      models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
+      models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus', 'fable'])!,
     },
     api: {
       preset: ws.get<string>('api.preset', DEFAULT_PRESET_ID)!,
@@ -1347,7 +1551,16 @@ function loadConfig(): ExtensionConfig {
       permissionMode: readPermissionMode(ws),
     },
     customInstructions: ws.get<string>('customInstructions', '')!,
-    logLevel: ws.get<'info' | 'debug' | 'trace'>('logLevel', 'info')!,
+    trace: {
+      captureContent: ws.get<boolean>('trace.captureContent', true) !== false,
+      file: ws.get<boolean>('trace.file', false) === true,
+      otlp: {
+        endpoint: (ws.get<string>('trace.otlp.endpoint', '') ?? '').trim(),
+        headersEnvVar: ws.get<string>('trace.otlp.headersEnvVar', 'BESPOKE_OTLP_HEADERS') ?? '',
+        captureContent: ws.get<boolean>('trace.otlp.captureContent', false) === true,
+      },
+    },
+    logLevel: readLogLevel(ws),
   };
 }
 
@@ -2171,10 +2384,17 @@ async function activateWithPreflight(
   }
 }
 
-export function deactivate() {
+export function deactivate(): Promise<void> | undefined {
   // Explicit cleanup — these may be no-ops if already disposed via subscriptions,
   // but ensures cleanup if subscription disposal fails
   completionProvider?.dispose();
   backendRouter?.dispose();
-  logger?.dispose();
+  // Returned so VS Code waits for the final trace flush (file + OTLP exporter, 5 s timeout).
+  // The logger outlives the flush so sink failures during shutdown can still be logged.
+  const traceFlush = traceRecorder?.dispose();
+  if (!traceFlush) {
+    logger?.dispose();
+    return undefined;
+  }
+  return traceFlush.finally(() => logger?.dispose());
 }
