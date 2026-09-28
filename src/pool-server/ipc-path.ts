@@ -80,9 +80,30 @@ export function cleanupStaleEndpoint(): void {
 }
 
 /**
- * Ensure the state directory exists.
- * Called before writing the lockfile or (on Unix) creating the socket.
+ * Owner-only state directory. It holds the pool socket and lockfile (used only by the same
+ * user's VS Code windows), the usage ledger, and the opt-in trace file, which can hold prompt
+ * text — nothing in it is meant for other local users.
  */
-export function ensureStateDir(): void {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
+export const STATE_DIR_MODE = 0o700;
+
+/**
+ * Ensure the state directory exists, owner-only (0700).
+ *
+ * A new directory is created 0700. An existing one is tightened to 0700 only when it is a real
+ * directory (not a symlink) owned by the current user — never chmod someone else's directory.
+ * Tightening cannot break the pool: its socket and lockfile are only used by this same user.
+ * Called before writing the lockfile or (on Unix) creating the socket, and at activation so the
+ * API backend (which never starts the pool server) gets the same protection.
+ */
+export function ensureStateDir(dir: string = STATE_DIR): void {
+  fs.mkdirSync(dir, { recursive: true, mode: STATE_DIR_MODE });
+  if (IS_WINDOWS) return;
+  try {
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory()) return;
+    if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return;
+    if ((st.mode & 0o777) !== STATE_DIR_MODE) fs.chmodSync(dir, STATE_DIR_MODE);
+  } catch {
+    // Best effort: a failed tighten must not stop the pool from starting.
+  }
 }

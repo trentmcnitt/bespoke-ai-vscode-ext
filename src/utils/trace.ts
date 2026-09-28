@@ -650,13 +650,14 @@ export class TraceFileSink implements TraceSink {
     let data = '';
     for (const q of records) data += JSON.stringify(toSpanJson(q.record, q.includeContent)) + '\n';
     try {
-      await fs.promises.mkdir(this.dirPath, { recursive: true });
-      // Owner-only: the file can hold prompt text and ~/.bespokeai is world-readable.
-      await fs.promises.appendFile(this.filePath, data, { flag: 'a', mode: TRACE_FILE_MODE });
+      await fs.promises.mkdir(this.dirPath, { recursive: true, mode: 0o700 });
+      // Owner-only: the file can hold prompt text. Tighten a pre-existing file BEFORE the
+      // first append, so no prompt text ever lands in a group/world-readable file.
       if (!this.modeChecked) {
         this.modeChecked = true;
         await restrictMode(this.filePath);
       }
+      await fs.promises.appendFile(this.filePath, data, { flag: 'a', mode: TRACE_FILE_MODE });
       await this.checkRotation();
     } catch (err) {
       this.logger?.error(`Trace: file write failed: ${err instanceof Error ? err.message : err}`);

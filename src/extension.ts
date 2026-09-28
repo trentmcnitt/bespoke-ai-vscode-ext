@@ -56,6 +56,7 @@ import {
   type ApiKeySource,
 } from './utils/api-key-store';
 import { STATE_DIR } from './pool-server';
+import { ensureStateDir } from './pool-server/ipc-path';
 import { detectMode } from './mode-detector';
 import {
   ApiConnectionErrorKind,
@@ -192,6 +193,13 @@ export function activate(context: vscode.ExtensionContext) {
   for (const w of registerCustomPresets(config.api.customPresets)) logger.info(w);
   void runPresetAudit(context);
 
+  // Owner-only state dir (0700) on every backend — the API backend never starts the pool server,
+  // which is the other place this runs.
+  try {
+    ensureStateDir();
+  } catch (err) {
+    logger.error(`Could not create ${STATE_DIR}: ${err instanceof Error ? err.message : err}`);
+  }
   usageLedger = new UsageLedger(path.join(STATE_DIR, 'usage-ledger.jsonl'), logger);
   context.subscriptions.push({ dispose: () => usageLedger.dispose() });
 

@@ -516,6 +516,30 @@ describe('trace — review fixes', () => {
   });
 
   it.skipIf(process.platform === 'win32')(
+    'tightens a pre-existing 0644 trace file before the first append',
+    async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+      const file = path.join(dir, 'traces.jsonl');
+      fs.writeFileSync(file, '');
+      fs.chmodSync(file, 0o644);
+      const modesAtAppend: number[] = [];
+      const realAppend = fs.promises.appendFile;
+      const spy = vi.spyOn(fs.promises, 'appendFile').mockImplementation(async (p, ...rest) => {
+        if (p === file) modesAtAppend.push(fs.statSync(file).mode & 0o777);
+        return realAppend(p, ...(rest as [string]));
+      });
+      try {
+        const sink = new TraceFileSink(file);
+        sink.export(makeRecord());
+        await sink.flush();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(modesAtAppend).toEqual([0o600]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
     'creates the trace file and its archives owner-only (0600), tightening a pre-existing file',
     async () => {
       dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));

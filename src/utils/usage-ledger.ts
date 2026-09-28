@@ -51,6 +51,9 @@ export interface LedgerSummary {
 /** Maximum active file size before rotation (1MB). */
 const ROTATION_THRESHOLD = 1_048_576;
 
+/** Ledger files are owner-only: they list project names, models, and usage. */
+export const LEDGER_FILE_MODE = 0o600;
+
 /** Archive files older than this are purged on rotation. */
 const ARCHIVE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 1 month
 
@@ -73,6 +76,8 @@ export class UsageLedger {
   private readonly filePath: string;
   private readonly dirPath: string;
   private readonly logger: Logger;
+  /** A ledger created before 0600 was enforced keeps its old mode; tighten it once. */
+  private modeChecked = false;
 
   constructor(filePath: string, logger: Logger) {
     this.filePath = filePath;
@@ -85,7 +90,14 @@ export class UsageLedger {
   record(entry: Omit<LedgerEntry, 'ts'>): void {
     try {
       const full: LedgerEntry = { ts: Date.now(), ...entry };
-      fs.appendFileSync(this.filePath, JSON.stringify(full) + '\n', { flag: 'a' });
+      if (!this.modeChecked) {
+        this.modeChecked = true;
+        this.restrictMode(this.filePath);
+      }
+      fs.appendFileSync(this.filePath, JSON.stringify(full) + '\n', {
+        flag: 'a',
+        mode: LEDGER_FILE_MODE,
+      });
       this.checkRotation();
     } catch (err) {
       this.logger.error(`UsageLedger: write failed: ${err instanceof Error ? err.message : err}`);
@@ -184,12 +196,22 @@ export class UsageLedger {
   private ensureDirectory(): void {
     try {
       if (!fs.existsSync(this.dirPath)) {
-        fs.mkdirSync(this.dirPath, { recursive: true });
+        fs.mkdirSync(this.dirPath, { recursive: true, mode: 0o700 });
       }
     } catch (err) {
       this.logger.error(
         `UsageLedger: failed to create directory ${this.dirPath}: ${err instanceof Error ? err.message : err}`,
       );
+    }
+  }
+
+  /** chmod 0600; a missing file is fine (append creates it 0600). No-op on Windows. */
+  private restrictMode(filePath: string): void {
+    if (process.platform === 'win32') return;
+    try {
+      fs.chmodSync(filePath, LEDGER_FILE_MODE);
+    } catch {
+      // ENOENT on first use, or not ours to change — the append still proceeds.
     }
   }
 
@@ -211,8 +233,8 @@ export class UsageLedger {
       // If archive for today already exists, append to it instead of overwriting
       if (fs.existsSync(archivePath)) {
         const content = fs.readFileSync(this.filePath, 'utf-8');
-        fs.appendFileSync(archivePath, content);
-        fs.writeFileSync(this.filePath, '');
+        fs.appendFileSync(archivePath, content, { mode: LEDGER_FILE_MODE });
+        fs.writeFileSync(this.filePath, '', { mode: LEDGER_FILE_MODE });
       } else {
         // Atomic claim: rename to process-unique temp, then rename to archive
         // If another process wins the race, our renameSync will fail
@@ -224,9 +246,10 @@ export class UsageLedger {
         }
         fs.renameSync(tempPath, archivePath);
         // Start a fresh active file
-        fs.writeFileSync(this.filePath, '');
+        fs.writeFileSync(this.filePath, '', { mode: LEDGER_FILE_MODE });
       }
 
+      this.restrictMode(archivePath);
       this.logger.info(`UsageLedger: rotated to ${archiveName}`);
 
       // Purge old archives
