@@ -40,6 +40,7 @@ interface FakeCompletionProviderShape {
 
 interface FakeCommandPoolShape {
   model: string;
+  signals: AbortSignal[];
   available: boolean;
   unavailableWhy: string;
   disposed: boolean;
@@ -156,6 +157,8 @@ vi.mock('../../providers/command-pool', () => ({
     recycles = 0;
     restarts = 0;
     modelUpdates: string[] = [];
+    /** onCancel signals the server passed, in order. */
+    signals: AbortSignal[] = [];
     onPoolDegraded?: (reason: string) => void;
     constructor(public model: string) {
       registry.command.push(this);
@@ -170,7 +173,16 @@ vi.mock('../../providers/command-pool', () => ({
       if (this.disposed) return 'disposed';
       return this.available ? null : this.unavailableWhy;
     }
-    async sendPrompt(message: string) {
+    async sendPrompt(message: string, opts?: { onCancel?: AbortSignal }) {
+      if (opts?.onCancel) this.signals.push(opts.onCancel);
+      // Stays in flight until cancelled, like CommandPool.
+      if (message === 'HOLD') {
+        return new Promise((resolve) => {
+          const done = () => resolve({ text: null, meta: null, aborted: true });
+          if (opts?.onCancel?.aborted) done();
+          opts?.onCancel?.addEventListener('abort', done);
+        });
+      }
       if (message === 'NO_META') return { text: `cmd:${message}`, meta: null };
       if (message === 'RECYCLED') return { text: null, meta: null, errorType: 'pool_recycled' };
       if (message === 'SUPERSEDED') return { text: null, meta: null, aborted: true };
@@ -623,6 +635,130 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
       await a.client.restart(); // leader restart → restartPools
       expect(registry.completion[0].restarts).toBe(1);
       expect(registry.command[0].restarts).toBe(1);
+    });
+  });
+
+  describe('command cancellation', () => {
+    const helloReply = (socket: net.Socket, msg: Record<string, unknown>) =>
+      socket.write(
+        JSON.stringify({
+          type: 'client-hello',
+          id: msg.id,
+          success: true,
+          serverId: 'raw',
+          model: 'm',
+        }) + '\n',
+      );
+
+    it("the leader's own cancel ends its command and the pool serves the next one", async () => {
+      const a = makeClient('A');
+      await a.client.activate();
+      expect(a.client.getRole()).toBe('server');
+
+      const controller = new AbortController();
+      const held = a.client.sendCommand('HOLD', { timeoutMs: 60_000, onCancel: controller.signal });
+      await vi.waitFor(() => expect(registry.command[0].signals).toHaveLength(1));
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+      expect(registry.command[0].signals[0].aborted).toBe(true);
+      expect((await a.client.sendCommand('next')).text).toBe('cmd:sonnet:next');
+    });
+
+    it("a follower's cancel resolves at once and reaches the leader, whose pool is freed", async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+      expect(b.client.getRole()).toBe('client');
+
+      const controller = new AbortController();
+      const held = b.client.sendCommand('HOLD', { timeoutMs: 60_000, onCancel: controller.signal });
+      await vi.waitFor(() => expect(registry.command[0].signals).toHaveLength(1));
+      const leaderSignal = registry.command[0].signals[0];
+      expect(leaderSignal.aborted).toBe(false);
+
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+      await vi.waitFor(() => expect(leaderSignal.aborted).toBe(true));
+      expect((await b.client.sendCommand('next')).text).toBe('cmd:sonnet:next');
+      expect(b.errors).toEqual([]);
+    });
+
+    it('an old leader that does not know cancel: the follower still resolves aborted and the connection stays usable', async () => {
+      const received: Record<string, unknown>[] = [];
+      let heldId: unknown;
+      const { sockets } = await startRawServer((socket, msg) => {
+        received.push(msg);
+        if (msg.type === 'client-hello') return helloReply(socket, msg);
+        if (msg.type === 'command' && msg.message === 'HOLD') {
+          heldId = msg.id; // answered only later, and late
+          return;
+        }
+        if (msg.type === 'command') {
+          socket.write(
+            JSON.stringify({ type: 'command', id: msg.id, success: true, text: 'ok' }) + '\n',
+          );
+          return;
+        }
+        // What PoolServer.handleRequest did for an unknown type before `cancel` existed.
+        socket.write(
+          JSON.stringify({
+            type: 'error',
+            id: msg.id || 'unknown',
+            success: false,
+            error: `Unknown request type: ${msg.type}`,
+          }) + '\n',
+        );
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+
+      const controller = new AbortController();
+      const held = b.client.sendCommand('HOLD', { onCancel: controller.signal });
+      await vi.waitFor(() => expect(heldId).toBeDefined());
+      controller.abort();
+      expect(await held).toEqual({ text: null, meta: null, aborted: true });
+
+      await vi.waitFor(() => expect(received.some((m) => m.type === 'cancel')).toBe(true));
+      const cancel = received.find((m) => m.type === 'cancel')!;
+      expect(cancel.requestId).toBe(heldId);
+      expect(cancel.id).not.toBe(heldId); // its own id, so the error reply matches nothing
+
+      // The old leader finally answers the cancelled command: ignored.
+      sockets[0].write(
+        JSON.stringify({ type: 'command', id: heldId, success: true, text: 'late' }) + '\n',
+      );
+      expect((await b.client.sendCommand('next')).text).toBe('ok');
+      expect(b.client.isAvailable()).toBe(true);
+      expect(b.errors).toEqual([]);
+    });
+
+    it('a follower sends no cancel for an already-aborted signal or after the answer arrived', async () => {
+      const received: Record<string, unknown>[] = [];
+      await startRawServer((socket, msg) => {
+        received.push(msg);
+        if (msg.type === 'client-hello') return helloReply(socket, msg);
+        socket.write(
+          JSON.stringify({ type: 'command', id: msg.id, success: true, text: 'ok' }) + '\n',
+        );
+      });
+      const b = makeClient('B');
+      await b.client.activate();
+
+      const early = new AbortController();
+      early.abort();
+      expect(await b.client.sendCommand('x', { onCancel: early.signal })).toEqual({
+        text: null,
+        meta: null,
+        aborted: true,
+      });
+
+      const late = new AbortController();
+      expect((await b.client.sendCommand('y', { onCancel: late.signal })).text).toBe('ok');
+      late.abort();
+      late.abort();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(received.map((m) => m.type)).toEqual(['client-hello', 'command']);
     });
   });
 

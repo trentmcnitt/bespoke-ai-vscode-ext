@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fix — cancelling a commit message or Suggest Edits now stops it on the Claude Code backend:** cancelling the progress notification used to leave the request running until it answered or timed out, so the next commit message or Suggest Edits had to wait. It now stops at once and frees the Claude Code session, in every window.
 - **See what the model saw:** new **Bespoke AI: Show Recent Completions** view (also in the status bar menu) lists the last 200 requests in the window — outcome, model, latency, tokens, and cost where the backend reports it — and expands each to the exact prompt sent, the raw model output, and the ghost text shown. Records use OpenTelemetry GenAI attribute names. `bespokeAI.trace.captureContent: false` keeps prompt text out of trace records (the view, the trace file, and any export); it does not affect the Output channel log.
 - **Optional trace file and export:** `bespokeAI.trace.file` writes records to `~/.bespokeai/traces.jsonl` (owner-only). `bespokeAI.trace.otlp.endpoint` exports them over OTLP/HTTP to your own backend (Langfuse, an OpenTelemetry Collector). Off by default, paused while VS Code telemetry is disabled, and sends prompt text only with `bespokeAI.trace.otlp.captureContent`. All trace settings are user-level only.
 - **Security — `bespokeAI.logLevel` is now user-level only:** at trace level the Output channel logs full prompts, and VS Code keeps output logs on disk, so a repository's settings should not be able to turn it on. If you set `logLevel` in workspace settings, move it to User settings.
