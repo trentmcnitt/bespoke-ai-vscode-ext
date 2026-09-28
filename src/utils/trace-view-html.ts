@@ -134,7 +134,7 @@ button:focus-visible, summary:focus-visible { outline: 1px solid var(--vscode-fo
 details { border-bottom: 1px solid var(--vscode-panel-border); }
 summary {
   display: grid; align-items: center; gap: 10px; padding: 6px 4px; cursor: pointer; list-style: none;
-  grid-template-columns: 7ch 9ch 5ch minmax(8ch, 1fr) 7ch 16ch 8ch;
+  grid-template-columns: 7ch 9ch 5ch minmax(8ch, 1fr) 7ch 24ch 8ch;
   font-variant-numeric: tabular-nums;
 }
 summary::-webkit-details-marker { display: none; }
