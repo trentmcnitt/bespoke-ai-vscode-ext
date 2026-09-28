@@ -129,7 +129,7 @@ export class Logger {
 
   /**
    * Log a labeled block of trace content with indentation.
-   * Content is truncated with ⋮ marker if too long.
+   * Content is written verbatim (no truncation), so trace logs show exactly what was sent.
    */
   traceBlock(label: string, content: string): void {
     if (LEVEL_RANK[this.level] > LEVEL_RANK.trace) {
