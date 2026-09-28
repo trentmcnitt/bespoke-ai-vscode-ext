@@ -203,6 +203,29 @@ describe('AnthropicAdapter', () => {
       expect(mocks.ctor).toHaveBeenCalledTimes(2);
     });
 
+    it('rebuilds the client when the resolved key changes (a replaced bad key takes effect)', async () => {
+      const adapter = new AnthropicAdapter(makePreset());
+      mocks.resolveApiKey.mockReturnValue('sk-ant-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('sk-ant-good');
+      await adapter.complete('SYS', messages, opts());
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect((mocks.ctor.mock.calls[0][0] as { apiKey: string }).apiKey).toBe('sk-ant-bad');
+      expect((mocks.ctor.mock.calls[1][0] as { apiKey: string }).apiKey).toBe('sk-ant-good');
+      expect(mocks.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('a key removed after a client was built throws "not found" instead of using the old client', async () => {
+      const adapter = new AnthropicAdapter(makePreset());
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue(undefined);
+      await expect(adapter.complete('SYS', messages, opts())).rejects.toThrow(
+        /API key not found for ANTHROPIC_API_KEY/,
+      );
+      expect(mocks.create).toHaveBeenCalledTimes(1);
+    });
+
     it('throws a descriptive error before building a client when the key is missing', async () => {
       mocks.resolveApiKey.mockReturnValue(undefined);
       await expect(
@@ -262,10 +285,28 @@ describe('AnthropicAdapter', () => {
       expect(result).toMatchObject({ text: null, aborted: true });
     });
 
-    it('treats the SDK "Request was aborted." wrapper as an abort', async () => {
+    it('treats the SDK "Request was aborted." error as an abort when our signal was aborted', async () => {
+      // The SDK throws APIUserAbortError (no AbortError name) only after checking
+      // signal.aborted, so the signal is what identifies it.
+      const ac = new AbortController();
+      ac.abort();
       mocks.create.mockRejectedValue(new Error('Request was aborted.'));
-      const result = await new AnthropicAdapter(makePreset()).complete('SYS', messages, opts());
+      const result = await new AnthropicAdapter(makePreset()).complete(
+        'SYS',
+        messages,
+        opts({ signal: ac.signal }),
+      );
       expect(result.aborted).toBe(true);
+    });
+
+    it('does not treat a server error mentioning "aborted" as an abort', async () => {
+      const err = Object.assign(new Error('400 Upstream request was aborted by provider'), {
+        status: 400,
+      });
+      mocks.create.mockRejectedValue(err);
+      await expect(
+        new AnthropicAdapter(makePreset()).complete('SYS', messages, opts()),
+      ).rejects.toBe(err);
     });
 
     it.each([429, 529])('returns a silent null (not aborted) on HTTP %i', async (status) => {

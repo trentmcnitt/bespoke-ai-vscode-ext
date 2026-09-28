@@ -242,6 +242,41 @@ describe('OpenAICompatAdapter', () => {
       expect(mocks.ctor).toHaveBeenCalledTimes(2);
     });
 
+    it('rebuilds the client when the resolved key changes (a replaced bad key takes effect)', async () => {
+      const adapter = new OpenAICompatAdapter(makePreset());
+      mocks.resolveApiKey.mockReturnValue('sk-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('sk-good');
+      await adapter.complete('SYS', messages, opts());
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect(ctorOpts(0).apiKey).toBe('sk-bad');
+      expect(ctorOpts(1).apiKey).toBe('sk-good');
+      expect(mocks.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('xAI: a key change rebuilds the client but keeps the conv id (it belongs to the adapter)', async () => {
+      const adapter = new OpenAICompatAdapter(xaiPreset());
+      mocks.resolveApiKey.mockReturnValue('xai-bad');
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue('xai-good');
+      await adapter.complete('SYS', messages, opts());
+      expect(mocks.ctor).toHaveBeenCalledTimes(2);
+      expect(ctorOpts(1).defaultHeaders?.['x-grok-conv-id']).toBe(
+        ctorOpts(0).defaultHeaders?.['x-grok-conv-id'],
+      );
+    });
+
+    it('a key removed after a client was built throws "not found" instead of using the old client', async () => {
+      const adapter = new OpenAICompatAdapter(xaiPreset());
+      await adapter.complete('SYS', messages, opts());
+      mocks.resolveApiKey.mockReturnValue(undefined);
+      await expect(adapter.complete('SYS', messages, opts())).rejects.toThrow(
+        /API key not found for XAI_API_KEY/,
+      );
+      expect(mocks.create).toHaveBeenCalledTimes(1);
+    });
+
     it('throws before constructing a client when the key is missing', async () => {
       mocks.resolveApiKey.mockReturnValue(undefined);
       await expect(
@@ -293,6 +328,28 @@ describe('OpenAICompatAdapter', () => {
       mocks.create.mockRejectedValue(abort);
       const result = await new OpenAICompatAdapter(makePreset()).complete('SYS', messages, opts());
       expect(result).toMatchObject({ text: null, aborted: true });
+    });
+
+    it('treats the SDK "Request was aborted." error as an abort when our signal was aborted', async () => {
+      const ac = new AbortController();
+      ac.abort();
+      mocks.create.mockRejectedValue(new Error('Request was aborted.'));
+      const result = await new OpenAICompatAdapter(makePreset()).complete(
+        'SYS',
+        messages,
+        opts({ signal: ac.signal }),
+      );
+      expect(result).toMatchObject({ text: null, aborted: true });
+    });
+
+    it('does not treat a server error mentioning "aborted" as an abort', async () => {
+      const err = Object.assign(new Error('400 Upstream request was aborted by provider'), {
+        status: 400,
+      });
+      mocks.create.mockRejectedValue(err);
+      await expect(
+        new OpenAICompatAdapter(makePreset()).complete('SYS', messages, opts()),
+      ).rejects.toBe(err);
     });
 
     it('returns a silent null (not aborted) on HTTP 429', async () => {

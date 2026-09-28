@@ -4,6 +4,8 @@ import { resolveApiKey } from '../../../utils/api-key-store';
 export class AnthropicAdapter implements ApiAdapter {
   readonly providerId = 'anthropic';
   private client: unknown = null;
+  /** The key `client` was built with; a different resolved key rebuilds it. */
+  private clientKey: string | undefined;
   private preset: Preset;
 
   constructor(preset: Preset) {
@@ -77,7 +79,7 @@ export class AnthropicAdapter implements ApiAdapter {
         finishReason: response.stop_reason ?? undefined,
       };
     } catch (err: unknown) {
-      if (isAbortError(err)) {
+      if (isAbortError(err, options.signal)) {
         return {
           text: null,
           usage: { inputTokens: 0, outputTokens: 0 },
@@ -115,9 +117,11 @@ export class AnthropicAdapter implements ApiAdapter {
   }
 
   private async getClient(): Promise<AnthropicClient> {
-    if (this.client) return this.client as AnthropicClient;
-
+    // Resolved per request (an in-memory lookup) so a key replaced with
+    // `setApiKey`, or changed in the environment, takes effect on the next
+    // request instead of the cached client failing until reload.
     const apiKey = this.preset.apiKeyEnvVar ? resolveApiKey(this.preset.apiKeyEnvVar) : undefined;
+    if (this.client && apiKey === this.clientKey) return this.client as AnthropicClient;
     if (!apiKey) {
       throw new Error(
         `API key not found for ${this.preset.apiKeyEnvVar ?? 'ANTHROPIC_API_KEY'}. Set it in your environment or ~/.creds/api-keys.env`,
@@ -131,16 +135,18 @@ export class AnthropicAdapter implements ApiAdapter {
       ...(this.preset.baseUrl && { baseURL: this.preset.baseUrl }),
       ...(this.preset.extraHeaders && { defaultHeaders: this.preset.extraHeaders }),
     });
+    this.clientKey = apiKey;
     return this.client as AnthropicClient;
   }
 }
 
-function isAbortError(err: unknown): boolean {
-  if (err instanceof Error && err.name === 'AbortError') return true;
-  if (err instanceof DOMException && err.name === 'AbortError') return true;
-  // Anthropic SDK wraps abort errors
-  if (err instanceof Error && err.message?.includes('aborted')) return true;
-  return false;
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  // Our own signal is the source of truth: the SDK throws APIUserAbortError
+  // ("Request was aborted.") only after checking that it was aborted. Matching
+  // on message text also swallowed server errors that merely mention
+  // "aborted", hiding them from the user and from the circuit breaker.
+  if (signal.aborted) return true;
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 // Minimal type definitions for the Anthropic SDK to avoid import-time dependency

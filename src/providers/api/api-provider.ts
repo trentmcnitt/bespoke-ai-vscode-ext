@@ -62,6 +62,20 @@ export function emptyResultIsBackendFailure(result: ApiAdapterResult): boolean {
   return result.usage.outputTokens === 0 && !result.finishReason;
 }
 
+/**
+ * Everything one completion request needs, resolved from a single preset.
+ *
+ * A request captures its slot synchronously before its first `await` and reads
+ * only from it, so a preset switch or an overlapping request cannot change the
+ * adapter, strategy or breaker a request is using halfway through.
+ */
+interface PresetSlot {
+  preset: Preset;
+  strategy: PromptStrategy;
+  adapter: ApiAdapter;
+  breaker: CircuitBreaker;
+}
+
 export class ApiCompletionProvider implements CompletionProvider {
   private config: ExtensionConfig;
   private logger: Logger;
@@ -70,6 +84,14 @@ export class ApiCompletionProvider implements CompletionProvider {
   private activePreset: Preset | null = null;
   private strategy: PromptStrategy | null = null;
   private breaker: CircuitBreaker;
+  /**
+   * Code-override presets, each with its own cached adapter (so its client and
+   * xAI conv id persist), strategy and breaker (so its failures back off without
+   * touching the main preset's count). Keyed by preset id; a custom preset is
+   * rebuilt on every settings change, so a slot whose preset object is no longer
+   * the registered one is evicted.
+   */
+  private overrides = new Map<string, PresetSlot>();
 
   constructor(
     config: ExtensionConfig,
@@ -110,8 +132,7 @@ export class ApiCompletionProvider implements CompletionProvider {
     if (!this.adapter || !this.activePreset || !this.strategy) {
       // No usable preset/adapter (unknown preset id, adapter construction failed).
       // Nothing was sent; report it so the null is not recorded as an empty reply.
-      // The orchestrator's isAvailable() check catches this for the primary preset,
-      // but not for a code-override preset.
+      // (The orchestrator's isAvailable() check normally stops the request first.)
       return {
         text: null,
         detail: {
@@ -123,8 +144,29 @@ export class ApiCompletionProvider implements CompletionProvider {
         },
       };
     }
-    const preset = this.activePreset;
-    if (this.breaker.isOpen()) {
+    // Snapshot before any await: the request keeps this preset's adapter and
+    // strategy even if the preset changes while it is in flight.
+    return this.runCompletion(
+      {
+        preset: this.activePreset,
+        strategy: this.strategy,
+        adapter: this.adapter,
+        breaker: this.breaker,
+      },
+      context,
+      signal,
+      options,
+    );
+  }
+
+  private async runCompletion(
+    slot: PresetSlot,
+    context: CompletionContext,
+    signal: AbortSignal,
+    options?: GenerationOptions,
+  ): Promise<CompletionWithDetail> {
+    const { preset, strategy, adapter, breaker } = slot;
+    if (breaker.isOpen()) {
       // Nothing was sent. Say why, so the null is not recorded as the model
       // having returned nothing (the code-override path reaches here without
       // the orchestrator's isAvailable() check).
@@ -138,11 +180,7 @@ export class ApiCompletionProvider implements CompletionProvider {
       };
     }
 
-    const messages = this.strategy.buildMessages(
-      context.prefix,
-      context.suffix,
-      context.languageId,
-    );
+    const messages = strategy.buildMessages(context.prefix, context.suffix, context.languageId);
 
     // Append the user's standing instructions (if any) to the strategy's
     // base system prompt. Read per-request from config, so changes apply
@@ -180,14 +218,14 @@ export class ApiCompletionProvider implements CompletionProvider {
 
     let result;
     try {
-      result = await this.adapter.complete(system, adapterMessages, {
+      result = await adapter.complete(system, adapterMessages, {
         signal,
         maxTokens: preset.maxTokens,
         temperature: preset.temperature,
         stopSequences: preset.stopSequences,
       });
     } catch (err) {
-      this.breaker.recordFailure();
+      breaker.recordFailure();
       attachDetailToError(err, detail);
       throw err;
     }
@@ -209,17 +247,17 @@ export class ApiCompletionProvider implements CompletionProvider {
     if (content) content.rawOutput = result.text;
 
     if (!result.text) {
-      if (emptyResultIsBackendFailure(result)) this.breaker.recordFailure();
-      else if (!result.aborted) this.breaker.recordSuccess(); // the backend answered
+      if (emptyResultIsBackendFailure(result)) breaker.recordFailure();
+      else if (!result.aborted) breaker.recordSuccess(); // the backend answered
       return { text: null, detail };
     }
 
-    this.breaker.recordSuccess();
+    breaker.recordSuccess();
 
     this.logger.traceBlock('api ← raw', result.text);
 
     // Extract completion using the strategy
-    const extracted = this.strategy.extractCompletion(result.text, context.prefix, context.suffix);
+    const extracted = strategy.extractCompletion(result.text, context.prefix, context.suffix);
     if (content) content.extracted = extracted;
     if (!extracted) return { text: null, detail };
 
@@ -245,10 +283,12 @@ export class ApiCompletionProvider implements CompletionProvider {
   }
 
   async recycleAll(): Promise<void> {
+    this.disposeOverrides();
     this.loadAdapter();
   }
 
   dispose(): void {
+    this.disposeOverrides();
     this.adapter?.dispose();
     this.adapter = null;
     this.activePreset = null;
@@ -315,29 +355,79 @@ export class ApiCompletionProvider implements CompletionProvider {
     signal: AbortSignal,
     options?: GenerationOptions,
   ): Promise<CompletionWithDetail> {
-    const prevPreset = this.activePreset;
-    const prevAdapter = this.adapter;
-    const prevStrategy = this.strategy;
-
-    // Null out so loadAdapter doesn't dispose the saved adapter
-    this.adapter = null;
-    this.loadAdapter(presetId);
-    try {
-      return await this.getCompletionWithDetail(context, signal, options);
-    } finally {
-      this.adapter = prevAdapter;
-      this.activePreset = prevPreset;
-      this.strategy = prevStrategy;
+    const slot = this.getOverrideSlot(presetId);
+    if ('unavailable' in slot) {
+      // Unknown preset id, or its adapter could not be built. Nothing was sent;
+      // report it so the null is not recorded as an empty reply (the
+      // orchestrator's isAvailable() check does not cover the override path).
+      const preset = slot.unavailable;
+      return {
+        text: null,
+        detail: {
+          providerName: preset ? genAiProviderName(preset.provider) : '_OTHER',
+          requestModel: preset?.modelId ?? '',
+          errorType: 'backend_unavailable',
+        },
+      };
     }
+    return this.runCompletion(slot, context, signal, options);
   }
 
-  private loadAdapter(presetId?: string): void {
+  /**
+   * The cached slot for a code-override preset, created on first use.
+   * Synchronous, so two overlapping requests cannot both create one.
+   */
+  private getOverrideSlot(presetId: string): PresetSlot | { unavailable: Preset | null } {
+    const preset = getPreset(presetId);
+    const cached = this.overrides.get(presetId);
+    // Built-in presets keep their identity; custom presets are rebuilt on every
+    // settings change, so a different object means the cached slot is stale.
+    if (cached && cached.preset === preset) return cached;
+    if (cached) {
+      cached.adapter.dispose();
+      this.overrides.delete(presetId);
+    }
+    if (!preset) {
+      this.logger.error(`API: code override preset "${presetId}" not found`);
+      return { unavailable: null };
+    }
+    let adapter: ApiAdapter;
+    try {
+      adapter = createAdapter(preset);
+    } catch (err) {
+      this.logger.error(`API: failed to create adapter for "${preset.displayName}": ${err}`);
+      return { unavailable: preset };
+    }
+    const slot: PresetSlot = {
+      preset,
+      strategy: getPromptStrategy(preset.promptStrategy),
+      adapter,
+      // No open/close callbacks: those drive the status bar, which describes
+      // the main preset. An open override breaker is logged only.
+      breaker: new CircuitBreaker(
+        5,
+        30_000,
+        this.logger,
+        `API code override (${preset.displayName})`,
+      ),
+    };
+    this.overrides.set(presetId, slot);
+    this.logger.debug(`API: code override adapter ready (${preset.modelId})`);
+    return slot;
+  }
+
+  private disposeOverrides(): void {
+    for (const slot of this.overrides.values()) slot.adapter.dispose();
+    this.overrides.clear();
+  }
+
+  private loadAdapter(): void {
     this.adapter?.dispose();
     this.adapter = null;
     this.activePreset = null;
     this.strategy = null;
 
-    const id = presetId ?? this.config.api.preset;
+    const id = this.config.api.preset;
     const preset = getPreset(id);
     if (!preset) {
       this.logger.error(`API: preset "${id}" not found`);

@@ -6,6 +6,7 @@ import { UsageLedger } from '../../utils/usage-ledger';
 import { Logger } from '../../utils/logger';
 import { makeConfig, makeLogger, makeProseContext, makeCodeContext } from '../helpers';
 import { detailFromError } from '../../utils/trace';
+import { registerCustomPresets } from '../../providers/api/presets';
 
 // The adapter factory is mocked so the provider's own logic (strategy selection,
 // extraction, breaker, ledger) is exercised without touching an SDK or network.
@@ -596,6 +597,253 @@ describe('ApiCompletionProvider', () => {
         provider.getCompletionWithPreset('nope', makeCodeContext(), signal()),
       ).resolves.toBeNull();
       expect(provider.getActivePreset()?.id).toBe('xai-grok');
+    });
+  });
+
+  // Each code-override preset gets its own cached adapter, strategy and breaker
+  // (PresetSlot). These began as repros of the old behaviour — the override
+  // swapped the provider's adapter/strategy fields across an await and reset the
+  // one shared breaker on every request — inverted into regression tests.
+  describe('code-override slots', () => {
+    /** Adapters created per preset id, with each one's complete() behaviour chosen by the test. */
+    function installPerPresetFactory(behaviour: (preset: Preset) => CompleteFn) {
+      mocks.createAdapter.mockImplementation((preset: Preset) => {
+        const adapter: FakeAdapter = {
+          providerId: preset.provider,
+          preset,
+          complete: vi.fn<CompleteFn>(behaviour(preset)),
+          isConfigured: vi.fn(() => true),
+          dispose: vi.fn(),
+        };
+        adapters.push(adapter);
+        return adapter;
+      });
+    }
+
+    const adaptersFor = (id: string) => adapters.filter((a) => a.preset.id === id);
+
+    /** A complete() that waits for the test to release it; `gates` collects the releases. */
+    function gated(gates: Array<() => void>): CompleteFn {
+      return async () => {
+        await new Promise<void>((r) => gates.push(r));
+        return makeResult();
+      };
+    }
+
+    const flush = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+
+    afterEach(() => {
+      registerCustomPresets([]);
+    });
+
+    it('override failures open the override breaker after 5, and back off for 30s', async () => {
+      vi.useFakeTimers();
+      const onOpen = vi.fn();
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger(), undefined, onOpen);
+      installPerPresetFactory(() => () => Promise.reject(new Error('boom')));
+
+      let thrown = 0;
+      const errorTypes: Array<string | undefined> = [];
+      for (let i = 0; i < 20; i++) {
+        try {
+          const res = await provider.getCompletionWithPresetDetail(
+            'anthropic-haiku',
+            makeCodeContext(),
+            signal(),
+          );
+          errorTypes.push(res.detail?.errorType);
+        } catch {
+          thrown++;
+        }
+      }
+
+      const [override] = adaptersFor('anthropic-haiku');
+      expect(adaptersFor('anthropic-haiku')).toHaveLength(1);
+      expect(override.complete).toHaveBeenCalledTimes(5);
+      expect(thrown).toBe(5);
+      expect(errorTypes).toEqual(Array(15).fill('circuit_open'));
+      // The main preset's breaker (and its status-bar callback) is untouched.
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(provider.isAvailable()).toBe(true);
+
+      vi.advanceTimersByTime(30_001);
+      override.complete.mockResolvedValue(makeResult());
+      await expect(
+        provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal()),
+      ).resolves.not.toBeNull();
+      expect(override.complete).toHaveBeenCalledTimes(6);
+    });
+
+    it('healthy override traffic does not reset the main preset failure count', async () => {
+      const onOpen = vi.fn();
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger(), undefined, onOpen);
+      const primary = lastAdapter();
+      primary.complete.mockRejectedValue(new Error('500'));
+
+      for (let round = 0; round < 5; round++) {
+        await provider.getCompletion(makeProseContext(), signal()).catch(() => null);
+        // A healthy code request between prose failures.
+        await provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      }
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(provider.isAvailable()).toBe(false);
+      expect(primary.complete).toHaveBeenCalledTimes(5);
+      // The override has its own breaker and keeps working.
+      await expect(
+        provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal()),
+      ).resolves.not.toBeNull();
+    });
+
+    it('reuses one adapter per override preset across requests', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      for (let i = 0; i < 3; i++) {
+        await provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      }
+      const created = adaptersFor('anthropic-haiku');
+      expect(created).toHaveLength(1);
+      expect(created[0].complete).toHaveBeenCalledTimes(3);
+      expect(created[0].dispose).not.toHaveBeenCalled();
+    });
+
+    it('recycleAll and dispose dispose the override adapters', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      await provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      const first = adaptersFor('anthropic-haiku')[0];
+
+      await provider.recycleAll();
+      expect(first.dispose).toHaveBeenCalledTimes(1);
+
+      await provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      const second = adaptersFor('anthropic-haiku')[1];
+      expect(second).toBeDefined();
+      expect(second).not.toBe(first);
+
+      provider.dispose();
+      expect(second.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('a changed custom preset object evicts the cached slot', async () => {
+      const custom = { name: 'Over', provider: 'openai-compat' as const, modelId: 'm1' };
+      registerCustomPresets([custom]);
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+
+      await provider.getCompletionWithPreset('custom-over', makeCodeContext(), signal());
+      await provider.getCompletionWithPreset('custom-over', makeCodeContext(), signal());
+      expect(adaptersFor('custom-over')).toHaveLength(1);
+
+      // Settings changed: custom presets are rebuilt, so the model edit is picked up.
+      registerCustomPresets([{ ...custom, modelId: 'm2' }]);
+      await provider.getCompletionWithPreset('custom-over', makeCodeContext(), signal());
+
+      const [stale, fresh] = adaptersFor('custom-over');
+      expect(stale.dispose).toHaveBeenCalledTimes(1);
+      expect(fresh.preset.modelId).toBe('m2');
+      expect(fresh.complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('an override that disappears from settings is reported unavailable and its adapter disposed', async () => {
+      registerCustomPresets([{ name: 'Over', provider: 'openai-compat', modelId: 'm1' }]);
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      await provider.getCompletionWithPreset('custom-over', makeCodeContext(), signal());
+
+      registerCustomPresets([]);
+      const res = await provider.getCompletionWithPresetDetail(
+        'custom-over',
+        makeCodeContext(),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('backend_unavailable');
+      expect(adaptersFor('custom-over')[0].dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('an override whose adapter cannot be built reports backend_unavailable with its model', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      mocks.createAdapter.mockImplementationOnce(() => {
+        throw new Error('no SDK');
+      });
+      const res = await provider.getCompletionWithPresetDetail(
+        'anthropic-haiku',
+        makeCodeContext(),
+        signal(),
+      );
+      expect(res.text).toBeNull();
+      expect(res.detail).toMatchObject({
+        providerName: 'anthropic',
+        requestModel: 'claude-haiku-4-5-20251001',
+        errorType: 'backend_unavailable',
+      });
+      expect(provider.getActivePreset()?.id).toBe('xai-grok');
+    });
+
+    it('a prose request during an in-flight override request runs on the main preset', async () => {
+      const gates: Array<() => void> = [];
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const primary = lastAdapter();
+      installPerPresetFactory(() => gated(gates));
+
+      const code = provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      const prose = provider.getCompletion(makeProseContext(), signal());
+      await flush();
+      gates.forEach((release) => release());
+      await Promise.all([code, prose]);
+
+      expect(primary.complete).toHaveBeenCalledTimes(1);
+      expect(adaptersFor('anthropic-haiku')[0].complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('after overlapping override requests the active preset is still the configured one', async () => {
+      const gates: Array<() => void> = [];
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      const primary = lastAdapter();
+      installPerPresetFactory(() => gated(gates));
+
+      const a = provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      const b = provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      await flush();
+      expect(gates).toHaveLength(2);
+      gates[0]();
+      await a;
+      gates[1]();
+      await b;
+
+      expect(adaptersFor('anthropic-haiku')).toHaveLength(1);
+      expect(provider.getActivePreset()?.id).toBe('xai-grok');
+      await provider.getCompletion(makeProseContext(), signal());
+      expect(primary.complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('a preset change during an in-flight override request sticks', async () => {
+      const gates: Array<() => void> = [];
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      installPerPresetFactory(() => gated(gates));
+
+      const p = provider.getCompletionWithPreset('anthropic-haiku', makeCodeContext(), signal());
+      await flush();
+      provider.updateConfig(
+        makeConfig({ api: { preset: 'openai-gpt-4o-mini', customPresets: [] } }),
+      );
+      gates[0]();
+      await p;
+
+      expect(provider.getActivePreset()?.id).toBe('openai-gpt-4o-mini');
+    });
+
+    it('a main-preset request keeps its own strategy when the preset changes mid-flight', async () => {
+      const gates: Array<() => void> = [];
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockImplementation(gated(gates));
+
+      const p = provider.getCompletion(makeProseContext(), signal());
+      await flush();
+      // Unknown preset: the old code read this.strategy (now null) after the await and threw.
+      provider.updateConfig(makeConfig({ api: { preset: 'no-such-preset', customPresets: [] } }));
+      gates[0]();
+
+      await expect(p).resolves.toBe(' ran into the forest.');
     });
   });
 
