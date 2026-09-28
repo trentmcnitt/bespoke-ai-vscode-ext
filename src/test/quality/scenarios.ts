@@ -502,6 +502,7 @@ The executive team will review these recommendations at the October 22 leadershi
     fileName: 'draft.md',
     prefix: 'The team discussed the implementa',
     suffix: '',
+    mid_word: true,
     saturation: { prefix: 'unsaturated', suffix: 'none' },
     requirements: {
       must_not_include: ['```'],
@@ -1101,6 +1102,7 @@ export { createLoggingMiddleware, createValidationMiddleware };`,
       '  });\n\n' +
       '  const handleSu',
     suffix: '\n\n' + '  return { state, handleSubmit: handleSu',
+    mid_word: true,
     saturation: { prefix: 'unsaturated', suffix: 'unsaturated' },
     requirements: {
       must_not_include: ['```', 'import', 'interface FormState'],

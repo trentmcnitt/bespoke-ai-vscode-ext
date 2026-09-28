@@ -342,6 +342,9 @@ export const proseFullWindowScenarios: TestScenario[] = [
     fileName: 'api-design-decisions.md',
     prefix: anchorA_prefix_2,
     suffix: anchorA_suffix_2,
+    // The slot is a short clause. Observed completions inserted 639 and 4,580
+    // chars mid-sentence (error analysis 2026-03).
+    max_completion_chars: 120,
     saturation: { prefix: 'saturated', suffix: 'saturated' },
     requirements: {
       must_not_include: ['```'],

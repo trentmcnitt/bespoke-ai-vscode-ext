@@ -12,7 +12,11 @@ You will receive:
 - **Prefix**: Text before the cursor (what the user has written)
 - **Suffix**: Text after the cursor (if any)
 - **Completion**: The AI-generated text to evaluate
+- **Rendered join** (`rendered.txt`): `…prefix tail⟦completion⟧suffix head…` — the completion inserted at the cursor, byte for byte, exactly as the user sees it. Judge the seams from this, not from the separate fields: do not mentally add a missing space or remove a duplicated word.
+- **Deterministic checks** (`checks.json`): mechanical results (missing space at a seam, suffix echo, journal date order, length cap, empty output). A failed check is a real defect; do not overrule it.
 - **Requirements**: Specific criteria for this test case
+
+Post-processing has already trimmed any overlap between the end of the completion and the start of the suffix. A completion that stops short of a closing token the suffix supplies (e.g. `user.isActive(` before a suffix starting with `)`) is correct if the rendered join is valid.
 
 ## Evaluation Criteria
 
@@ -52,6 +56,7 @@ The requirements field may specify:
 
 - `must_include`: Concepts or patterns the completion must contain
 - `must_not_include`: Things that should NOT appear
+- `must_not_start_with`: Strings the completion must not begin with (checked deterministically)
 - `quality_notes`: Additional context about what makes a good completion for this case
 
 ### Custom instructions (when present)
@@ -70,9 +75,9 @@ output. When it is non-null, judge on BOTH axes, and fail the case if either is 
 
 ## Output Format
 
-Respond with ONLY a JSON object. No markdown fences, no extra text before or after. Example shape:
+Respond with ONLY a JSON object. No markdown fences, no extra text before or after. `judge_model` is your exact model id; also write it into the run's `summary.json` `judge` field. Example shape:
 
-{"pass": true, "score": 8, "accept": true, "reasoning": "...", "criteria_results": {"seamless_continuation": true, "no_repetition": true, "appropriate_length": true, "context_awareness": true, "mode_specific": true, "test_requirements": true}}
+{"judge_model": "<your model id>", "pass": true, "score": 8, "accept": true, "reasoning": "...", "criteria_results": {"seamless_continuation": true, "no_repetition": true, "appropriate_length": true, "context_awareness": true, "mode_specific": true, "test_requirements": true}}
 
 **Scoring guide:**
 

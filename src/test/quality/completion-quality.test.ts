@@ -32,6 +32,8 @@ import {
   createTestProvider,
 } from '../helpers';
 import { TestScenario } from './judge';
+import { CheckResult, summarizeChecks } from './deterministic-checks';
+import { collectProvenance, writeCheckArtifacts } from './run-artifacts';
 import {
   proseScenarios,
   codeScenarios,
@@ -110,6 +112,8 @@ interface GenerationResult {
   sentMessage?: string;
   durationMs: number;
   error?: string;
+  /** Deterministic Layer 1 checks (filled in by saveScenarioOutput). */
+  checks?: CheckResult[];
 }
 
 const results: GenerationResult[] = [];
@@ -164,6 +168,18 @@ function saveScenarioOutput(result: GenerationResult): void {
   if (result.sentMessage !== undefined) {
     fs.writeFileSync(path.join(scenarioDir, 'sent-message.txt'), result.sentMessage);
   }
+
+  // Deterministic checks + the rendered join the Layer 2 judge reads.
+  // Run on the truncated context — exactly what the model saw.
+  result.checks = writeCheckArtifacts(scenarioDir, {
+    mode: result.scenario.mode,
+    prefix: truncated.prefix,
+    suffix: truncated.suffix,
+    completion: result.completion,
+    rawResponse: result.rawResponse,
+    providerError: result.error !== undefined,
+    scenario: result.scenario,
+  });
 
   // Save metadata
   fs.writeFileSync(
@@ -324,15 +340,29 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
     const nulls = results.filter((r) => r.completion === null).length;
     const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);
 
+    const checkCounts = summarizeChecks(results.map((r) => r.checks ?? []));
+    const detFailed = results.filter((r) => (r.checks ?? []).some((c) => !c.pass)).length;
+
     const summary = {
       timestamp,
       backend,
       preset: backend === 'api' ? apiPreset : null,
       model: getBackendLabel(),
+      provenance: collectProvenance({
+        repoRoot: path.resolve(__dirname, '..', '..', '..'),
+        backend,
+        model: getBackendLabel(),
+        preset: backend === 'api' ? apiPreset : null,
+      }),
+      // Layer 2 MUST set this to the judge's model id (see validator-prompt.md).
+      judge: null as string | null,
       totalScenarios: results.length,
       generated,
       nullResults: nulls,
       totalDurationMs: totalMs,
+      // Per check: how many scenarios it applied to, and how many failed.
+      deterministicChecks: checkCounts,
+      deterministicFailedScenarios: detFailed,
       scenarios: results.map((r) => ({
         id: r.scenario.id,
         mode: r.scenario.mode,
@@ -340,6 +370,7 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
         completionLength: r.completion?.length ?? 0,
         durationMs: r.durationMs,
         error: r.error ?? null,
+        checksFailed: (r.checks ?? []).filter((c) => !c.pass).map((c) => c.id),
       })),
     };
     fs.writeFileSync(path.join(RUN_DIR, 'summary.json'), JSON.stringify(summary, null, 2));
@@ -368,6 +399,10 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
     console.log(`  Model:     ${getBackendLabel()}`);
     console.log(`  Generated: ${generated}/${results.length} completions (${nulls} null)`);
     console.log(`  Duration:  ${(totalMs / 1000).toFixed(1)}s total`);
+    console.log(`  Det. checks: ${detFailed}/${results.length} scenarios failed at least one`);
+    for (const [id, c] of Object.entries(checkCounts)) {
+      if (c.applied > 0) console.log(`    ${id.padEnd(22)} ${c.failed}/${c.applied} failed`);
+    }
     console.log(`  Output:    ${RUN_DIR}`);
     console.log('\n  Layer 1 (generation + structural checks) is just a sanity check.');
     console.log('  Layer 2 is the ACTUAL quality test.\n');
@@ -375,11 +410,14 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
     console.log('  1. Read the validator prompt: src/test/quality/validator-prompt.md');
     console.log('  2. For each scenario in the output directory:');
     console.log('     - Read input.json (what the user typed)');
+    console.log('     - Read rendered.txt (the completion inserted at the cursor)');
     console.log('     - Read completion.txt (what the model generated)');
+    console.log('     - Read checks.json (deterministic check results)');
     console.log('     - Read requirements.json (what counts as good)');
     console.log('     - Evaluate against the validator prompt criteria');
     console.log('     - Save your judgment to the scenario dir as validation.md');
     console.log('  3. Write an overall summary to the run directory as layer2-summary.md');
+    console.log('     and set "judge" in summary.json to your model id');
     console.log('  4. Report results to the user.\n');
     console.log('  Validate EVERY scenario. Do not spot-check.');
     console.log('='.repeat(70) + '\n');

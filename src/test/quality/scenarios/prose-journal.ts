@@ -382,11 +382,14 @@ Quiet day. Worked from home, mostly meetings in the morning. Got a couple hours 
 **Grocery run observations**
 
 Went to Trader Joe's after work. They rearranged the store again — the frozen section is now where the snacks used to be. I swear they do this on purpose to make you walk past more stuff. Picked up those everything-but-the-bagel seasoned almonds that Sarah recommended. They're addictive. Also grabbed some of their frozen orange chicken which the kids love — easy weeknight dinner when I don't feel like cooking from scratch. Total damage: $65, which is about average for a Trader Joe's run.`,
+    // The suffix already finishes the sentence (" so much better than before."),
+    // so an empty fill is correct.
+    expect_empty_ok: true,
     saturation: { prefix: 'saturated', suffix: 'saturated' },
     requirements: {
       must_not_include: ['```'],
       quality_notes:
-        'Personal journal (journal.jnl.md format). Cursor at end of a paragraph about organizing the garage: "it already looks". No suffix. The completion should finish this thought naturally — something about how the garage looks now (e.g., "so much better" or "way more usable"). Casual first-person voice. Should NOT switch to assistant mode (summarizing, responding to, or acknowledging what the author wrote). Should NOT start a new date entry or topic heading — just finish the current thought, maybe add a sentence or two more about the garage project or the rest of the day.',
+        'Personal journal (journal.jnl.md format). Tight gap: the cursor sits between "it already looks" and a suffix that already finishes the sentence (" so much better than before. Tomorrow I\'ll tackle the workbench area…"). The joined text must read as one grammatical sentence with no duplicated word or meaning at either seam — "looks way so much better" or a second "better" is a failure. Acceptable: an empty completion (nothing is needed), or at most a word that fits the slot without clashing (e.g. " really"). Must NOT add new sentences before the suffix, start a new date entry or heading, or switch to assistant mode.',
     },
   },
 
