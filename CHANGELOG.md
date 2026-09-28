@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.8.16 — Privacy fix, Sonnet 5 preset, better completions
+
+**If you use the Claude Code backend, please update.** Completion sessions were starting with your whole Claude Code setup — claude.ai connectors, auto-memory, CLAUDE.md files, and custom agents — which sent that context with every autocomplete session and used plan tokens each time a session started (100k–125k tokens on the setup we measured; it depends on your connectors and memory). They now start isolated, at about 650 tokens.
+
+**Highlights**
+
+- **Fewer glued words.** Suggestions that start a new word now include the space before it (fixed for Claude and Grok models; GPT-4.1 Nano still does this).
+- **The `anthropic-sonnet` preset works again.** It had failed on every request since moving to Claude Sonnet 5.
+- **Cleaner suggestions with the Anthropic API presets:** no more doubled spaces or blank lines, and no more prompt text showing up in the suggestion.
+- **Code suggestions keep their closing brackets.**
+- **No more Claude Code notices as suggestions.** When your Claude plan hit its usage limit, the "You've hit your session limit" message could appear as ghost text. It's now shown as a notification instead.
+- **See what the model saw:** the new **Bespoke AI: Show Recent Completions** command lists recent requests with the prompt, the response, timing, and tokens.
+- **Commit messages and Suggest Edits** respect their time limits, can be cancelled on the Claude Code backend, and tell you what went wrong when they fail. Suggest Edits no longer closes your own file if the diff preview fails.
+- **Replacing a bad API key** takes effect immediately, without a reload.
+- **Ready for newer Claude models.** API presets now match each Claude model's features exactly, so Claude Sonnet 5.5 works in a custom preset, and a model released after this version gets settings every recent model accepts instead of failing. The Claude Code model list adds `fable`; its `sonnet`/`opus`/`fable` names always mean the latest model in that family.
+
+**Settings changes**
+
+- `bespokeAI.logLevel` can now only be set in your User settings. If you set it in a workspace or folder, move it to User settings.
+- New optional settings under `bespokeAI.trace.*` for the trace file and export. All are off by default except keeping recent requests in memory for the view.
+
+**All changes**
 
 - **Fix — newer Claude models on the API presets:** a custom API preset pointed at Claude Sonnet 5.5 would have failed every request, because Bespoke told it to turn thinking off the way Sonnet 5 does (`disabled`), which Sonnet 5.5 rejects. Model features are now matched by exact model id, Sonnet 5.5 uses its own setting, and a Claude model Bespoke doesn't recognise yet gets request settings every model since Claude 4.6 accepts, so a newly released model works instead of failing. The built-in `anthropic-sonnet` preset still uses Sonnet 5.
 - **Fable in the Claude Code model list:** `bespokeAI.claudeCode.models` now includes `fable` alongside `haiku`, `sonnet` and `opus`. These are Claude Code's own aliases for the latest model in each family, so they follow new releases (e.g. `sonnet` already picks up Sonnet 5.5) without an extension update.

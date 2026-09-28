@@ -73,7 +73,7 @@ npm run install-ext      # Compile, package VSIX, and install into VSCodium
 
 Run a single test file: `npx vitest run src/test/unit/cache.test.ts`
 
-**CI** (`.github/workflows/ci.yml`): Quality (`check` + `format:check` + advisory `npm audit --omit=dev`), Test (`test:coverage` on ubuntu, macOS and Windows; Windows installs with `--ignore-scripts` because the eval-only tree-sitter grammars need a native build), and Build VSIX (pull requests only). Jobs time out after 10 minutes. It runs on pushes to `main` and `showcase/**` and on pull requests to `main`. `docs/CI.md` has the details.
+**CI** (`.github/workflows/ci.yml`): Quality (`check` + `format:check` + advisory `npm audit --omit=dev`), Test (`test:coverage` on ubuntu, macOS and Windows; Windows installs with `--ignore-scripts` because the eval-only tree-sitter grammars need a native build), and Build VSIX (pull requests only). Jobs time out after 10 minutes. It runs on pushes to `main` and on pull requests to `main`. `docs/CI.md` has the details.
 
 **Pre-commit hooks:** Husky and lint-staged are configured to auto-format staged files on commit via Prettier. The hooks run automatically — no manual setup needed beyond `npm install`.
 

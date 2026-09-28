@@ -2,7 +2,7 @@
   "name": "bespoke-ai",
   "displayName": "Bespoke AI — Autocomplete and One-Click Commit Messages",
   "description": "AI autocomplete for writing and code, plus commit messages — use your paid Claude plan via Claude Code, an API key (xAI, OpenAI, Anthropic, Gemini, OpenRouter), or a local Ollama model",
-  "version": "0.8.15",
+  "version": "0.8.16",
   "publisher": "trentmcnitt",
   "license": "MIT",
   "icon": "images/icon.png",
