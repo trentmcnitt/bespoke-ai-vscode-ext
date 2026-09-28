@@ -12,6 +12,7 @@ vi.mock('child_process', () => ({
 
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { resolveClaudeExecutable, resetClaudeExecutableCache } from '../../utils/claude-executable';
 
@@ -20,6 +21,8 @@ const mockHomedir = vi.mocked(os.homedir);
 const mockExecFileSync = vi.mocked(execFileSync);
 
 const originalPlatform = process.platform;
+// Built with the host's path module, as the resolver does, so this also passes on Windows runners.
+const NATIVE_UNIX = path.join('/home/user', '.local', 'bin', 'claude');
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
@@ -37,13 +40,13 @@ describe('resolveClaudeExecutable', () => {
 
   it('prefers the native install and marks it native (unix)', () => {
     setPlatform('linux');
-    mockExistsSync.mockImplementation((p) => p === '/home/user/.local/bin/claude');
+    mockExistsSync.mockImplementation((p) => p === NATIVE_UNIX);
 
     const result = resolveClaudeExecutable();
 
     expect(result.source).toBe('native-install');
     expect(result.native).toBe(true);
-    expect(result.path).toBe('/home/user/.local/bin/claude');
+    expect(result.path).toBe(NATIVE_UNIX);
     // Native install is resolved from disk, never via PATH lookup.
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
@@ -137,7 +140,7 @@ describe('resolveClaudeExecutable', () => {
 
   it('caches the resolution across calls', () => {
     setPlatform('linux');
-    mockExistsSync.mockImplementation((p) => p === '/home/user/.local/bin/claude');
+    mockExistsSync.mockImplementation((p) => p === NATIVE_UNIX);
 
     const first = resolveClaudeExecutable();
     mockExistsSync.mockReturnValue(false);

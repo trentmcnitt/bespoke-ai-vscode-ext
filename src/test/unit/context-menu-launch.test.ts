@@ -92,6 +92,8 @@ function setPlatform(p: NodeJS.Platform) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default to a Unix host; Windows cases opt in with setPlatform('win32').
+  setPlatform('linux');
   ws.isTrusted = true;
   win.activeTextEditor = makeEditor({});
   resolveClaudeMock.mockReturnValue({ path: '/home/u/.local/bin/claude', native: true });
