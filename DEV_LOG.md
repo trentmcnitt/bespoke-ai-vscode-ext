@@ -4,6 +4,29 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 09-27-26
+
+### Showcase pass: tests, CI matrix, evals, tracing (branch `showcase/audit-and-polish`)
+
+An audit found more infrastructure than expected (CI, 697 unit tests, trace-level logging, a usage ledger, an LLM-judge suite) but no coverage number, no committed eval results, and several untested modules (pool client/server/protocol, API providers and adapters, logger, suggest-edit, context-menu launch).
+
+**Tests and CI.** +585 unit tests (1,283 total), line coverage 36% → 67%. Pool tests use real Unix sockets in a temp dir. CI now runs the unit suite on Ubuntu, macOS, and Windows; the Windows leg immediately found five tests that assumed a Unix host (hardcoded `/` paths, host platform) and a tree-sitter native build failure (eval-only dependency, now skipped on Windows via `--ignore-scripts`).
+
+**Bugs found by writing tests**, fixed with regression tests after an adversarial review of each fix:
+
+- A corrupt `pool.lock` blocked every acquire until deleted by hand. Now reclaimed once older than 1 s (a fresh one may be mid-write).
+- `PoolServer.start()` failing after `listen()` left the server bound; the first fix then hung because `close()` waits for followers that connected during warmup. Connected sockets are now destroyed first.
+- A window disabled during startup or takeover could still become the pool server. One guard in `becomeServer()` covers every path, and releases the lock the caller took (`releaseLock()` checks the pid). `dispose()`'s lock deletion is deliberately unchanged: making it pid-checked without also force-taking the lock on forced leadership breaks recovery (reviewer's REVIEW-E).
+- Held for Trent: the API code-override path resets the shared circuit breaker and rebuilds its adapter per request; replacing a bad API key doesn't take effect until reload; command errors bypass the Logger; the CLI SDK's `total_cost_usd` is cumulative per session, so the usage ledger overstates cost.
+
+**Error analysis before evals.** Reading all 99 outputs of the March sonnet run by hand: judge 82.8%, analyst 70.7%. The main failure was a missing leading space at word boundaries, present in the raw model output, which the judge passed 15 times; three byte-identical completions got opposite verdicts on the same day. This became six deterministic checks in Layer 1 (`deterministic-checks.ts`), run provenance in `summary.json`, a rescore of 48 old runs, a blind 100-item judge-validation sample (unlabelled), and a 52-case replay set that runs recorded raw outputs through the current pipeline in CI.
+
+**Whitespace fixes.** Every prose example in `SYSTEM_PROMPT` had a space before `{{FILL_HERE}}`, which taught models never to lead with one. Prompt-only fix (rule + flush examples + a per-request last-word cue); same set, same blind judge: sonnet 66.0% → 85.8%, grok 44.2% → 78.8%, gpt-4.1-nano unchanged (~97% glued across five variants). Separately, `prefillExtraction` trimmed the anchor's trailing whitespace (the API requires it) and the model re-emitted it, doubling spaces and blank lines; extraction now drops exactly the re-emitted part (doubled blank lines 100% → 0%). The replay set showed the prefill bug was wider than spaces: newlines and indentation were duplicated too.
+
+**Tracing.** Per-request records shaped per the OpenTelemetry GenAI semantic conventions (which moved to `semantic-conventions-genai` in June 2026 and are unreleased; pinned to the `1.42.0-dev` snapshot). CLI detail rides the existing `ResultMetadata` back to follower windows; prompt text crosses the socket only when capture is on. A webview lists the last 200; opt-in JSONL file; opt-in OTLP/HTTP JSON export (Langfuse accepts JSON; Phoenix is protobuf-only) that pauses while VS Code telemetry is off. An adversarial review found three privacy issues (a header value could reach the log via undici's error message; the remote-endpoint notice didn't re-warn when content export was enabled; turning capture off left captured content in the ring and queues), all fixed with tests.
+
+---
+
 ## 09-25-26
 
 ### Explain / Fix / Do can launch opencode (#23)

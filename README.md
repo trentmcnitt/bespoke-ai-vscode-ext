@@ -11,10 +11,13 @@
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-blue?logo=visualstudiocode" alt="Install from VS Code Marketplace"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/visual-studio-marketplace/v/trentmcnitt.bespoke-ai" alt="VS Code Marketplace"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai"><img src="https://img.shields.io/visual-studio-marketplace/i/trentmcnitt.bespoke-ai" alt="Installs"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai&ssr=false#review-details"><img src="https://img.shields.io/visual-studio-marketplace/r/trentmcnitt.bespoke-ai" alt="Rating"></a>
+  <a href="https://github.com/trentmcnitt/bespoke-ai-vscode-ext/actions/workflows/ci.yml"><img src="https://github.com/trentmcnitt/bespoke-ai-vscode-ext/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
-> **Early release** — Please bear with the rough edges. 👷 Expect occasional bugs and fluctuating (or poor) quality in some scenarios. [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if you run into any problems.
+> Actively developed. Completion quality varies by model and context — see [How quality is measured](#-how-quality-is-measured) and [Known issues](#known-issues). [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if something looks wrong.
 
 **💻 macOS, Linux, and Windows** — Also works in VSCodium.
 
@@ -96,6 +99,26 @@ I tried every open-source AI autocomplete extension I could find. Most handled c
 So I built my own. And since I was already paying for a Claude subscription, I realized I could wire it up to use Claude Code instead of raw API calls — getting frontier model completions (Haiku, Sonnet, even Opus) at no additional per-request cost. Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), it took extensive prompt engineering, but the result handles writing just as well as code.
 
 _The Claude Code backend uses your existing subscription (Pro, Team, or Enterprise). Heavy use may be subject to Anthropic's rate limits. The API backend uses standard per-token pricing from your chosen provider._
+
+## 🧪 How quality is measured
+
+Autocomplete fails quietly — you just dismiss bad ghost text — so quality is measured offline against ~105 scenarios modelled on real use: journal entries, prompts to Claude, mid-document edits, gaps between paragraphs, and code in several languages. Each run generates completions through the production prompt and extraction code, runs six deterministic checks, and has an LLM judge score what the user would actually see. Details and all numbers: [`evals/`](evals/).
+
+What this has caught so far:
+
+- **Reading outputs beats trusting the judge.** A hand review of the last full run found the judge had passed 15 completions that glued two words together (`behind` + `inadequate` → `behindinadequate`) and had given opposite verdicts to identical completions. Those failures are now caught by deterministic checks, and the judge is being validated against human labels before its pass rates are treated as more than relative.
+- **A prompt fix for the missing space**, measured on the same scenarios with the same judge: CLI Sonnet 66% → 86%, xAI Grok 44% → 79%. GPT-4.1 Nano did not respond to any of five prompt variants.
+- **A whitespace bug on the Anthropic API path** that doubled spaces and blank lines at the cursor (blank lines: 100% → 0% after the fix).
+- **Backend latency** on the Claude Code backend from real use: p50 1.9–2.6 s, p95 4.1–6.1 s depending on model, measured from request to response and separate from the deliberate ~2 s pause before a request is sent.
+
+CI replays 52 recorded model outputs through the current extraction and cleanup code on every push, so a change to that code shows up as a test diff without calling a model.
+
+### Known issues
+
+- **GPT-4.1 Nano often glues the completion to the previous word** (no leading space). Prompting did not fix it; prefer another model for prose.
+- **Models sometimes copy the text after the cursor.** The copy is trimmed, which can leave no suggestion at all. xAI Grok does this more often since the whitespace fix.
+- **In code, a closing brace is sometimes trimmed that the following text does not supply**, leaving unbalanced code. Under investigation.
+- **Cost is only shown for the Claude Code backend**, where the CLI reports it; the API backend shows tokens only.
 
 ## 🧩 Available Models
 
@@ -258,6 +281,37 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 
 </details>
 
+## 🔎 Seeing what the model saw
+
+Every completion request produces a trace record: what the model was sent, what it returned, how long it took, tokens used, cost (when the backend reports it), and what happened to the result — `shown`, `cached`, `empty`, `aborted`, or `error`.
+
+Run **Bespoke AI: Show Recent Completions** (or pick **Recent Completions** from the status bar menu) to browse the last 200 requests in the current window, newest first. Click a row to see the system instructions, the exact message sent, the raw model output, the ghost text that was shown, and a timing breakdown (debounce, pool-slot wait, model time). Commit-message and Suggest Edits requests appear in the same list.
+
+Records use the attribute names of the [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai) (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, …; the conventions are still in development and the extension follows the 2026-09-27 snapshot). That makes the same records usable outside the editor:
+
+- `bespokeAI.trace.file` appends them to `~/.bespokeai/traces.jsonl`, one span per line (rotated at 5 MB, archives kept 7 days).
+- `bespokeAI.trace.otlp.endpoint` exports them over OTLP/HTTP (JSON) to your own backend. See [Privacy and data flow](#-privacy-and-data-flow) for what is sent and when.
+- `bespokeAI.trace.captureContent: false` keeps prompt and output text out of every record, everywhere; timing, tokens, and outcomes are still recorded.
+
+<details>
+<summary><strong>Sending traces to Langfuse or an OpenTelemetry Collector</strong></summary>
+
+**Langfuse**
+
+1. Create an API key pair in your Langfuse project and base64-encode `publicKey:secretKey`.
+2. Put the headers in an environment variable (header values never go in `settings.json`):
+   ```bash
+   BESPOKE_OTLP_HEADERS="Authorization=Basic <base64>,x-langfuse-ingestion-version=4"
+   ```
+3. Set `"bespokeAI.trace.otlp.endpoint": "https://cloud.langfuse.com/api/public/otel"` (or your region / self-hosted URL; `/v1/traces` is appended).
+4. Optionally set `"bespokeAI.trace.otlp.captureContent": true` to see prompts and outputs in Langfuse.
+
+**OpenTelemetry Collector** (Jaeger, Tempo, Phoenix, …): point the endpoint at the Collector's OTLP/HTTP receiver, e.g. `http://localhost:4318`. The exporter sends JSON encoding only, so protobuf-only backends such as Arize Phoenix need a Collector in between.
+
+Spans are batched (every 5 s or 20 spans), each request times out after 5 s, and failures are dropped with at most one log line per minute. The exporter never delays a completion. Cost goes in `gen_ai.usage.cost`, which is not part of the standard (Langfuse reads it).
+
+</details>
+
 ## 🔍 Troubleshooting
 
 **Completions not appearing?**
@@ -290,9 +344,23 @@ All backends share the same prompt strategy (`{{FILL_HERE}}` marker, `<COMPLETIO
 - Check for a stale lockfile at `~/.bespokeai/pool.lock` and remove it.
 - Disable and re-enable the extension.
 
-## 🔒 Privacy
+## 🔒 Privacy and data flow
 
-Bespoke AI sends the text surrounding your cursor (prefix and suffix context) to the configured backend for completion. Commit message generation sends your staged diff, and suggest edits sends the visible editor content. No other files or data are transmitted. When using the Claude Code CLI backend, requests go through your local Claude Code installation. When using the API backend, requests go directly to your chosen provider's API endpoint. All API keys are stored in your OS keychain via VS Code SecretStorage.
+**What leaves your machine.** The text around your cursor (prefix and suffix context) goes to the backend you configured. Commit message generation sends your staged diff; Suggest Edits sends the visible editor text. With the Claude Code backend, requests go through your local Claude Code installation; with the API backend, they go directly to your chosen provider's endpoint (or to Ollama on your machine). Nothing else is sent.
+
+**No telemetry.** The extension collects no usage analytics and makes no network calls other than to your configured backend — plus the optional trace export below, which you have to point at an endpoint yourself.
+
+**What stays on your machine**, in `~/.bespokeai/`:
+
+| File                     | Contents                                                                                   | When                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `usage-ledger.jsonl`     | Per-request model, token counts, duration, cost where reported. No prompt or document text | Always (feeds the Usage view in the status menu)       |
+| `traces.jsonl`           | Per-request trace records; includes prompt and output text unless you turn capture off     | Only with `bespokeAI.trace.file` on. Owner-only (0600) |
+| `pool.lock`, `pool.sock` | Coordination between VS Code windows sharing one Claude Code pool                          | Claude Code backend                                    |
+
+**Optional trace export.** `bespokeAI.trace.otlp.endpoint` sends trace records to an OpenTelemetry backend you run or subscribe to (for example Langfuse, or an OTel Collector). It is off by default, pauses while VS Code telemetry is disabled (`telemetry.telemetryLevel`), and exports prompt text only if you also turn on `bespokeAI.trace.otlp.captureContent`. The first export to a non-local host shows a notice saying what will be sent where.
+
+**Keys.** API keys are stored in your OS keychain via VS Code SecretStorage. Settings that choose a backend, endpoint, model, or key variable can only be set in your user (or remote-machine) settings, never by a repository's `.vscode/settings.json`.
 
 ## 🛠️ Development
 
@@ -300,9 +368,16 @@ Bespoke AI sends the text surrounding your cursor (prefix and suffix context) to
 npm install && npm run compile    # Build
 npm run watch                     # Watch mode (F5 to launch dev host)
 npm run check                     # Lint + type-check
-npm run test:unit                 # Unit tests
-npm run test:quality              # LLM-as-judge quality tests
+npm run test:unit                 # Unit tests (incl. the replay set)
+npm run test:coverage             # Unit tests with v8 coverage
+npm run test:quality              # Generate completions for every eval scenario (Layer 1)
+npm run test:quality:rescore      # Re-run the deterministic checks over saved eval runs
+npm run latency-report            # p50/p90/p95 from your local usage ledger
 ```
+
+**CI** runs on every push and pull request to `main`: lint, type-check, Prettier, the unit suite with coverage on Ubuntu, macOS, and Windows (the pool IPC is platform-specific), and a VSIX build for pull requests. The unit suite is ~1,280 tests at ~67% line coverage; most of what is uncovered is VS Code wiring in `extension.ts`. Tests that call real models (`test:api`, `test:quality`) need keys or a Claude subscription and run locally, not in CI.
+
+**Model choice for code.** Dedicated autocomplete products mostly use small models trained for fill-in-the-middle (FIM). This extension sends the same instruction-style prompt to general chat models for both prose and code, because prose is its main use and FIM models are trained mostly on code. For code, a FIM-trained model may well be faster and more accurate; that comparison has not been run yet. Any OpenAI-compatible or Ollama model can be added as a custom preset, and `bespokeAI.codeOverride` can route code to it.
 
 ### Tested Models
 

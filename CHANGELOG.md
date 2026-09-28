@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **See what the model saw:** new **Bespoke AI: Show Recent Completions** view (also in the status bar menu) lists the last 200 requests in the window — outcome, model, latency, tokens, and cost where the backend reports it — and expands each to the exact prompt sent, the raw model output, and the ghost text shown. Records use OpenTelemetry GenAI attribute names. `bespokeAI.trace.captureContent: false` keeps prompt text out of every record.
+- **Optional trace file and export:** `bespokeAI.trace.file` writes records to `~/.bespokeai/traces.jsonl` (owner-only). `bespokeAI.trace.otlp.endpoint` exports them over OTLP/HTTP to your own backend (Langfuse, an OpenTelemetry Collector). Off by default, paused while VS Code telemetry is disabled, and sends prompt text only with `bespokeAI.trace.otlp.captureContent`. All trace settings are user-level only.
+- **Fix — words glued together:** completions that start a new word right after the cursor often left out the leading space (`behind` + `inadequate` → `behindinadequate`). The prompt now tells the model when the cursor sits flush against a word. Fixed for Claude and Grok; GPT-4.1 Nano still does it.
+- **Fix — doubled spaces and blank lines with the Anthropic API presets:** completions after a space or line break repeated that whitespace.
+- **Fix — pool robustness:** a corrupt lockfile is reclaimed instead of blocking every window; a pool server that fails to start no longer stays bound or hangs; a window disabled during startup no longer ends up running the shared Claude Code pool.
+
 ## 0.8.15 — Explain / Fix / Do with opencode
 
 - **Explain / Fix / Do can use opencode, including with local models:** a new `bespokeAI.contextMenu.agent` setting picks which agent CLI the right-click commands open — `claude-code` (default, unchanged) or `opencode`. With opencode the menu is available on any backend, and the model and permissions come from your own opencode config, so the commands work with LM Studio, Ollama, or any provider opencode supports. The prompt is passed as `--prompt=` (opencode's positional argument is a project folder, not a message). (#23)
