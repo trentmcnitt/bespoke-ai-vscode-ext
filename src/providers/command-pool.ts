@@ -137,11 +137,13 @@ export class CommandPool extends SlotPool {
 
     // Optional timeout
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     if (options?.timeoutMs) {
       const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => {
           if (resolved) return;
           resolved = true;
+          timedOut = true;
           this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
           // Timeout: deliver null to unblock, close channel to force recycle
           this.settleResult(slot, { text: null });
@@ -198,6 +200,7 @@ export class CommandPool extends SlotPool {
       raw ?? (failure ? `(null: ${failure})` : '(null)'),
     );
 
+    if (timedOut) return { text: null, meta, errorType: 'timeout' };
     return raw === null && failure
       ? { text: null, meta, ...denialFields(failure) }
       : { text: raw, meta };

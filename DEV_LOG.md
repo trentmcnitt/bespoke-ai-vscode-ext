@@ -6,6 +6,10 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Command timeouts, mode-aware availability, override breaker (branch `showcase/fu-routing`)
+
+- **Command `timeoutMs` now applies on the API backend.** `ApiCommandProvider` used its 60 s fallback only when no signal was passed, and the commands always pass one, so a hung endpoint waited out the SDK's 10 minutes. It now links the cancel signal with a timer (`linkAbortSignal()`, since `AbortSignal.any` needs Node 20.3 and VS Code 1.85 runs Node 18). The adapters report any abort of their signal as `aborted`, so the provider reclassifies by which source fired: a timeout is `error`/`timeout` and counts toward the command breaker (the backend failed to answer within the bound — from the user's side the same as an outage), a cancel stays `aborted` and does not. `CommandPool` returns `timeout` too, and a follower's IPC wait for a command is now `timeoutMs` + 5 s (it was a flat 60 s, below Suggest Edits' 90 s). Not fixed: on the CLI backend the cancel signal never reaches the pool (`PoolClient.sendCommand` sends only `timeoutMs`), so cancelling a CLI command does nothing until the timeout.
+
 ### Command errors reach the log (#7) (branch `showcase/held-misc`)
 
 - **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).

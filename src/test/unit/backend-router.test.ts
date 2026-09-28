@@ -166,6 +166,7 @@ describe('BackendRouter', () => {
         expect.any(String),
         'test message',
         undefined,
+        undefined,
       );
     });
 
@@ -354,6 +355,30 @@ describe('BackendRouter — command trace records', () => {
     pool.sendCommand.mockResolvedValue({ text: null, meta: null, aborted: true });
     await router.sendCommand('x');
     expect(recorder.getRecent()[0].outcome).toBe('aborted');
+  });
+
+  it("records the backend's own reason over the wall-clock timeout guess", async () => {
+    const { router, recorder, pool } = build('claude-code');
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'timeout' });
+    await router.sendCommand('x', { timeoutMs: 60_000 });
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'timeout' });
+
+    // A slow pool failure is not relabelled a timeout.
+    pool.sendCommand.mockResolvedValue({ text: null, meta: null, errorType: 'pool_recycled' });
+    await router.sendCommand('x', { timeoutMs: 0 });
+    expect(recorder.getRecent()[0]).toMatchObject({ outcome: 'error', errorType: 'pool_recycled' });
+  });
+
+  it('passes timeoutMs to the API command provider', async () => {
+    const { router, api } = build('api');
+    const cancel = new AbortController();
+    await router.sendCommand('x', { timeoutMs: 1234, onCancel: cancel.signal });
+    expect(api.sendPromptWithDetail).toHaveBeenCalledWith(
+      expect.any(String),
+      'x',
+      cancel.signal,
+      1234,
+    );
   });
 
   it('classifies cancelled, timed-out, and thrown commands', async () => {

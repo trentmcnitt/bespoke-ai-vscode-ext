@@ -107,11 +107,62 @@ describe('ApiCommandProvider', () => {
       expect(lastAdapter().complete.mock.calls[0][1]).toHaveLength(1);
     });
 
-    it('uses the caller signal when provided', async () => {
+    it('follows the caller signal: a cancel aborts the request', async () => {
       const provider = new ApiCommandProvider(makeConfig(), makeLogger());
       const ac = new AbortController();
-      await provider.sendPrompt(SYSTEM, USER, ac.signal);
-      expect(lastAdapter().complete.mock.calls[0][2].signal).toBe(ac.signal);
+      let seen: AbortSignal | undefined;
+      lastAdapter().complete.mockImplementation(async (_s, _m, opts) => {
+        seen = opts.signal;
+        ac.abort();
+        return makeResult({ text: null, aborted: true });
+      });
+      await expect(provider.sendPromptWithDetail(SYSTEM, USER, ac.signal)).resolves.toMatchObject({
+        text: null,
+        detail: { aborted: true },
+      });
+      expect(seen?.aborted).toBe(true);
+    });
+
+    it('bounds the request by timeoutMs even when a caller signal is given', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockImplementation(
+        (_s, _m, opts) =>
+          new Promise((resolve) =>
+            opts.signal.addEventListener('abort', () =>
+              resolve(makeResult({ text: null, aborted: true })),
+            ),
+          ),
+      );
+      const pending = provider.sendPromptWithDetail(
+        SYSTEM,
+        USER,
+        new AbortController().signal,
+        1000,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      const { text, detail } = await pending;
+      expect(text).toBeNull();
+      expect(detail?.errorType).toBe('timeout');
+      expect(detail?.aborted).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('an adapter that throws after a timeout is reported as a timeout, not the error', async () => {
+      vi.useFakeTimers();
+      const provider = new ApiCommandProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockImplementation(
+        (_s, _m, opts) =>
+          new Promise((_resolve, reject) =>
+            opts.signal.addEventListener('abort', () => reject(new Error('TimeoutError'))),
+          ),
+      );
+      const pending = provider.sendPromptWithDetail(SYSTEM, USER, undefined, 500);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(pending).resolves.toMatchObject({
+        text: null,
+        detail: { errorType: 'timeout' },
+      });
     });
 
     it('supplies its own timeout signal when the caller omits one', async () => {

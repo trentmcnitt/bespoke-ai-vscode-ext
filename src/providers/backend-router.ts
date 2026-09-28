@@ -162,6 +162,7 @@ export class BackendRouter implements CompletionProvider {
         COMMAND_SYSTEM_PROMPT,
         message,
         options?.onCancel,
+        options?.timeoutMs,
       );
       return { text, meta: null, detail };
     }
@@ -228,11 +229,14 @@ export class BackendRouter implements CompletionProvider {
         outcome = 'ok';
       } else if (cancelled) {
         outcome = 'aborted';
+      } else if (detail?.errorType) {
+        // The backend's own reason (e.g. `timeout`, `pool_recycled`) wins over the
+        // wall-clock guess below, which could mislabel a slow pool failure.
+        outcome = 'error';
+        errorType = detail.errorType;
       } else if (timedOut) {
         outcome = 'error';
         errorType = 'timeout';
-      } else if (detail?.errorType) {
-        outcome = 'error';
       } else {
         outcome = 'empty';
       }

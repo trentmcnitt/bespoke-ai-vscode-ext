@@ -185,29 +185,29 @@ describe('CommandPool', () => {
       expect(text).toBeNull();
     });
 
-    it('returns null on timeout', async () => {
-      // Warmup stream, a hanging stream for the request, and a recycled stream
-      const streams = [createFakeStream([]), createFakeStream([]), createFakeStream([])];
-      let callCount = 0;
-
+    it('returns null with errorType timeout when the CLI never answers', async () => {
+      // Warmup answers; the request's session then stays alive without a result.
       mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
-        const stream = streams[callCount];
-        callCount++;
-        // Only consume streams for warmup and recycle, not the hanging request
-        if (callCount === 1 || callCount === 3) {
-          consumeIterable(prompt, stream);
+        async function* gen() {
+          const it = prompt[Symbol.asyncIterator]();
+          await it.next();
+          yield { type: 'result', subtype: 'success', result: 'READY' };
+          await it.next();
+          await new Promise<void>(() => {}); // hangs
         }
-        return stream.stream;
+        return gen();
       });
 
       const pool = new CommandPool('haiku', makeLogger());
       activePool = pool;
       await pool.activate();
 
-      // The request will hang because we don't signal stream[1]
-      // Timeout should trigger and return null
-      const { text } = await pool.sendPrompt('Test message', { timeoutMs: 50 });
-      expect(text).toBeNull();
+      const result = await pool.sendPrompt('Test message', { timeoutMs: 50 });
+      expect(result.text).toBeNull();
+      // Reported as a timeout (it rides to the router and to follower windows),
+      // not as a cancel, a pool failure, or an empty model reply.
+      expect(result.errorType).toBe('timeout');
+      expect(result.aborted).toBeUndefined();
     });
 
     it('returns null on cancellation', async () => {

@@ -2,6 +2,7 @@ import { ExtensionConfig } from '../../types';
 import { Logger } from '../../utils/logger';
 import { UsageLedger } from '../../utils/usage-ledger';
 import { CircuitBreaker } from '../../utils/circuit-breaker';
+import { linkAbortSignal } from '../../utils/abort';
 import { ApiAdapter, Preset } from './types';
 import { getPreset } from './presets';
 import { createAdapter } from './adapters';
@@ -17,6 +18,9 @@ import {
 /** Max output tokens for commands (commit messages, suggest-edits need much
  *  more than the 200 tokens used for inline completions). */
 const COMMAND_MAX_TOKENS = 4096;
+
+/** Bound on a command when the caller gives no `timeoutMs`. */
+const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
 /**
  * API-based command provider for commit messages and suggest-edits.
@@ -58,15 +62,25 @@ export class ApiCommandProvider {
     systemPrompt: string,
     userMessage: string,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<string | null> {
-    return (await this.sendPromptWithDetail(systemPrompt, userMessage, signal)).text;
+    return (await this.sendPromptWithDetail(systemPrompt, userMessage, signal, timeoutMs)).text;
   }
 
-  /** `sendPrompt` plus generation detail for trace records (content included; caller gates it). */
+  /**
+   * `sendPrompt` plus generation detail for trace records (content included; caller gates it).
+   *
+   * The request is bounded by `timeoutMs` (default 60 s) as well as the caller's
+   * `signal`. A timeout is a backend failure: it returns null with
+   * `detail.errorType: 'timeout'` (not `aborted`) and counts toward the breaker,
+   * since a backend that does not answer in time is as unusable as one that errors.
+   * A cancel through `signal` is the user's choice and does not count.
+   */
   async sendPromptWithDetail(
     systemPrompt: string,
     userMessage: string,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<CompletionWithDetail> {
     if (!this.adapter || !this.activePreset) return { text: null };
     if (this.breaker.isOpen()) return { text: null };
@@ -86,20 +100,36 @@ export class ApiCommandProvider {
       maxTokens: COMMAND_MAX_TOKENS,
     };
 
+    const linked = linkAbortSignal(signal, timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS);
+    const timedOut = (): CompletionWithDetail => {
+      this.breaker.recordFailure();
+      delete detail.aborted;
+      detail.errorType = 'timeout';
+      this.logger.debug(
+        `API command: timed out after ${timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS}ms`,
+      );
+      return { text: null, detail };
+    };
     let result;
     try {
       result = await this.adapter.complete(systemPrompt, messages, {
-        signal: signal ?? AbortSignal.timeout(60_000),
+        signal: linked.signal,
         maxTokens: COMMAND_MAX_TOKENS,
         temperature: preset.temperature,
         stopSequences: preset.stopSequences,
       });
     } catch (err) {
+      // An adapter that throws on its aborted signal (rather than returning
+      // `aborted`) still timed out, not failed some other way.
+      if (linked.timedOut()) return timedOut();
       this.breaker.recordFailure();
       attachDetailToError(err, detail);
       throw err;
+    } finally {
+      linked.dispose();
     }
     applyAdapterResult(detail, result);
+    if (!result.text && linked.timedOut()) return timedOut();
 
     // Record to ledger
     this.ledger?.record({
