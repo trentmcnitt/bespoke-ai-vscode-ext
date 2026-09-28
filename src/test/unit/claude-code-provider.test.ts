@@ -626,12 +626,14 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
 
   /**
    * SDK mock whose completion results are released by the test. Each spawned session
-   * answers warmup with `ctl.warmup`, then waits for `ctl.respond()` / `ctl.fail()`
-   * for every message pushed to it.
+   * answers warmup with `ctl.warmup`, then waits for `ctl.respond()` / `ctl.fail()` /
+   * `ctl.end()` for every message pushed to it. A null `ctl.warmup` makes the session
+   * end before answering warmup (the CLI exiting cleanly without output).
    */
   function controlledQuery() {
+    const END = {};
     const ctl = {
-      warmup: '<COMPLETION>four</COMPLETION>',
+      warmup: '<COMPLETION>four</COMPLETION>' as string | null,
       spawns: 0,
       pending: null as null | { resolve: (m: object) => void; reject: (e: Error) => void },
       respond(message: object) {
@@ -644,6 +646,17 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
         ctl.pending = null;
         p?.reject(err);
       },
+      /** Wakes a session idle between requests, so end() works there too. */
+      idle: null as null | (() => void),
+      /** End the session's stream cleanly (no result, no error), as a CLI exiting would. */
+      end() {
+        if (ctl.pending) ctl.respond(END);
+        else {
+          const wake = ctl.idle;
+          ctl.idle = null;
+          wake?.();
+        }
+      },
     };
     mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
       ctl.spawns++;
@@ -651,16 +664,32 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
       async function* gen() {
         const it = prompt[Symbol.asyncIterator]();
         await it.next(); // warmup message
+        if (warmup === null) return;
         yield { type: 'result', subtype: 'success', result: warmup };
-        while (!(await it.next()).done) {
-          yield await new Promise<object>((resolve, reject) => {
+        for (;;) {
+          const next = await Promise.race([
+            it.next(),
+            new Promise<typeof END>((r) => (ctl.idle = () => r(END))),
+          ]);
+          if (next === END || (next as IteratorResult<unknown>).done) return;
+          const message = await new Promise<object>((resolve, reject) => {
             ctl.pending = { resolve, reject };
           });
+          if (message === END) return;
+          yield message;
         }
       }
       return gen();
     });
     return ctl;
+  }
+
+  /** Resolve with `promise`, or 'still waiting' if it has not settled within `ms`. */
+  function within<T>(promise: Promise<T>, ms = 200): Promise<T | 'still waiting'> {
+    return Promise.race([
+      promise,
+      new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), ms)),
+    ]);
   }
 
   const signal = () => new AbortController().signal;
@@ -738,6 +767,78 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
     const res = await holding;
     expect(res.text).toBeNull();
     expect(res.detail?.errorType).toBe('slot_stream_error');
+  });
+
+  it('a session that ends cleanly while the request holds the slot is slot_stream_ended, not a hang', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const waiting = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.end();
+
+    // Before the fix recycleSlot() dropped the result callback: this never settled.
+    const res = await within(holding);
+    expect(res).not.toBe('still waiting');
+    if (res === 'still waiting') return;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('slot_stream_ended');
+    expect(res.detail?.aborted).toBeUndefined();
+
+    // The slot respawns and serves the request parked behind the lost one.
+    await settle();
+    expect(ctl.spawns).toBe(2);
+    ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> next</COMPLETION>' });
+    const next = await within(waiting);
+    expect(next).not.toBe('still waiting');
+    if (next === 'still waiting') return;
+    expect(next.text).toBe(' next');
+  });
+
+  it('an idle session ending after an answer does not leak a stale failure into the next request', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const first = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> one</COMPLETION>' });
+    expect((await first).text).toBe(' one');
+
+    // The CLI exits while idle: the reused slot's result promise is settled and the
+    // slot respawns; the next request goes to the fresh session.
+    await settle();
+    ctl.end();
+    await settle();
+    expect(ctl.spawns).toBe(2);
+    const second = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> two</COMPLETION>' });
+    const res = await within(second);
+    expect(res).not.toBe('still waiting');
+    if (res === 'still waiting') return;
+    expect(res.text).toBe(' two');
+    expect(res.detail?.errorType).toBeUndefined();
+  });
+
+  it('a session that ends before answering warmup fails warmup at once, not after the 30 s timeout', async () => {
+    const ctl = controlledQuery();
+    ctl.warmup = null;
+    const degraded: string[] = [];
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    provider.onPoolDegraded = (reason) => degraded.push(reason);
+
+    // Before the fix activate() waited out WARMUP_TIMEOUT_MS while the recycle
+    // respawned the slot behind its back.
+    expect(await within(provider.activate())).not.toBe('still waiting');
+    for (let i = 0; i < 20 && degraded.length === 0; i++) await settle();
+
+    // The warmup-failure path: one retry, then degraded. Not a respawn loop.
+    expect(degraded).toEqual(['warmup failed after retry']);
+    expect(ctl.spawns).toBe(2);
+    expect(provider.isAvailable()).toBe(false);
   });
 
   it('a non-success CLI result is an error with the subtype, not empty', async () => {
@@ -836,6 +937,31 @@ describe('ClaudeCodeProvider — why a request got no result', () => {
       expect(degraded).toEqual(['circuit breaker: all slots dead after rapid recycles']);
       expect(p.isAvailable()).toBe(false);
       expect(p.getStats().available).toBe(false);
+    });
+
+    it('a session ending cleanly as the fifth rapid recycle ends the held request as slot_stream_ended', async () => {
+      const ctl = controlledQuery();
+      const p = new ClaudeCodeProvider(makeConfig(), makeLogger());
+      provider = p;
+      await p.activate();
+
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const holding = p.getCompletionWithDetail(makeProseContext(), signal());
+      await settle();
+      const slot = (
+        p as unknown as { slots: { rapidRecycleCount: number; lastRecycleTime: number }[] }
+      ).slots[0];
+      slot.rapidRecycleCount = 4;
+      slot.lastRecycleTime = now;
+      ctl.end();
+
+      // The breaker branch of recycleSlot() dropped the callback too.
+      const res = await within(holding);
+      expect(res).not.toBe('still waiting');
+      if (res === 'still waiting') return;
+      expect(res.detail?.errorType).toBe('slot_stream_ended');
+      expect(p.isAvailable()).toBe(false);
     });
 
     it('a request arriving while open resolves immediately instead of waiting', async () => {

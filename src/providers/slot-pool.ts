@@ -144,6 +144,8 @@ export interface ResultMetadata {
  * - `pool_recycled`: the pool was recycled or restarted (config change, Restart Pools).
  * - `pool_warmup_failed`: a slot failed warmup, which kills every slot.
  * - `slot_stream_error`: the CLI session's stream threw.
+ * - `slot_stream_ended`: the CLI session's stream ended (e.g. the process exited)
+ *   without a result for the request.
  * - `slot_unavailable`: the pool is degraded, or the slot lost its session after acquisition.
  * - `pool_circuit_open`: the rapid-recycle circuit breaker killed every slot; nothing was sent.
  * - `cli_<subtype>`: the CLI returned a non-success result (e.g. `cli_error_during_execution`).
@@ -152,6 +154,7 @@ export type SlotFailure =
   | 'pool_recycled'
   | 'pool_warmup_failed'
   | 'slot_stream_error'
+  | 'slot_stream_ended'
   | 'slot_unavailable'
   | 'pool_circuit_open'
   | `cli_${string}`;
@@ -666,6 +669,22 @@ export abstract class SlotPool {
     });
   }
 
+  /**
+   * Deliver `result` to the request holding the slot, then clear the callback so
+   * no later path (stream end, recycle, kill) can deliver a second outcome.
+   * No-op when nothing is pending.
+   */
+  protected settleResult(slot: Slot, result: SlotResult): void {
+    const deliver = slot.deliverResult;
+    slot.deliverResult = null;
+    deliver?.(result);
+  }
+
+  /** End the pending request, if any, with `failure` (see {@link settleResult}). */
+  protected failPending(slot: Slot, failure: SlotDenial): void {
+    this.settleResult(slot, { text: null, failure });
+  }
+
   protected waitForWarmup(index: number): Promise<boolean> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -792,7 +811,8 @@ export abstract class SlotPool {
           // result (e.g. error_during_execution) is the CLI failing, not the model
           // returning nothing.
           slot.resultCount++;
-          slot.deliverResult?.(
+          this.settleResult(
+            slot,
             message.subtype === 'success' || text !== null
               ? { text }
               : { text: null, failure: `cli_${String(message.subtype ?? 'error')}` },
@@ -828,6 +848,28 @@ export abstract class SlotPool {
           this.notifyWaiter(slotIndex);
         }
       }
+      // The stream ended on its own (the CLI exited, or the SDK closed it) without
+      // a result for whoever holds the slot. The breaks above land here too, after
+      // the result was delivered and the callback cleared, so this only fires for
+      // a request (or warmup) that was genuinely left waiting. Without it the
+      // finally block's recycleSlot() dropped the callback and the request's
+      // promise never settled — the completion path has no timeout.
+      if (this.slots[slotIndex].generation !== myGeneration) {
+        return;
+      }
+      // A request (busy) or warmup left waiting is a failure worth the stderr; an
+      // idle session exiting is only a recycle.
+      if ((slot.deliverResult && slot.state === 'busy') || this._warmupResolvers[slotIndex]) {
+        this.logger.error(
+          `${this.getPoolLabel()}: slot ${slotIndex} stream ended without a result${
+            this._warmupResolvers[slotIndex] ? ' (during warmup)' : ''
+          }`,
+        );
+        this.drainStderr(slotIndex, 'error');
+      }
+      this.failPending(slot, 'slot_stream_ended');
+      this._warmupResolvers[slotIndex]?.(false);
+      this._warmupResolvers[slotIndex] = null;
     } catch (err) {
       // Stale consumer guard — don't touch the new slot's state.
       // The finally block handles iterator cleanup, so just return here.
@@ -851,7 +893,7 @@ export abstract class SlotPool {
         }
       }
       this.drainStderr(slotIndex, 'error');
-      slot.deliverResult?.({ text: null, failure: 'slot_stream_error' });
+      this.failPending(slot, 'slot_stream_error');
       // Also resolve warmup if still pending (failure)
       this._warmupResolvers[slotIndex]?.(false);
       this._warmupResolvers[slotIndex] = null;
@@ -884,7 +926,7 @@ export abstract class SlotPool {
     for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       slot.generation++;
-      slot.deliverResult?.({ text: null, failure: reason });
+      this.failPending(slot, reason);
       slot.state = 'dead';
       try {
         slot.channel?.close();
