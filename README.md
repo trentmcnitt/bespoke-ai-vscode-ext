@@ -347,7 +347,7 @@ Spans are batched (every 5 s or 20 spans), each request times out after 5 s, and
 
 **What leaves your machine.** The text around your cursor (prefix and suffix context) goes to the backend you configured. Commit message generation sends your staged diff; Suggest Edits sends the visible editor text. With the Claude Code backend, requests go through your local Claude Code installation; with the API backend, they go directly to your chosen provider's endpoint (or to Ollama on your machine). Nothing else is sent.
 
-**No telemetry.** The extension collects no usage analytics and makes no network calls other than to your configured backend — plus the optional trace export below, which you have to point at an endpoint yourself.
+**No telemetry.** The extension collects no usage analytics and makes no network calls other than to your configured backend — plus the optional trace export below, which you have to point at an endpoint yourself. (The Claude Code CLI, when you use that backend, has its own telemetry settings.)
 
 **What stays on your machine**, in `~/.bespokeai/`:
 

@@ -1,6 +1,6 @@
 # CI
 
-`.github/workflows/ci.yml` runs on every push to `main` and every pull request targeting `main`.
+`.github/workflows/ci.yml` runs on every push to `main` or to a `showcase/**` branch, and on every pull request targeting `main`.
 
 | Job        | Runs on                     | What it does                                                                                                                                      |
 | ---------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
