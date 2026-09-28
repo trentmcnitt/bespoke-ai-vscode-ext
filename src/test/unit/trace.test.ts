@@ -460,7 +460,7 @@ describe('trace — review fixes', () => {
   });
 
   it('a provider that declined to send (detail.errorType) is INTERNAL too; a swallowed 429 is not', () => {
-    for (const errorType of ['backend_unavailable', 'circuit_open']) {
+    for (const errorType of ['backend_unavailable', 'circuit_open', 'pool_circuit_open']) {
       const r = makeRecord({
         outcome: 'error',
         detail: { providerName: 'anthropic', requestModel: 'm', errorType },

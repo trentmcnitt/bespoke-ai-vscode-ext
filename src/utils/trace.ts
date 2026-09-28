@@ -246,7 +246,7 @@ export const SPAN_KIND_CLIENT = 3;
 export const SPAN_KIND_INTERNAL = 1;
 
 /** Error types for requests that were never sent to a model. */
-const NOT_SENT_ERROR_TYPES = new Set(['backend_unavailable', 'circuit_open']);
+const NOT_SENT_ERROR_TYPES = new Set(['backend_unavailable', 'circuit_open', 'pool_circuit_open']);
 
 /**
  * False for records that never reached a model (cache hits, unavailable backend, open
