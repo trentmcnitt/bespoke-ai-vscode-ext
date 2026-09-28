@@ -344,6 +344,10 @@ export function activate(context: vscode.ExtensionContext) {
   completionProvider.setTraceRecorder(traceRecorder);
   backendRouter.setTraceRecorder(traceRecorder);
   context.subscriptions.push({ dispose: () => void traceRecorder.dispose() });
+  // OTLP export follows VS Code's global telemetry setting (see applyOtlpConfig).
+  context.subscriptions.push(
+    vscode.env.onDidChangeTelemetryEnabled(() => applyOtlpConfig(lastConfig ?? config)),
+  );
 
   completionProvider.setRequestCallbacks(
     () => {
@@ -1258,6 +1262,9 @@ function applyTraceConfig(config: ExtensionConfig): void {
 }
 
 /** Create, replace, or remove the OTLP exporter to match settings. */
+/** Log the telemetry-off pause once, not on every settings change. */
+let otlpTelemetryOffLogged = false;
+
 function applyOtlpConfig(config: ExtensionConfig): void {
   const { endpoint, headersEnvVar } = config.trace.otlp;
   const includeContent = config.trace.captureContent && config.trace.otlp.captureContent;
@@ -1275,6 +1282,19 @@ function applyOtlpConfig(config: ExtensionConfig): void {
     logger.error(`Trace: ignoring bespokeAI.trace.otlp.endpoint — not an http(s) URL`);
     return;
   }
+  // Export is the user's own opt-in to their own backend, but it still sends data off
+  // the machine, so it also honors VS Code's global telemetry switch.
+  if (!vscode.env.isTelemetryEnabled) {
+    if (current || !otlpTelemetryOffLogged) {
+      logger.info(
+        'Trace: OTLP export is configured but paused because VS Code telemetry is disabled (telemetry.telemetryLevel). Spans stay local.',
+      );
+      otlpTelemetryOffLogged = true;
+    }
+    traceRecorder.setSink('otlp', null);
+    return;
+  }
+  otlpTelemetryOffLogged = false;
   const envVar = isValidEnvVarName(headersEnvVar) ? headersEnvVar : '';
   if (headersEnvVar && !envVar) {
     logger.error(
