@@ -33,7 +33,15 @@ import {
 } from '../helpers';
 import { TestScenario } from './judge';
 import { CheckResult, summarizeChecks } from './deterministic-checks';
-import { collectProvenance, writeCheckArtifacts } from './run-artifacts';
+import {
+  RunOutcome,
+  attributeResult,
+  attributeThrown,
+  collectProvenance,
+  detailSummary,
+  writeCheckArtifacts,
+} from './run-artifacts';
+import { GenerationDetail, detailFromError } from '../../utils/trace';
 import {
   proseScenarios,
   codeScenarios,
@@ -111,7 +119,20 @@ interface GenerationResult {
   rawResponse?: string;
   sentMessage?: string;
   durationMs: number;
+  /**
+   * Set when the provider threw, OR when it returned null because it swallowed
+   * a failure (HTTP 429/529, timeout/abort, open breaker). A swallowed failure is
+   * not a model output, so it must not be scored as an empty completion.
+   */
   error?: string;
+  /** Same classes as the trace outcome: ok / empty (model gave nothing usable) / error / aborted. */
+  outcome: RunOutcome;
+  /** Low-cardinality failure class (`429`, `529`, `circuit_open`, thrown error name). */
+  errorType?: string;
+  /** Model-side detail from the provider (tokens, finish reason). */
+  detail?: GenerationDetail;
+  /** Strategy extraction result, before post-processing (API backend). */
+  extracted?: string | null;
   /** Deterministic Layer 1 checks (filled in by saveScenarioOutput). */
   checks?: CheckResult[];
 }
@@ -191,6 +212,12 @@ function saveScenarioOutput(result: GenerationResult): void {
         durationMs: result.durationMs,
         completionLength: result.completion?.length ?? 0,
         error: result.error ?? null,
+        outcome: result.outcome,
+        errorType: result.errorType ?? null,
+        provider: detailSummary(result.detail),
+        // Extraction result before post-processing; distinguishes "model echoed
+        // the suffix and post-processing trimmed it all" from "nothing extracted".
+        ...(result.extracted !== undefined ? { extracted: result.extracted } : {}),
         generatedAt: new Date().toISOString(),
         backend,
         preset: backend === 'api' ? apiPreset : null,
@@ -247,14 +274,16 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
   try {
     await cc.activate(cwd);
     const ac = new AbortController();
-    const completion = await cc.getCompletion(ctx, ac.signal);
+    const res = await cc.getCompletionWithDetail(ctx, ac.signal);
     assertModelMatch(cc);
     const result: GenerationResult = {
       scenario,
-      completion,
+      completion: res.text,
       rawResponse: capturing.getTrace('← raw'),
       sentMessage: capturing.getTrace('→ sent'),
       durationMs: Date.now() - start,
+      detail: res.detail,
+      ...attributeResult(res),
     };
     saveScenarioOutput(result);
     return result;
@@ -264,7 +293,8 @@ async function generateWithFreshProvider(scenario: TestScenario): Promise<Genera
       completion: null,
       sentMessage: capturing.getTrace('→ sent'),
       durationMs: Date.now() - start,
-      error: err instanceof Error ? err.message : String(err),
+      detail: detailFromError(err),
+      ...attributeThrown(err),
     };
     saveScenarioOutput(result);
     return result;
@@ -295,13 +325,22 @@ async function generateWithFreshApiProvider(scenario: TestScenario): Promise<Gen
 
   const start = Date.now();
   try {
-    const completion = await provider.getCompletion(ctx, AbortSignal.timeout(30_000));
+    const res = await provider.getCompletionWithDetail(ctx, AbortSignal.timeout(30_000), {
+      captureContent: true,
+    });
+    const content = res.detail?.content;
     const result: GenerationResult = {
       scenario,
-      completion,
-      rawResponse: capturing.getTrace('api ← raw'),
-      sentMessage: capturing.getTrace('api → user'),
+      completion: res.text,
+      // From the detail rather than the log: the log line is only written for a
+      // non-empty reply, so an empty reply used to leave no raw-response.txt.
+      // null here means the adapter returned no text at all (see outcome).
+      rawResponse: content?.rawOutput ?? undefined,
+      sentMessage: content?.userMessage ?? capturing.getTrace('api → user'),
       durationMs: Date.now() - start,
+      detail: res.detail,
+      ...(content && 'extracted' in content ? { extracted: content.extracted ?? null } : {}),
+      ...attributeResult(res),
     };
     saveScenarioOutput(result);
     return result;
@@ -311,7 +350,8 @@ async function generateWithFreshApiProvider(scenario: TestScenario): Promise<Gen
       completion: null,
       sentMessage: capturing.getTrace('api → user'),
       durationMs: Date.now() - start,
-      error: err instanceof Error ? err.message : String(err),
+      detail: detailFromError(err),
+      ...attributeThrown(err),
     };
     saveScenarioOutput(result);
     return result;
@@ -338,6 +378,15 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
     // Write summary
     const generated = results.filter((r) => r.completion !== null).length;
     const nulls = results.filter((r) => r.completion === null).length;
+    // Why each null happened: `empty` is a model result; `error` / `aborted`
+    // are failures the provider swallowed or threw — not measurements.
+    const nullsByOutcome: Record<string, number> = {};
+    const nullsByErrorType: Record<string, number> = {};
+    for (const r of results) {
+      if (r.completion !== null) continue;
+      nullsByOutcome[r.outcome] = (nullsByOutcome[r.outcome] ?? 0) + 1;
+      if (r.errorType) nullsByErrorType[r.errorType] = (nullsByErrorType[r.errorType] ?? 0) + 1;
+    }
     const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);
 
     const checkCounts = summarizeChecks(results.map((r) => r.checks ?? []));
@@ -359,6 +408,8 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
       totalScenarios: results.length,
       generated,
       nullResults: nulls,
+      nullsByOutcome,
+      nullsByErrorType,
       totalDurationMs: totalMs,
       // Per check: how many scenarios it applied to, and how many failed.
       deterministicChecks: checkCounts,
@@ -370,6 +421,10 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
         completionLength: r.completion?.length ?? 0,
         durationMs: r.durationMs,
         error: r.error ?? null,
+        outcome: r.outcome,
+        errorType: r.errorType ?? null,
+        finishReason: r.detail?.finishReason ?? null,
+        outputTokens: r.detail?.outputTokens ?? null,
         checksFailed: (r.checks ?? []).filter((c) => !c.pass).map((c) => c.id),
       })),
     };
@@ -398,6 +453,14 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
     if (backend === 'api') console.log(`  Preset:    ${apiPreset}`);
     console.log(`  Model:     ${getBackendLabel()}`);
     console.log(`  Generated: ${generated}/${results.length} completions (${nulls} null)`);
+    if (nulls > 0) {
+      const byOutcome = Object.entries(nullsByOutcome).map(([k, v]) => `${k} ${v}`);
+      const byType = Object.entries(nullsByErrorType).map(([k, v]) => `${k} ${v}`);
+      console.log(
+        `  Nulls by outcome: ${byOutcome.join(', ')}` +
+          (byType.length ? ` — error types: ${byType.join(', ')}` : ''),
+      );
+    }
     console.log(`  Duration:  ${(totalMs / 1000).toFixed(1)}s total`);
     console.log(`  Det. checks: ${detFailed}/${results.length} scenarios failed at least one`);
     for (const [id, c] of Object.entries(checkCounts)) {
@@ -602,13 +665,15 @@ describe.skipIf(!canRun)(`Completion Quality — Generation [${getBackendLabel()
           };
 
           const start = Date.now();
-          const completion = await cc.getCompletion(ctx, new AbortController().signal);
+          const res = await cc.getCompletionWithDetail(ctx, new AbortController().signal);
           const result: GenerationResult = {
             scenario,
-            completion,
+            completion: res.text,
             rawResponse: capturing.getTrace('← raw'),
             sentMessage: capturing.getTrace('→ sent'),
             durationMs: Date.now() - start,
+            detail: res.detail,
+            ...attributeResult(res),
           };
           saveScenarioOutput(result);
           results.push(result);

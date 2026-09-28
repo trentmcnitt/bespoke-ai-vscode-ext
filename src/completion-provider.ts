@@ -20,6 +20,7 @@ import {
   errorTypeOf,
   genAiProviderName,
   newSpanId,
+  nullResultOutcome,
   newTraceId,
 } from './utils/trace';
 
@@ -234,8 +235,7 @@ export class CompletionProvider implements vscode.InlineCompletionItemProvider {
         this.logger.trace(
           `#${reqId} returning null: result=${result === null ? 'null' : 'empty'}, cancelled=${token.isCancellationRequested}`,
         );
-        const outcome: TraceOutcome =
-          cancelled || detail?.aborted ? 'aborted' : detail?.errorType ? 'error' : 'empty';
+        const outcome: TraceOutcome = nullResultOutcome(detail, cancelled);
         this.recordTrace(reqId, completionContext, outcome, receivedAtMs, startTime, {
           detail,
           finalText: result,

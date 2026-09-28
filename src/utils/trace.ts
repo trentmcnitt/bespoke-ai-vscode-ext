@@ -178,6 +178,23 @@ export function errorTypeOf(err: unknown): string {
   return '_OTHER';
 }
 
+/**
+ * Outcome of a request that produced no ghost text. A null result is not
+ * necessarily "the model had nothing to say": adapters swallow some failures
+ * (HTTP 429/529, connection refused, open circuit breaker) and report them as
+ * `detail.errorType`, and a cancelled request sets `detail.aborted`.
+ * Shared by the orchestrator and the quality runner so both attribute empties
+ * the same way.
+ */
+export function nullResultOutcome(
+  detail: GenerationDetail | undefined,
+  cancelled = false,
+): 'aborted' | 'error' | 'empty' {
+  if (cancelled || detail?.aborted) return 'aborted';
+  if (detail?.errorType) return 'error';
+  return 'empty';
+}
+
 // Providers that throw can still describe what they sent. They attach the detail to the error
 // object here; the orchestrator reads it back when it records the failure.
 const errorDetails = new WeakMap<object, GenerationDetail>();

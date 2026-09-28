@@ -338,6 +338,15 @@ describe('ApiCompletionProvider', () => {
       expect(adapter.complete).toHaveBeenCalledTimes(6);
     });
 
+    it('a call blocked by the open breaker reports circuit_open, not an empty result', async () => {
+      const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
+      lastAdapter().complete.mockRejectedValue(new Error('500'));
+      await failN(provider, 5);
+      const res = await provider.getCompletionWithDetail(makeProseContext(), signal());
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('circuit_open');
+    });
+
     it('stays open until the cooldown has fully elapsed', async () => {
       const provider = new ApiCompletionProvider(makeConfig(), makeLogger());
       lastAdapter().complete.mockRejectedValue(new Error('500'));

@@ -87,9 +87,21 @@ export class ApiCompletionProvider implements CompletionProvider {
     options?: GenerationOptions,
   ): Promise<CompletionWithDetail> {
     if (!this.adapter || !this.activePreset || !this.strategy) return { text: null };
-    if (this.breaker.isOpen()) return { text: null };
-
     const preset = this.activePreset;
+    if (this.breaker.isOpen()) {
+      // Nothing was sent. Say why, so the null is not recorded as the model
+      // having returned nothing (the code-override path reaches here without
+      // the orchestrator's isAvailable() check).
+      return {
+        text: null,
+        detail: {
+          providerName: genAiProviderName(preset.provider),
+          requestModel: preset.modelId,
+          errorType: 'circuit_open',
+        },
+      };
+    }
+
     const messages = this.strategy.buildMessages(
       context.prefix,
       context.suffix,

@@ -242,6 +242,8 @@ describe('AnthropicAdapter', () => {
       const result = await new AnthropicAdapter(makePreset()).complete('SYS', messages, opts());
       expect(result.text).toBeNull();
       expect(result.aborted).toBeUndefined();
+      // The status survives as errorType so the null is attributable (trace / quality runner).
+      expect(result.errorType).toBe(String(status));
     });
 
     it('rewrites 401 into an error naming the key variable', async () => {
