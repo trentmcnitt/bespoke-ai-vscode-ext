@@ -311,6 +311,10 @@ Every completion request produces a trace record: what the model was sent, what 
 
 Run **Bespoke AI: Show Recent Completions** (or pick **Recent Completions** from the status bar menu) to browse the last 200 requests in the current window, newest first. Click a row to see the system instructions, the exact message sent, the raw model output, the ghost text that was shown, and a timing breakdown (debounce, pool-slot wait, model time). Commit-message and Suggest Edits requests appear in the same list.
 
+<img src="images/recent-completions.png" alt="Show Recent Completions view: recent requests with outcome, model, latency and tokens, one expanded to show the prompt and response" width="700">
+
+_Rendered from the view's own HTML with synthetic requests and VS Code's Dark Modern theme colours._
+
 Records use the attribute names of the [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai) (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, …; the conventions are still in development; the extension follows semantic-conventions-genai 1.42.0-dev, checked 2026-09-27). That makes the same records usable outside the editor:
 
 - `bespokeAI.trace.file` appends them to `~/.bespokeai/traces.jsonl`, one span per line (rotated at 5 MB; archives older than 7 days are deleted).
