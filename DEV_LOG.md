@@ -6,6 +6,12 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Command UX: diff close guard, pool failure toasts, accurate unavailable message (branch `showcase/fu-cmdux`)
+
+- **Suggest Edits closed the user's file:** the diff cleanup ran `workbench.action.closeActiveEditor` in a `finally`, so a failed `vscode.diff` (or a tab switch during the Apply prompt) closed whatever was active. It now closes only tabs whose `TabInputTextDiff` has our two `bespoke-edit-*` URIs (compared by scheme + path), via `tabGroups.close`, and only if the diff opened.
+- **Pool failures on commands were a silent null:** `PoolClient.sendCommand()` already returns `errorType`/`aborted`, but the features only checked `text === null`. They now log and toast (non-awaited) via `utils/command-failure.ts`; `aborted` and a bare null (user cancel) stay silent. The API detail's `errorType` (429/529/`connection_refused`) is folded in. Not covered: a `CommandPool` timeout settles as a bare null with no `errorType`, so it is still indistinguishable from a user cancel here.
+- **"Command pool not ready" on the API backend** covered a missing key, an open breaker and a bad preset alike. `ApiCommandProvider.unavailableReason()` (read-only; `CircuitBreaker.remainingCooldownMs()` added, which unlike `isOpen()` never closes the breaker) now feeds `commandUnavailableMessage()`. To stay out of `backend-router.ts`, `extension.ts` passes the `ApiCommandProvider` to the two features as an optional 4th argument rather than adding a router getter.
+
 ### Command errors reach the log (#7) (branch `showcase/held-misc`)
 
 - **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).

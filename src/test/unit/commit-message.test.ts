@@ -20,6 +20,7 @@ vi.mock('vscode', () => ({
 import * as vscode from 'vscode';
 import { generateCommitMessage } from '../../commit-message';
 import type { BackendRouter } from '../../providers/backend-router';
+import type { ApiCommandProvider } from '../../providers/api/api-command-provider';
 import type { Logger } from '../../utils/logger';
 import {
   buildFullCommitPrompt,
@@ -125,6 +126,7 @@ describe('truncateDiff', () => {
 
 describe('generateCommitMessage — error handling', () => {
   const win = vscode.window as unknown as {
+    showWarningMessage: ReturnType<typeof vi.fn>;
     showErrorMessage: ReturnType<typeof vi.fn>;
     setStatusBarMessage: ReturnType<typeof vi.fn>;
   };
@@ -133,6 +135,7 @@ describe('generateCommitMessage — error handling', () => {
   function makeRouter(sendCommand: () => Promise<unknown>) {
     return {
       isCommandAvailable: vi.fn(() => true),
+      getBackend: vi.fn((): 'claude-code' | 'api' => 'claude-code'),
       getCurrentModel: vi.fn(() => 'sonnet'),
       sendCommand: vi.fn(sendCommand),
     };
@@ -177,5 +180,80 @@ describe('generateCommitMessage — error handling', () => {
       'Bespoke AI: Request already in progress',
       2000,
     );
+  });
+
+  it('toasts and logs a pool failure (null text with an errorType), naming the cause', async () => {
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {})); // never dismissed
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({
+      text: null,
+      meta: null,
+      errorType: 'pool_circuit_open',
+    }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(error).toHaveBeenCalledWith('Commit message generation failed: pool_circuit_open');
+    expect(win.showErrorMessage).toHaveBeenCalledOnce();
+    const msg = win.showErrorMessage.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^Bespoke AI: Commit message generation failed — /);
+    expect(msg).toContain('crashing repeatedly');
+    // The unsettled toast does not hold the in-flight guard.
+    const next = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(next as unknown as BackendRouter, makeLogger());
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it('stays silent on an aborted (superseded / shutdown) command', async () => {
+    const error = vi.fn();
+    const logger = { ...makeLogger(), error } as unknown as Logger;
+    const router = makeRouter(async () => ({ text: null, meta: null, aborted: true }));
+    await generateCommitMessage(router as unknown as BackendRouter, logger);
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('stays silent on a bare null (the user cancelled)', async () => {
+    const router = makeRouter(async () => ({ text: null, meta: null }));
+    await generateCommitMessage(router as unknown as BackendRouter, makeLogger());
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it('on the API backend with no key, says so instead of "Command pool not ready"', async () => {
+    const router = makeRouter(async () => ({ text: 'x', meta: null }));
+    router.isCommandAvailable.mockReturnValue(false);
+    router.getBackend.mockReturnValue('api');
+    const apiCommand = {
+      unavailableReason: vi.fn(() => ({
+        kind: 'no_key',
+        presetId: 'openai-gpt-4.1-nano',
+        displayName: 'GPT-4.1 Nano',
+      })),
+    };
+    await generateCommitMessage(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledWith(
+      'Bespoke AI: No API key for GPT-4.1 Nano. Run "Bespoke AI: Enter API Key".',
+    );
+    expect(router.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('on the Claude Code backend, keeps the pool-not-ready message', async () => {
+    const router = makeRouter(async () => ({ text: 'x', meta: null }));
+    router.isCommandAvailable.mockReturnValue(false);
+    const apiCommand = { unavailableReason: vi.fn() };
+    await generateCommitMessage(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledWith(
+      'Bespoke AI: Command pool not ready. Try again in a moment.',
+    );
+    expect(apiCommand.unavailableReason).not.toHaveBeenCalled();
   });
 });

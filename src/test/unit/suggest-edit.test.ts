@@ -20,10 +20,21 @@ vi.mock('vscode', () => {
       this.replacements.push({ uri, range, text });
     }
   }
+  class TabInputTextDiff {
+    constructor(
+      public original: { scheme: string; path: string },
+      public modified: { scheme: string; path: string },
+    ) {}
+  }
+  class TabInputText {
+    constructor(public uri: { scheme: string; path: string }) {}
+  }
   return {
     Position,
     Range,
     WorkspaceEdit,
+    TabInputTextDiff,
+    TabInputText,
     ProgressLocation: { Notification: 15 },
     Uri: {
       from: vi.fn((parts: { scheme: string; path: string }) => ({ ...parts })),
@@ -35,6 +46,7 @@ vi.mock('vscode', () => {
       showErrorMessage: vi.fn(),
       setStatusBarMessage: vi.fn(),
       withProgress: vi.fn(),
+      tabGroups: { all: [] as { tabs: unknown[] }[], close: vi.fn(async () => true) },
     },
     commands: { executeCommand: vi.fn() },
     workspace: {
@@ -48,6 +60,7 @@ import * as vscode from 'vscode';
 import { suggestEdit, originalContentProvider, correctedContentProvider } from '../../suggest-edit';
 import { SYSTEM_PROMPT } from '../../utils/suggest-edit-utils';
 import type { BackendRouter } from '../../providers/backend-router';
+import type { ApiCommandProvider } from '../../providers/api/api-command-provider';
 import type { UsageLedger } from '../../utils/usage-ledger';
 import type { Logger } from '../../utils/logger';
 
@@ -58,6 +71,7 @@ const win = vscode.window as unknown as {
   showErrorMessage: ReturnType<typeof vi.fn>;
   setStatusBarMessage: ReturnType<typeof vi.fn>;
   withProgress: ReturnType<typeof vi.fn>;
+  tabGroups: { all: { tabs: { input: unknown }[] }[]; close: ReturnType<typeof vi.fn> };
 };
 const executeCommand = vscode.commands.executeCommand as unknown as ReturnType<typeof vi.fn>;
 const applyEdit = vscode.workspace.applyEdit as unknown as ReturnType<typeof vi.fn>;
@@ -97,9 +111,12 @@ function makeEditor(
   return { document, selection, visibleRanges: opts.visible ?? [] };
 }
 
-function makeRouter(response: { text: string | null; meta?: unknown } | Error) {
+function makeRouter(
+  response: { text: string | null; meta?: unknown; errorType?: string; aborted?: boolean } | Error,
+) {
   return {
     isCommandAvailable: vi.fn(() => true),
+    getBackend: vi.fn((): 'claude-code' | 'api' => 'claude-code'),
     getCurrentModel: vi.fn(() => 'sonnet'),
     sendCommand: vi.fn(async () => {
       if (response instanceof Error) throw response;
@@ -146,7 +163,30 @@ beforeEach(() => {
   runProgressNormally();
   executeCommand.mockResolvedValue(undefined);
   win.activeTextEditor = undefined;
+  win.tabGroups.all = [{ tabs: [] }];
 });
+
+/** The user's own file, open in a tab. */
+function userFileTab() {
+  return {
+    input: new vscode.TabInputText({ scheme: 'file', path: '/home/u/my-project/notes.md' } as any),
+  };
+}
+
+/**
+ * Make `vscode.diff` open a diff tab (as VS Code does) in the first group, and return
+ * a getter for it.
+ */
+function openDiffTabOnDiff() {
+  let diffTab: { input: unknown } | undefined;
+  executeCommand.mockImplementation(async (cmd: string, left: any, right: any) => {
+    if (cmd === 'vscode.diff') {
+      diffTab = { input: new vscode.TabInputTextDiff(left, right) };
+      win.tabGroups.all[0].tabs.push(diffTab);
+    }
+  });
+  return () => diffTab;
+}
 
 describe('suggestEdit — preconditions', () => {
   it('warns and does nothing when the command pool is not ready', async () => {
@@ -157,6 +197,32 @@ describe('suggestEdit — preconditions', () => {
     });
     await run(router);
     expect(win.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Command pool not ready'),
+    );
+    expect(router.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ kind: 'no_key', presetId: 'xai-grok', displayName: 'Grok' }, 'No API key for Grok'],
+    [
+      { kind: 'breaker_open', presetId: 'x', displayName: 'X', retryInMs: 7_000 },
+      'Paused after repeated API errors — retrying in 7 s',
+    ],
+    [{ kind: 'no_preset', presetId: 'gone' }, 'API preset "gone" is not available'],
+  ])('on the API backend, says why commands are unavailable (%j)', async (reason, expected) => {
+    const router = makeRouter({ text: '<corrected>x</corrected>' });
+    router.isCommandAvailable.mockReturnValue(false);
+    router.getBackend.mockReturnValue('api');
+    const apiCommand = { unavailableReason: vi.fn(() => reason) };
+    await suggestEdit(
+      router as unknown as BackendRouter,
+      makeLogger(),
+      undefined,
+      apiCommand as unknown as ApiCommandProvider,
+    );
+    expect(win.showWarningMessage).toHaveBeenCalledOnce();
+    expect(win.showWarningMessage.mock.calls[0][0]).toContain(`Bespoke AI: ${expected}`);
+    expect(win.showWarningMessage).not.toHaveBeenCalledWith(
       expect.stringContaining('Command pool not ready'),
     );
     expect(router.sendCommand).not.toHaveBeenCalled();
@@ -262,6 +328,32 @@ describe('suggestEdit — response handling', () => {
     expect(win.showWarningMessage).not.toHaveBeenCalled();
     expect(executeCommand).not.toHaveBeenCalled();
     expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('toasts and logs a pool failure (null text with an errorType), naming the cause', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    win.showErrorMessage.mockReturnValueOnce(new Promise(() => {})); // never dismissed
+    const { logger, error } = makeErrorSpyLogger();
+    const ledger = { record: vi.fn() };
+    await run(makeRouter({ text: null, meta: null, errorType: 'pool_recycled' }), ledger, logger);
+    expect(error).toHaveBeenCalledWith('Suggest edit failed: pool_recycled');
+    expect(win.showErrorMessage).toHaveBeenCalledOnce();
+    const msg = win.showErrorMessage.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^Bespoke AI: Suggest edit failed — /);
+    expect(msg).toContain('restarted');
+    expect(ledger.record).not.toHaveBeenCalled();
+    // The unsettled toast does not hold the in-flight guard.
+    const next = makeRouter({ text: null });
+    await run(next);
+    expect(next.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it('stays silent on an aborted (superseded / shutdown) command', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const { logger, error } = makeErrorSpyLogger();
+    await run(makeRouter({ text: null, meta: null, aborted: true }), undefined, logger);
+    expect(win.showErrorMessage).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('warns on an unparseable response and does not edit', async () => {
@@ -403,8 +495,11 @@ describe('suggestEdit — diff preview and apply', () => {
     expect(seen.title).toBe('Suggest Edits — a?b#c%20d.md');
   });
 
-  it('closes the diff and clears stored content afterwards, even if the diff command throws', async () => {
-    win.activeTextEditor = makeEditor(content, { visible });
+  it('does not close any editor if the diff command throws, and still clears stored content', async () => {
+    const editor = makeEditor(content, { visible });
+    win.activeTextEditor = editor;
+    const userTab = userFileTab();
+    win.tabGroups.all = [{ tabs: [userTab] }];
     let leftUri: any;
     executeCommand.mockImplementation(async (cmd: string, left: any) => {
       if (cmd === 'vscode.diff') {
@@ -420,8 +515,59 @@ describe('suggestEdit — diff preview and apply', () => {
     expect(win.showErrorMessage).toHaveBeenCalledWith(
       'Bespoke AI: Suggest edit failed — diff failed',
     );
-    expect(executeCommand).toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    // The active editor is the user's own file: it must not be closed.
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    expect(win.tabGroups.close).not.toHaveBeenCalled();
     expect(originalContentProvider.provideTextDocumentContent(leftUri, {} as any)).toBe('');
     expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('closes its own diff tab, not the tab the user switched to during the prompt', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const userTab = userFileTab();
+    const diffTab = openDiffTabOnDiff();
+    win.showInformationMessage.mockImplementation(async () => {
+      // The user moves to another file (in another group) while deciding.
+      win.tabGroups.all.push({ tabs: [userTab] });
+      return 'Discard';
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    expect(win.tabGroups.close).toHaveBeenCalledOnce();
+    const closed = win.tabGroups.close.mock.calls[0][0] as unknown[];
+    expect(closed).toEqual([diffTab()]);
+    expect(closed).not.toContain(userTab);
+  });
+
+  it('closes the diff tab on the normal path before clearing stored content', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const diffTab = openDiffTabOnDiff();
+    win.showInformationMessage.mockResolvedValue('Apply');
+    let contentAtClose: string | undefined;
+    win.tabGroups.close.mockImplementation(async (tabs: any[]) => {
+      contentAtClose = originalContentProvider.provideTextDocumentContent(
+        tabs[0].input.original,
+        {} as any,
+      ) as string;
+      return true;
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+
+    expect(win.tabGroups.close).toHaveBeenCalledWith([diffTab()]);
+    expect(contentAtClose).toBe('Teh quick fox.\nSecond line.');
+    expect(appliedEdits()).toHaveLength(1);
+  });
+
+  it('closes nothing if the user already closed the diff tab', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    openDiffTabOnDiff();
+    win.showInformationMessage.mockImplementation(async () => {
+      win.tabGroups.all = [{ tabs: [userFileTab()] }];
+      return 'Discard';
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+    expect(win.tabGroups.close).not.toHaveBeenCalled();
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
   });
 });
