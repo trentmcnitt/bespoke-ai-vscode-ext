@@ -12,7 +12,7 @@ import {
   resolvePreset,
 } from './types';
 import { CompletionProvider } from './completion-provider';
-import { auditCustomPresets, describeFindings, isLoopbackUrl } from './utils/preset-audit';
+import { auditCustomPresets, describeFindings } from './utils/preset-audit';
 import { PoolClient } from './pool-server/client';
 import { BackendRouter } from './providers/backend-router';
 import { ApiCompletionProvider } from './providers/api/api-provider';
@@ -41,7 +41,7 @@ import {
   isValidEnvVarName,
   isValidOtlpEndpoint,
   otlpTracesUrl,
-  otlpWarnKey,
+  otlpRemoteNotice,
   parseOtlpHeaders,
   redactUrl,
   stopOtlpExport,
@@ -1366,23 +1366,15 @@ function logInvalidOtlpHeader(key: string | undefined): void {
 
 /**
  * Tell the user once per host that trace data is leaving the machine — and again if prompt
- * content starts being sent to a host that was only warned about metadata.
+ * content starts being sent to a host that was only warned about metadata, or the endpoint
+ * switches to plain http:// (unencrypted). Message logic: `otlpRemoteNotice()`.
  */
 async function warnRemoteOtlpEndpoint(endpoint: string, includeContent: boolean): Promise<void> {
-  if (isLoopbackUrl(endpoint)) return;
-  const host = new URL(endpoint).host;
-  const key = otlpWarnKey(host, includeContent);
   const warned = extensionContext.globalState.get<string[]>(OTLP_WARNED_HOSTS_KEY) ?? [];
-  // A host already warned about content export was also told about metadata.
-  if (warned.includes(key) || warned.includes(otlpWarnKey(host, true))) return;
-  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, key]);
-  const what = includeContent
-    ? 'request metadata and prompt/response text'
-    : 'request metadata (models, tokens, timing, outcomes — no prompt text)';
-  const choice = await vscode.window.showInformationMessage(
-    `Bespoke AI: trace export is on. ${what[0].toUpperCase()}${what.slice(1)} will be sent to ${host}.`,
-    'Open Settings',
-  );
+  const notice = otlpRemoteNotice(endpoint, includeContent, warned);
+  if (!notice) return;
+  await extensionContext.globalState.update(OTLP_WARNED_HOSTS_KEY, [...warned, notice.key]);
+  const choice = await vscode.window.showInformationMessage(notice.message, 'Open Settings');
   if (choice === 'Open Settings') {
     vscode.commands.executeCommand('workbench.action.openSettings', 'bespokeAI.trace');
   }

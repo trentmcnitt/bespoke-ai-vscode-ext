@@ -39,6 +39,7 @@ import {
   spanStatus,
   stripContent,
 } from './trace';
+import { isLoopbackUrl } from './preset-audit';
 
 export interface OtlpAnyValue {
   stringValue?: string;
@@ -124,9 +125,56 @@ export function redactUrl(url: string): string {
   }
 }
 
-/** Storage key for the "trace data leaves the machine" notice; content export warns separately. */
-export function otlpWarnKey(host: string, includeContent: boolean): string {
-  return includeContent ? `${host}|content` : host;
+/**
+ * Storage key for the "trace data leaves the machine" notice. Content export and a plain-http
+ * (unencrypted) endpoint each warn separately from metadata over https.
+ */
+export function otlpWarnKey(host: string, includeContent: boolean, unencrypted = false): string {
+  return `${host}${includeContent ? '|content' : ''}${unencrypted ? '|http' : ''}`;
+}
+
+export interface OtlpRemoteNotice {
+  /** Record this in the warned-hosts list once shown. */
+  key: string;
+  message: string;
+}
+
+/**
+ * The one-time notice that trace export sends data to a non-loopback host, or null when none
+ * is due (loopback endpoint, invalid URL, or an equal-or-stronger notice already shown).
+ * A plain `http:` endpoint says the data travels unencrypted. It informs; it never blocks.
+ *
+ * A notice already shown covers the current one when it was at least as strong on both axes:
+ * content ⊇ metadata-only, unencrypted ⊇ encrypted.
+ */
+export function otlpRemoteNotice(
+  endpoint: string,
+  includeContent: boolean,
+  warned: readonly string[],
+): OtlpRemoteNotice | null {
+  if (isLoopbackUrl(endpoint)) return null;
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  const host = url.host;
+  const unencrypted = url.protocol === 'http:';
+  for (const c of includeContent ? [true] : [false, true]) {
+    for (const u of unencrypted ? [true] : [false, true]) {
+      if (warned.includes(otlpWarnKey(host, c, u))) return null;
+    }
+  }
+  const what = includeContent
+    ? 'Request metadata and prompt/response text'
+    : 'Request metadata (models, tokens, timing, outcomes — no prompt text)';
+  let message = `Bespoke AI: trace export is on. ${what} will be sent to ${host}.`;
+  if (unencrypted) {
+    message +=
+      ' The endpoint uses plain http://, so this data is sent unencrypted and can be read on the network. Use https:// unless the collector is on a network you trust.';
+  }
+  return { key: otlpWarnKey(host, includeContent, unencrypted), message };
 }
 
 /**

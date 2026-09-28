@@ -6,6 +6,7 @@ import {
   isValidEnvVarName,
   isValidOtlpEndpoint,
   otlpTracesUrl,
+  otlpRemoteNotice,
   otlpWarnKey,
   parseOtlpHeaders,
   redactUrl,
@@ -465,5 +466,50 @@ describe('OTLP stop-sending (discard)', () => {
     rec.setSink('x', { export: () => {}, dispose });
     rec.setSink('x', null, { discard: true });
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('otlpRemoteNotice', () => {
+  const UNENCRYPTED = /plain http:\/\/, so this data is sent unencrypted/;
+
+  it('says nothing for loopback endpoints, http or https', () => {
+    for (const e of ['http://localhost:4318', 'http://127.0.0.1:4318', 'https://[::1]:4318']) {
+      expect(otlpRemoteNotice(e, true, [])).toBeNull();
+    }
+  });
+
+  it('https remote: metadata notice, no unencrypted warning', () => {
+    const n = otlpRemoteNotice('https://collector.example.com', false, []);
+    expect(n?.key).toBe('collector.example.com');
+    expect(n?.message).toContain('Request metadata (models, tokens');
+    expect(n?.message).toContain('sent to collector.example.com');
+    expect(n?.message).not.toMatch(UNENCRYPTED);
+  });
+
+  it('plain http remote: says the connection is unencrypted (a notice, not a block)', () => {
+    const n = otlpRemoteNotice('http://10.0.0.5:4318', true, []);
+    expect(n?.key).toBe('10.0.0.5:4318|content|http');
+    expect(n?.message).toContain('prompt/response text');
+    expect(n?.message).toMatch(UNENCRYPTED);
+  });
+
+  it('switching a warned https host to http warns again', () => {
+    const warned = [otlpWarnKey('h.example.com', true)];
+    expect(otlpRemoteNotice('https://h.example.com', true, warned)).toBeNull();
+    expect(otlpRemoteNotice('http://h.example.com', true, warned)?.message).toMatch(UNENCRYPTED);
+  });
+
+  it('a stronger notice already shown covers a weaker one', () => {
+    const warned = [otlpWarnKey('h.example.com', true, true)];
+    expect(otlpRemoteNotice('http://h.example.com', false, warned)).toBeNull();
+    expect(otlpRemoteNotice('https://h.example.com', false, warned)).toBeNull();
+    expect(otlpRemoteNotice('https://h.example.com', true, warned)).toBeNull();
+    // Metadata-only over https does not cover content.
+    expect(otlpRemoteNotice('https://h.example.com', true, ['h.example.com'])).not.toBeNull();
+  });
+
+  it('keeps the pre-existing key format for https (already-warned users are not re-notified)', () => {
+    expect(otlpWarnKey('h:1', false)).toBe('h:1');
+    expect(otlpWarnKey('h:1', true)).toBe('h:1|content');
   });
 });
