@@ -18,7 +18,7 @@ A direct probe without `temperature` then showed the second cause:
 | user message + assistant prefill `<COMPLETION>…` | 400 `This model does not support assistant message prefill. The conversation must end with a user message.` |
 | user message only                                | 200                                                                                                         |
 
-Both match the Claude API documentation: sampling parameters (`temperature`, `top_p`, `top_k`) and assistant prefill are removed on Sonnet 5 (and on the Opus 4.6+ / Sonnet 4.6+ family).
+Both match the Claude API documentation: on Sonnet 5, sampling parameters (`temperature`, `top_p`, `top_k`) are removed (as on Opus 4.7 and later), and assistant prefill is removed (as on the whole 4.6-and-later family).
 
 ## What a fix involves
 
