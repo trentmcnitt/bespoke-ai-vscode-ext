@@ -20,10 +20,21 @@ vi.mock('vscode', () => {
       this.replacements.push({ uri, range, text });
     }
   }
+  class TabInputTextDiff {
+    constructor(
+      public original: { scheme: string; path: string },
+      public modified: { scheme: string; path: string },
+    ) {}
+  }
+  class TabInputText {
+    constructor(public uri: { scheme: string; path: string }) {}
+  }
   return {
     Position,
     Range,
     WorkspaceEdit,
+    TabInputTextDiff,
+    TabInputText,
     ProgressLocation: { Notification: 15 },
     Uri: {
       from: vi.fn((parts: { scheme: string; path: string }) => ({ ...parts })),
@@ -35,6 +46,7 @@ vi.mock('vscode', () => {
       showErrorMessage: vi.fn(),
       setStatusBarMessage: vi.fn(),
       withProgress: vi.fn(),
+      tabGroups: { all: [] as { tabs: unknown[] }[], close: vi.fn(async () => true) },
     },
     commands: { executeCommand: vi.fn() },
     workspace: {
@@ -58,6 +70,7 @@ const win = vscode.window as unknown as {
   showErrorMessage: ReturnType<typeof vi.fn>;
   setStatusBarMessage: ReturnType<typeof vi.fn>;
   withProgress: ReturnType<typeof vi.fn>;
+  tabGroups: { all: { tabs: { input: unknown }[] }[]; close: ReturnType<typeof vi.fn> };
 };
 const executeCommand = vscode.commands.executeCommand as unknown as ReturnType<typeof vi.fn>;
 const applyEdit = vscode.workspace.applyEdit as unknown as ReturnType<typeof vi.fn>;
@@ -146,7 +159,30 @@ beforeEach(() => {
   runProgressNormally();
   executeCommand.mockResolvedValue(undefined);
   win.activeTextEditor = undefined;
+  win.tabGroups.all = [{ tabs: [] }];
 });
+
+/** The user's own file, open in a tab. */
+function userFileTab() {
+  return {
+    input: new vscode.TabInputText({ scheme: 'file', path: '/home/u/my-project/notes.md' } as any),
+  };
+}
+
+/**
+ * Make `vscode.diff` open a diff tab (as VS Code does) in the first group, and return
+ * a getter for it.
+ */
+function openDiffTabOnDiff() {
+  let diffTab: { input: unknown } | undefined;
+  executeCommand.mockImplementation(async (cmd: string, left: any, right: any) => {
+    if (cmd === 'vscode.diff') {
+      diffTab = { input: new vscode.TabInputTextDiff(left, right) };
+      win.tabGroups.all[0].tabs.push(diffTab);
+    }
+  });
+  return () => diffTab;
+}
 
 describe('suggestEdit — preconditions', () => {
   it('warns and does nothing when the command pool is not ready', async () => {
@@ -403,8 +439,11 @@ describe('suggestEdit — diff preview and apply', () => {
     expect(seen.title).toBe('Suggest Edits — a?b#c%20d.md');
   });
 
-  it('closes the diff and clears stored content afterwards, even if the diff command throws', async () => {
-    win.activeTextEditor = makeEditor(content, { visible });
+  it('does not close any editor if the diff command throws, and still clears stored content', async () => {
+    const editor = makeEditor(content, { visible });
+    win.activeTextEditor = editor;
+    const userTab = userFileTab();
+    win.tabGroups.all = [{ tabs: [userTab] }];
     let leftUri: any;
     executeCommand.mockImplementation(async (cmd: string, left: any) => {
       if (cmd === 'vscode.diff') {
@@ -420,8 +459,59 @@ describe('suggestEdit — diff preview and apply', () => {
     expect(win.showErrorMessage).toHaveBeenCalledWith(
       'Bespoke AI: Suggest edit failed — diff failed',
     );
-    expect(executeCommand).toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    // The active editor is the user's own file: it must not be closed.
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    expect(win.tabGroups.close).not.toHaveBeenCalled();
     expect(originalContentProvider.provideTextDocumentContent(leftUri, {} as any)).toBe('');
     expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('closes its own diff tab, not the tab the user switched to during the prompt', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const userTab = userFileTab();
+    const diffTab = openDiffTabOnDiff();
+    win.showInformationMessage.mockImplementation(async () => {
+      // The user moves to another file (in another group) while deciding.
+      win.tabGroups.all.push({ tabs: [userTab] });
+      return 'Discard';
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
+    expect(win.tabGroups.close).toHaveBeenCalledOnce();
+    const closed = win.tabGroups.close.mock.calls[0][0] as unknown[];
+    expect(closed).toEqual([diffTab()]);
+    expect(closed).not.toContain(userTab);
+  });
+
+  it('closes the diff tab on the normal path before clearing stored content', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    const diffTab = openDiffTabOnDiff();
+    win.showInformationMessage.mockResolvedValue('Apply');
+    let contentAtClose: string | undefined;
+    win.tabGroups.close.mockImplementation(async (tabs: any[]) => {
+      contentAtClose = originalContentProvider.provideTextDocumentContent(
+        tabs[0].input.original,
+        {} as any,
+      ) as string;
+      return true;
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+
+    expect(win.tabGroups.close).toHaveBeenCalledWith([diffTab()]);
+    expect(contentAtClose).toBe('Teh quick fox.\nSecond line.');
+    expect(appliedEdits()).toHaveLength(1);
+  });
+
+  it('closes nothing if the user already closed the diff tab', async () => {
+    win.activeTextEditor = makeEditor(content, { visible });
+    openDiffTabOnDiff();
+    win.showInformationMessage.mockImplementation(async () => {
+      win.tabGroups.all = [{ tabs: [userFileTab()] }];
+      return 'Discard';
+    });
+    await run(makeRouter({ text: `<corrected>${corrected}</corrected>` }));
+    expect(win.tabGroups.close).not.toHaveBeenCalled();
+    expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.closeActiveEditor');
   });
 });

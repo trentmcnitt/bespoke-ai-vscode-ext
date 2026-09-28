@@ -28,6 +28,7 @@
 - **Fix — empty suggestions no longer pause the API backend:** five replies in a row where the model had nothing to add (it closed its answer immediately) counted as failures and paused completions for 30 seconds. Only real failures now count: errors, rate limits and overload responses, and replies with no output and no stop reason.
 - **Privacy — Claude Code completions no longer load your Claude Code setup:** the Claude Code sessions behind inline completions, commit messages, and Suggest Edits were loading your claude.ai connectors (and their instructions), auto-memory, CLAUDE.md files, and custom agents. The model could see them (one completion referred to "a Claude Doc"), and the connectors alone added ~96k tokens to each new session. Those sessions now start in Claude Code's safe mode with no MCP servers. Your subscription login is unaffected.
 - **Privacy — local files are owner-only:** `~/.bespokeai/` is now created (and tightened, if it is yours) as owner-only, and the usage ledger and trace file are owner-only. Old trace archives are also cleaned up at startup, not only when the file rotates.
+- **Fix — Suggest Edits could close your file:** if the diff preview failed to open, Suggest Edits closed the active editor, which was your own file. It now closes only its own diff tab, and leaves the tab you switched to while the Apply prompt was up alone.
 
 ## 0.8.15 — Explain / Fix / Do with opencode
 

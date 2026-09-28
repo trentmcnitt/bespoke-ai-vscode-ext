@@ -6,6 +6,10 @@ Reverse chronological. Most recent entry first.
 
 ## 09-28-26
 
+### Command UX: diff close guard, pool failure toasts, accurate unavailable message (branch `showcase/fu-cmdux`)
+
+- **Suggest Edits closed the user's file:** the diff cleanup ran `workbench.action.closeActiveEditor` in a `finally`, so a failed `vscode.diff` (or a tab switch during the Apply prompt) closed whatever was active. It now closes only tabs whose `TabInputTextDiff` has our two `bespoke-edit-*` URIs (compared by scheme + path), via `tabGroups.close`, and only if the diff opened.
+
 ### Command errors reach the log (#7) (branch `showcase/held-misc`)
 
 - **#7:** `suggestEdit()`/`generateCommitMessage()` had no catch, so API-backend command failures escaped to VS Code unlogged; the wrappers now log and show a non-awaited error toast (awaiting it would hold the in-flight guard until dismissal).

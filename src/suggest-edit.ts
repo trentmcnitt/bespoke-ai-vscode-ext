@@ -185,6 +185,7 @@ async function doSuggestEdit(
   const correctedUri = vscode.Uri.from({ scheme: 'bespoke-edit-corrected', path: key });
 
   let choice: string | undefined;
+  let diffOpened = false;
   try {
     await vscode.commands.executeCommand(
       'vscode.diff',
@@ -192,6 +193,7 @@ async function doSuggestEdit(
       correctedUri,
       `Suggest Edits — ${fileName}`,
     );
+    diffOpened = true;
 
     choice = await vscode.window.showInformationMessage(
       'Bespoke AI: Apply suggested edits?',
@@ -201,7 +203,12 @@ async function doSuggestEdit(
   } finally {
     // Close the diff tab before cleaning up virtual document content,
     // so VS Code doesn't re-request content from empty providers.
-    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    // Close only the tab showing our diff, never "the active editor": if the diff
+    // failed to open, or the user switched tabs while the prompt was up, the active
+    // editor is the user's own file.
+    if (diffOpened) {
+      await closeDiffTabs(originalUri, correctedUri);
+    }
     contentStore.delete(`original:${key}`);
     contentStore.delete(`corrected:${key}`);
   }
@@ -225,4 +232,23 @@ async function doSuggestEdit(
 
   vscode.window.setStatusBarMessage('Bespoke AI: Edits applied (Ctrl+Z to undo)', 4000);
   logger.info('Suggest edit: edits applied');
+}
+
+function sameUri(a: vscode.Uri, b: vscode.Uri): boolean {
+  return a.scheme === b.scheme && a.path === b.path;
+}
+
+/** Close every tab (in any group) whose input is the diff of exactly these two URIs. */
+async function closeDiffTabs(originalUri: vscode.Uri, correctedUri: vscode.Uri): Promise<void> {
+  const tabs = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputTextDiff &&
+        sameUri(tab.input.original, originalUri) &&
+        sameUri(tab.input.modified, correctedUri),
+    );
+  if (tabs.length > 0) {
+    await vscode.window.tabGroups.close(tabs);
+  }
 }
