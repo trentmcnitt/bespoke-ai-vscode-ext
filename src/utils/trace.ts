@@ -568,8 +568,13 @@ export class TraceRecorder {
 
 /** Rotate when the active trace file exceeds this size. Content-bearing lines are large. */
 export const TRACE_FILE_ROTATION_BYTES = 5 * 1_048_576;
-/** Archives older than this are purged on rotation. */
+/** Archives older than this are purged when the sink is created and after each rotation. */
 export const TRACE_ARCHIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * A `traces.jsonl.rotating.<pid>` file older than this is an orphan (its window died between
+ * the claim rename and the archive rename) and is purged. A live rotation takes milliseconds.
+ */
+export const TRACE_ORPHAN_ROTATING_MAX_AGE_MS = 60 * 60 * 1000;
 /** Trace files (active + archives) are owner-read/write only. */
 export const TRACE_FILE_MODE = 0o600;
 
@@ -583,6 +588,10 @@ async function restrictMode(filePath: string): Promise<void> {
  * performed asynchronously in order; nothing on the completion path waits for disk.
  * Rotation mirrors `UsageLedger`: rename to `traces-YYYY-MM-DD.jsonl`, purge old archives.
  * Concurrent-safe across windows the same way (append mode + rename-based claim).
+ *
+ * Retention is enforced when the sink is created as well as after rotation: an active file
+ * under the rotation size never rotates, so purging only on rotation could keep week-old
+ * archives (and orphaned `.rotating.<pid>` files) forever.
  */
 export class TraceFileSink implements TraceSink {
   private readonly filePath: string;
@@ -601,6 +610,8 @@ export class TraceFileSink implements TraceSink {
     this.dirPath = path.dirname(filePath);
     this.logger = logger;
     this.rotationBytes = rotationBytes;
+    // Queued on the write chain so flush() covers it and it never races a rotation.
+    this.chain = this.chain.then(() => this.purgeExpired());
   }
 
   export(record: TraceRecord, includeContent = true): void {
@@ -677,23 +688,45 @@ export class TraceFileSink implements TraceSink {
       }
       await restrictMode(archivePath);
       this.logger?.info(`Trace: rotated to ${archiveName}`);
-      await this.purgeOldArchives(base);
+      await this.purgeExpired();
     } catch (err) {
       this.logger?.error(`Trace: rotation failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 
-  private async purgeOldArchives(base: string): Promise<void> {
-    const re = new RegExp(
-      `^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d{4}-\\d{2}-\\d{2})\\.jsonl$`,
-    );
+  /**
+   * Delete archives past `TRACE_ARCHIVE_MAX_AGE_MS` and orphaned `.rotating.<pid>` files past
+   * `TRACE_ORPHAN_ROTATING_MAX_AGE_MS`. Never throws; a missing directory is not an error.
+   */
+  private async purgeExpired(): Promise<void> {
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const base = path.basename(this.filePath, '.jsonl');
+    const archiveRe = new RegExp(`^${escape(base)}-(\\d{4}-\\d{2}-\\d{2})\\.jsonl$`);
+    const rotatingRe = new RegExp(`^${escape(path.basename(this.filePath))}\\.rotating\\.\\d+$`);
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(this.dirPath);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        this.logger?.error(`Trace: purge failed: ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
     const now = Date.now();
-    for (const file of await fs.promises.readdir(this.dirPath)) {
-      const m = file.match(re);
-      if (!m) continue;
-      const t = new Date(m[1] + 'T00:00:00').getTime();
-      if (!isNaN(t) && now - t > TRACE_ARCHIVE_MAX_AGE_MS) {
-        await fs.promises.unlink(path.join(this.dirPath, file)).catch(() => {});
+    for (const file of files) {
+      const full = path.join(this.dirPath, file);
+      const m = file.match(archiveRe);
+      if (m) {
+        const t = new Date(m[1] + 'T00:00:00').getTime();
+        if (!isNaN(t) && now - t > TRACE_ARCHIVE_MAX_AGE_MS) {
+          await fs.promises.unlink(full).catch(() => {});
+        }
+      } else if (rotatingRe.test(file)) {
+        const stat = await fs.promises.stat(full).catch(() => null);
+        if (stat && now - stat.mtimeMs > TRACE_ORPHAN_ROTATING_MAX_AGE_MS) {
+          await fs.promises.unlink(full).catch(() => {});
+        }
       }
     }
   }

@@ -358,6 +358,47 @@ describe('TraceFileSink', () => {
     expect(fs.existsSync(old)).toBe(false);
   });
 
+  it('purges expired archives and orphaned .rotating files when the sink is created', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+    const file = path.join(dir, 'traces.jsonl');
+    const dayMs = 24 * 60 * 60 * 1000;
+    const dated = (daysAgo: number) =>
+      path.join(
+        dir,
+        `traces-${new Date(Date.now() - daysAgo * dayMs).toISOString().slice(0, 10)}.jsonl`,
+      );
+    const oldArchive = dated(10);
+    const recentArchive = dated(2);
+    const staleRotating = `${file}.rotating.12345`;
+    const freshRotating = `${file}.rotating.67890`;
+    const unrelated = path.join(dir, 'usage-ledger-2020-01-01.jsonl');
+    for (const p of [oldArchive, recentArchive, staleRotating, freshRotating, unrelated]) {
+      fs.writeFileSync(p, '{}\n');
+    }
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(staleRotating, twoHoursAgo, twoHoursAgo);
+    // A small active file that will never reach the rotation size.
+    fs.writeFileSync(file, '{}\n');
+
+    const sink = new TraceFileSink(file);
+    await sink.flush();
+
+    expect(fs.existsSync(oldArchive)).toBe(false);
+    expect(fs.existsSync(staleRotating)).toBe(false);
+    expect(fs.existsSync(recentArchive)).toBe(true);
+    expect(fs.existsSync(freshRotating)).toBe(true);
+    expect(fs.existsSync(unrelated)).toBe(true);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('{}\n');
+  });
+
+  it('purge on create tolerates a missing directory', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
+    const logger = { error: vi.fn(), info: vi.fn() };
+    const sink = new TraceFileSink(path.join(dir, 'missing', 'traces.jsonl'), logger);
+    await sink.flush();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
   it('logs and swallows write failures', async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-'));
     const blocker = path.join(dir, 'file-not-dir');
