@@ -18,6 +18,10 @@
  * the completion path, drops a failed batch with a rate-limited log line, flushes on dispose
  * within an overall 5 s shutdown deadline. Failure log lines never include error messages
  * (fetch echoes header values into them) — only the error class/code and the host.
+ *
+ * `dispose()` (shutdown, endpoint change) sends what is queued; `discard()` (the user turned
+ * export or telemetry off) drops the queue and aborts the request in flight — nothing more
+ * leaves the machine after the user said stop.
  */
 
 import {
@@ -26,6 +30,7 @@ import {
   SpanAttributeValue,
   TraceLogger,
   TraceRecord,
+  TraceRecorder,
   TraceSink,
   buildSpanAttributes,
   msToUnixNano,
@@ -203,6 +208,18 @@ export function buildOtlpPayload(spans: OtlpSpan[], serviceVersion: string): unk
   };
 }
 
+/** The recorder's sink name for the OTLP exporter. */
+export const OTLP_SINK_NAME = 'otlp';
+
+/**
+ * Turn OTLP export off because the user asked to stop sending (endpoint cleared or invalid,
+ * VS Code telemetry off). Queued spans are dropped and an in-flight request is aborted —
+ * never flushed — so nothing is sent after the log says spans stay local.
+ */
+export function stopOtlpExport(recorder: TraceRecorder): void {
+  recorder.setSink(OTLP_SINK_NAME, null, { discard: true });
+}
+
 export type FetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
@@ -249,8 +266,10 @@ export class OtlpExporter implements TraceSink {
   private lastFailureLog = 0;
   private droppedSinceLog = 0;
   private disposed = false;
-  /** Set when the shutdown deadline passes: the flush loop stops sending. */
+  /** Set when the shutdown deadline passes or on discard(): the flush loop stops sending. */
   private abandoned = false;
+  /** Aborts the request in flight (timeout or discard). One request is in flight at a time. */
+  private currentRequest: AbortController | null = null;
 
   constructor(options: OtlpExporterOptions) {
     this.endpoint = options.endpoint;
@@ -303,6 +322,21 @@ export class OtlpExporter implements TraceSink {
     return this.inFlight;
   }
 
+  /**
+   * Stop immediately: drop every queued span, abort the request in flight, and never send
+   * again. Used when the user turns export off (endpoint cleared/invalid, VS Code telemetry
+   * off), where a final flush would send spans right after the log says they stay local.
+   */
+  discard(): void {
+    this.disposed = true;
+    this.abandoned = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.queue = [];
+    this.currentRequest?.abort();
+    this.currentRequest = null;
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -341,6 +375,12 @@ export class OtlpExporter implements TraceSink {
   private async send(
     batch: Array<{ record: TraceRecord; includeContent: boolean }>,
   ): Promise<void> {
+    if (this.abandoned) return;
+    // One controller per request, aborted by the timeout or by discard(). (AbortSignal.any
+    // would combine two signals, but it needs Node 20.3+ and VS Code 1.85 runs Node 18.)
+    const controller = new AbortController();
+    this.currentRequest = controller;
+    const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
       const spans = batch.map((q) => toOtlpSpan(q.record, this.includeContent && q.includeContent));
       const headers = { ...this.getHeaders(), 'Content-Type': 'application/json' };
@@ -348,13 +388,16 @@ export class OtlpExporter implements TraceSink {
         method: 'POST',
         headers,
         body: JSON.stringify(buildOtlpPayload(spans, this.serviceVersion)),
-        signal: AbortSignal.timeout(this.opts.timeoutMs),
+        signal: controller.signal,
       });
+      if (this.abandoned) return;
       if (!res.ok) {
         this.droppedSinceLog += batch.length;
         this.logFailure(`HTTP ${res.status}`);
       }
     } catch (err) {
+      // Discarded on purpose: the abort is not a failure worth a log line.
+      if (this.abandoned) return;
       this.droppedSinceLog += batch.length;
       const name = (err as { name?: string })?.name;
       const reason =
@@ -362,6 +405,9 @@ export class OtlpExporter implements TraceSink {
           ? `timed out after ${this.opts.timeoutMs} ms`
           : describeErrorForLog(err);
       this.logFailure(reason);
+    } finally {
+      clearTimeout(timeout);
+      if (this.currentRequest === controller) this.currentRequest = null;
     }
   }
 

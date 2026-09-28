@@ -44,6 +44,7 @@ import {
   otlpWarnKey,
   parseOtlpHeaders,
   redactUrl,
+  stopOtlpExport,
 } from './utils/otlp-exporter';
 import {
   initSecretStorage,
@@ -1263,10 +1264,18 @@ function applyTraceConfig(config: ExtensionConfig): void {
   applyOtlpConfig(config);
 }
 
-/** Create, replace, or remove the OTLP exporter to match settings. */
 /** Log the telemetry-off pause once, not on every settings change. */
 let otlpTelemetryOffLogged = false;
 
+/**
+ * Create, replace, or remove the OTLP exporter to match settings.
+ *
+ * Every "off" path (endpoint cleared, endpoint invalid, VS Code telemetry off) uses
+ * `stopOtlpExport()`, which drops queued spans and aborts the request in flight: the user said
+ * stop sending, so nothing is flushed. Only an endpoint/settings *change* replaces the sink
+ * normally, and there the old exporter flushes its queue to its own (old) endpoint — the one
+ * the user had configured when those spans were recorded.
+ */
 function applyOtlpConfig(config: ExtensionConfig): void {
   const { endpoint, headersEnvVar } = config.trace.otlp;
   const includeContent = config.trace.captureContent && config.trace.otlp.captureContent;
@@ -1274,13 +1283,13 @@ function applyOtlpConfig(config: ExtensionConfig): void {
 
   if (!endpoint) {
     if (current) {
-      traceRecorder.setSink('otlp', null);
+      stopOtlpExport(traceRecorder);
       logger.info('Trace: OTLP export off');
     }
     return;
   }
   if (!isValidOtlpEndpoint(endpoint)) {
-    traceRecorder.setSink('otlp', null);
+    stopOtlpExport(traceRecorder);
     logger.error(`Trace: ignoring bespokeAI.trace.otlp.endpoint — not an http(s) URL`);
     return;
   }
@@ -1293,7 +1302,7 @@ function applyOtlpConfig(config: ExtensionConfig): void {
       );
       otlpTelemetryOffLogged = true;
     }
-    traceRecorder.setSink('otlp', null);
+    stopOtlpExport(traceRecorder);
     return;
   }
   otlpTelemetryOffLogged = false;
@@ -1313,8 +1322,8 @@ function applyOtlpConfig(config: ExtensionConfig): void {
     return;
   }
   otlpHeadersEnvVar = envVar;
-  // Replacing the sink flushes the old exporter's queue; don't let it ship content that
-  // otlp.captureContent no longer allows.
+  // Replacing the sink flushes the old exporter's queue (to the old endpoint); don't let it
+  // ship content that otlp.captureContent no longer allows.
   if (current && current.includeContent && !includeContent) current.stripQueuedContent();
   traceRecorder.setSink(
     'otlp',

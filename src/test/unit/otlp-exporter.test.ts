@@ -9,6 +9,7 @@ import {
   otlpWarnKey,
   parseOtlpHeaders,
   redactUrl,
+  stopOtlpExport,
   toOtlpAttributes,
   toOtlpSpan,
 } from '../../utils/otlp-exporter';
@@ -400,5 +401,69 @@ describe('OTLP review fixes', () => {
   it('exports cache hits as INTERNAL spans', () => {
     expect(toOtlpSpan(makeRecord({ outcome: 'cache_hit', detail: undefined }), false).kind).toBe(1);
     expect(toOtlpSpan(makeRecord(), false).kind).toBe(3);
+  });
+});
+
+describe('OTLP stop-sending (discard)', () => {
+  it('stopOtlpExport (telemetry off / endpoint cleared or invalid) sends 0 queued spans', async () => {
+    vi.useFakeTimers();
+    const { exporter, fetchFn } = makeExporter({ includeContent: true });
+    const rec = new TraceRecorder({ captureContent: true });
+    rec.setSink('otlp', exporter);
+    for (let i = 0; i < 5; i++) rec.record(makeRecord());
+    stopOtlpExport(rec);
+    expect(rec.getSink('otlp')).toBeUndefined();
+    // Past the 5 s flush interval and the dispose deadline: still nothing sent.
+    await vi.advanceTimersByTimeAsync(20_000);
+    await exporter.flush();
+    await exporter.dispose();
+    exporter.export(makeRecord());
+    await exporter.flush();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('aborts the request in flight and drops the rest of the queue, without a failure log', async () => {
+    const signals: AbortSignal[] = [];
+    const fetchFn = vi.fn<FetchLike>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          signals.push(init.signal);
+          init.signal.addEventListener('abort', () => reject(init.signal.reason));
+        }),
+    );
+    const { exporter, logger } = makeExporter({ fetchFn, maxBatch: 1, timeoutMs: 60_000 });
+    const rec = new TraceRecorder({ captureContent: true });
+    rec.setSink('otlp', exporter);
+    for (let i = 0; i < 3; i++) rec.record(makeRecord());
+    const flushing = exporter.flush();
+    await new Promise((r) => setImmediate(r));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(signals[0].aborted).toBe(false);
+
+    stopOtlpExport(rec);
+    expect(signals[0].aborted).toBe(true);
+    await flushing;
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('a normal replace (endpoint change) still flushes the old exporter to its endpoint', async () => {
+    const { exporter, fetchFn } = makeExporter();
+    const rec = new TraceRecorder({ captureContent: false });
+    rec.setSink('otlp', exporter);
+    rec.record(makeRecord());
+    const next = makeExporter({ endpoint: 'https://other.example.com' });
+    rec.setSink('otlp', next.exporter);
+    await exporter.flush();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0][0]).toBe('https://collector.example.com/v1/traces');
+  });
+
+  it('setSink with discard falls back to dispose for sinks without discard()', () => {
+    const dispose = vi.fn();
+    const rec = new TraceRecorder({ captureContent: false });
+    rec.setSink('x', { export: () => {}, dispose });
+    rec.setSink('x', null, { discard: true });
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

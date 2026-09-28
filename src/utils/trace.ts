@@ -414,7 +414,18 @@ export interface TraceSink {
   export(record: TraceRecord, includeContent?: boolean): void;
   /** Capture was turned off: drop content from anything queued but not yet written/sent. */
   stripQueuedContent?(): void;
+  /** Normal teardown: finish writing/sending what is queued. */
   dispose?(): void | Promise<void>;
+  /** The user turned this sink off: drop queued items and stop any in-flight send. */
+  discard?(): void;
+}
+
+export interface SetSinkOptions {
+  /**
+   * Take the previous sink down with `discard()` (drop its queue, abort in-flight I/O)
+   * instead of `dispose()` (flush first). Use when the user said to stop sending.
+   */
+  discard?: boolean;
 }
 
 export const TRACE_RING_CAPACITY = 200;
@@ -468,11 +479,12 @@ export class TraceRecorder {
   }
 
   /** Install (or replace, or remove with `null`) a named sink. */
-  setSink(name: string, sink: TraceSink | null): void {
+  setSink(name: string, sink: TraceSink | null, options: SetSinkOptions = {}): void {
     const prev = this.sinks.get(name);
     if (prev && prev !== sink) {
       try {
-        void prev.dispose?.();
+        if (options.discard && prev.discard) prev.discard();
+        else void prev.dispose?.();
       } catch {
         /* ignore */
       }
