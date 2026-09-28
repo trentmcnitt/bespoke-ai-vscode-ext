@@ -74,7 +74,8 @@ const PER_DRIFT_CAP = 1;
  * by hand because each shows a distinct pre-fix failure.
  */
 const MUST_INCLUDE = [
-  // `user.isActive()` + suffix `)` → `)` trimmed; the judge wrongly failed it.
+  // `user.isActive()` + suffix `)`: the old trim removed the completion's own `)`, leaving
+  // `.filter(` unclosed (the judge was right); kept by the code-mode bracket guard.
   'quality-2026-03-26T21-32-33-claude-code-sonnet/code-java-mid-file',
   // Suffix regurgitation that post-processing trims down to a stray ` —`.
   'quality-2026-03-26T21-32-33-claude-code-sonnet/prose-long-prefix-narrative',
@@ -237,6 +238,30 @@ function loadRows(root: string): Row[] {
 function classifyDrift(r: Row): string | null {
   const rec = r.recorded ?? '';
   const cur = r.current ?? '';
+  if (
+    r.prefill &&
+    cur &&
+    rec.endsWith(cur) &&
+    /^\s+$/.test(rec.slice(0, rec.length - cur.length))
+  ) {
+    return (
+      'prefill-trailing-ws: prefill extraction now drops the part of the output that ' +
+      're-emits whitespace trimmed off the prefill anchor (it is already before the cursor); ' +
+      'the recorded output doubled it.'
+    );
+  }
+  if (
+    r.mode === 'code' &&
+    cur.startsWith(rec) &&
+    cur.length > rec.length &&
+    /^[\s)\]}]+$/.test(cur.slice(rec.length).replace(/[;,]/g, ''))
+  ) {
+    return (
+      'code-bracket-guard: the code-mode suffix-overlap trim no longer removes a closer of a ' +
+      'scope the completion opened itself; the recorded output lost its own closing ' +
+      `bracket (${JSON.stringify(cur.slice(rec.length))}).`
+    );
+  }
   if (r.prefill && rec.includes('</COMPLETION>')) {
     return (
       'prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST ' +

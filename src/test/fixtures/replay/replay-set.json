@@ -18,8 +18,8 @@
       "prefix_omitted_chars": 2244,
       "suffix_omitted_chars": 1532,
       "raw": "<COMPLETION>      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }</COMPLETION>",
-      "expected_final": "      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);",
-      "tags": ["drift:code-delimiter-overlap", "suffix-trim"],
+      "expected_final": "      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }",
+      "tags": ["drift:code-delimiter-overlap", "drift:code-bracket-guard"],
       "scenario_flags": {},
       "expected_checks": [
         {
@@ -33,15 +33,9 @@
           "detail": "suffix head not in raw output"
         }
       ],
-      "must_avoid": [
-        {
-          "kind": "suffix-overlap",
-          "value": "}",
-          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
-        }
-      ],
+      "must_avoid": [],
       "recorded_final": "      const handler = (payload: any) => {\n        resolve(payload as EventMap[T]);\n      };\n      this.emitter.once(event, handler);\n      if (timeoutMs !== undefined) {\n        setTimeout(() => {\n          this.emitter.off(event, handler);\n          reject(new Error('Timeout waiting for event'));\n        }, timeoutMs);\n      }",
-      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char; the recorded output duplicated closing delimiters already in the suffix (\"}\")."
+      "drift": "code-delimiter-overlap: f0edfc3 (2026-03-01) lowered the code-mode suffix-overlap minimum to 1 char, which trimmed the recorded output's final \"}\" as a duplicate of the suffix. Then: code-bracket-guard: trimSuffixOverlap (code mode) no longer trims a closing bracket that closes a scope the completion itself opened; that \"}\" closes the model's own `if (timeoutMs !== undefined) {` block, so the recorded output was already correct and is expected again."
     },
     {
       "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-go-goroutine",
@@ -1897,8 +1891,8 @@
       "prefix_omitted_chars": 116,
       "suffix_omitted_chars": 0,
       "raw": "<COMPLETION>user.isActive()</COMPLETION>",
-      "expected_final": "user.isActive(",
-      "tags": ["suffix-trim"],
+      "expected_final": "user.isActive()",
+      "tags": ["drift:code-bracket-guard"],
       "scenario_flags": {},
       "expected_checks": [
         {
@@ -1912,13 +1906,9 @@
           "detail": "suffix head not in raw output"
         }
       ],
-      "must_avoid": [
-        {
-          "kind": "suffix-overlap",
-          "value": ")",
-          "note": "completion tail duplicated the start of the suffix; the duplicate must be trimmed"
-        }
-      ]
+      "must_avoid": [],
+      "recorded_final": "user.isActive(",
+      "drift": "code-bracket-guard: trimSuffixOverlap (code mode) no longer trims a closing bracket that closes a scope the completion itself opened; the 1-char overlap match removed the model's own closer and left that scope unclosed. The recorded output \"user.isActive(\" left `.filter(` unclosed (the suffix \")\" closes `.filter(`, not `isActive(`)."
     },
     {
       "id": "2026-03-26T21-32-33-claude-code-sonnet/prose-bridge-medium-transition",

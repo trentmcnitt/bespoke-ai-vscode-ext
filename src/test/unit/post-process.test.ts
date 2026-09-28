@@ -274,3 +274,56 @@ describe('mode-gated suffix overlap', () => {
     expect(result).toBe('some code');
   });
 });
+
+describe('code-mode suffix overlap: bracket guard', () => {
+  const code = (completion: string, suffix: string) =>
+    postProcessCompletion(completion, undefined, suffix, 'code');
+
+  // Activation: closers that close scopes opened in the PREFIX are duplicates.
+  it('trims a closer echoed after the completion closed its own call', () => {
+    expect(code('c(d))', '))\n')).toBe('c(d)');
+  });
+
+  it('trims a lone duplicated closer', () => {
+    expect(code('bar)', ')\n')).toBe('bar');
+  });
+
+  it('fully trims a multi-closer echo whose brackets open and close inside the overlap', () => {
+    expect(code('results <- x\n\t}(item)\n\t}', '\n\t}(item)\n\t}\n')).toBe('results <- x');
+  });
+
+  it('trims only the echoed brace when the completion also closed its own object', () => {
+    expect(code('"k": {\n  "v": 1\n}\n}', '\n}\n}\n')).toBe('"k": {\n  "v": 1\n}');
+  });
+
+  // No-op: the trailing closer closes a scope the completion opened itself.
+  it('keeps the closer of a call the completion opened (filter predicate)', () => {
+    expect(code('user.isActive()', ')\n  .map(toDto)')).toBe('user.isActive()');
+  });
+
+  it('keeps the closer of an inner call inside an outer argument list', () => {
+    const completion = "'aeiou'.includes(c)";
+    expect(code(completion, ').length;\n}')).toBe(completion);
+  });
+
+  it('keeps the closing brace of an if block the completion opened', () => {
+    const completion = 'if (ms) {\n  setTimeout(() => {\n    stop();\n  }, ms);\n}';
+    expect(code(completion, '\n  });\n}')).toBe(completion);
+  });
+
+  it('keeps nested Rust closers the completion opened', () => {
+    const completion = 'match c {\n    _ => Err(Error {\n        line: 1,\n    }),\n}';
+    expect(code(completion, '\n}\n\nfn next() {}')).toBe(completion);
+  });
+
+  it('keeps the brace closing a JSON object the completion opened', () => {
+    const completion = '"srv": {\n  "args": ["-y"]\n}';
+    expect(code(completion, '\n}\n')).toBe(completion);
+  });
+
+  it('prose mode is unaffected by the guard', () => {
+    expect(postProcessCompletion('see (the full note here)', undefined, ')', 'prose')).toBe(
+      'see (the full note here)',
+    );
+  });
+});

@@ -1,8 +1,58 @@
+const CLOSER_TO_OPENER: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+
+/**
+ * True when some closing bracket in `overlap` closes an opening bracket that
+ * appears in `kept` (the part of the completion that would survive the trim).
+ * Such a closer belongs to a scope the model opened itself, so it is not a
+ * duplicate of the suffix — trimming it would leave that scope unclosed.
+ *
+ * Closers that find no open bracket from `kept` close scopes opened in the
+ * prefix; those are the genuine duplicates the trim exists to remove. Brackets
+ * inside string literals / regexes are not lexed; a miscount there can only
+ * make a trim length look unsafe (so less gets trimmed), never more.
+ */
+function overlapClosesOwnScope(kept: string, overlap: string): boolean {
+  // Each entry: the opener char and whether it came from `kept`.
+  const stack: { ch: string; fromKept: boolean }[] = [];
+  const scan = (text: string, fromKept: boolean): boolean => {
+    for (const ch of text) {
+      if (ch === '(' || ch === '[' || ch === '{') {
+        stack.push({ ch, fromKept });
+      } else if (ch in CLOSER_TO_OPENER) {
+        const top = stack[stack.length - 1];
+        if (!top || top.ch !== CLOSER_TO_OPENER[ch]) {
+          continue; // closes a scope outside the completion
+        }
+        if (!fromKept && top.fromKept) {
+          return true;
+        }
+        stack.pop();
+      }
+    }
+    return false;
+  };
+  scan(kept, true);
+  return scan(overlap, false);
+}
+
 /**
  * Trim suffix overlap from a completion. If the completion's tail duplicates
  * the beginning of the suffix, return the completion truncated before the
- * overlap. Uses whitespace-normalized comparison (min 10 chars to avoid
- * false positives on common short phrases).
+ * overlap. Uses whitespace-normalized comparison (min 10 chars in prose to
+ * avoid false positives on common short phrases; min 1 char in code so a
+ * duplicated closing delimiter such as `]`, `}` or `"` is caught).
+ *
+ * Code-mode bracket guard: a 1-char match is also hit when the completion
+ * ends with a closer that closes a scope the completion itself opened
+ * (e.g. prefix `.filter(x => `, completion `x.ok()`, suffix `)` — the model's
+ * `)` closes its own `ok(`, not the suffix's). Trimming it leaves the model's
+ * scope unclosed and the inserted code invalid. So in code mode a candidate
+ * overlap length is rejected when any closer inside it closes an opener from
+ * the kept part of the completion (see overlapClosesOwnScope), and the next
+ * shorter matching length is tried. Safe because it only ever chooses an
+ * equal or shorter trim than the plain longest match — it never trims more.
+ * Preconditions: code mode, and the overlap contains a bracket closer that
+ * matches an unclosed opener in the completion; otherwise it is a no-op.
  */
 function trimSuffixOverlap(completion: string, suffix: string, mode?: 'prose' | 'code'): string {
   if (!suffix) {
@@ -26,11 +76,21 @@ function trimSuffixOverlap(completion: string, suffix: string, mode?: 'prose' | 
   const maxCheck = Math.min(normCompletion.length, normSuffix.length);
 
   // Find the longest suffix of normCompletion that equals a prefix of normSuffix
+  // (in code mode, skipping lengths whose overlap closes the completion's own
+  // brackets — see the bracket guard in the doc comment above).
   let bestNormLen = 0;
-  for (let len = minOverlap; len <= maxCheck; len++) {
-    if (normCompletion.slice(-len) === normSuffix.slice(0, len)) {
-      bestNormLen = len;
+  for (let len = maxCheck; len >= minOverlap; len--) {
+    if (normCompletion.slice(-len) !== normSuffix.slice(0, len)) {
+      continue;
     }
+    if (
+      mode === 'code' &&
+      overlapClosesOwnScope(normCompletion.slice(0, -len), normCompletion.slice(-len))
+    ) {
+      continue;
+    }
+    bestNormLen = len;
+    break;
   }
 
   if (bestNormLen === 0) {
