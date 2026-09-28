@@ -320,9 +320,10 @@
           "default": [
             "haiku",
             "sonnet",
-            "opus"
+            "opus",
+            "fable"
           ],
-          "description": "Available Claude Code models. The active model is set in claudeCode.model."
+          "description": "Available Claude Code models. The active model is set in claudeCode.model. These are Claude Code's aliases for the latest model in each family, so they follow new releases without an update to this list."
         },
         "bespokeAI.prose.contextChars": {
           "type": "number",

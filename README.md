@@ -189,10 +189,10 @@ All settings live under `bespokeAI.*` in VS Code settings.
 <details>
 <summary><strong>Model (Claude Code backend)</strong></summary>
 
-| Setting             | Default                       | Description                              |
-| ------------------- | ----------------------------- | ---------------------------------------- |
-| `claudeCode.model`  | `"sonnet"`                    | Active model (sonnet, haiku, opus, etc.) |
-| `claudeCode.models` | `["haiku", "sonnet", "opus"]` | Available models catalog                 |
+| Setting             | Default                                | Description                              |
+| ------------------- | -------------------------------------- | ---------------------------------------- |
+| `claudeCode.model`  | `"sonnet"`                             | Active model (sonnet, haiku, opus, etc.) |
+| `claudeCode.models` | `["haiku", "sonnet", "opus", "fable"]` | Available models catalog                 |
 
 </details>
 

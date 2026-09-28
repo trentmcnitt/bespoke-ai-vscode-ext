@@ -1536,7 +1536,7 @@ function loadConfig(): ExtensionConfig {
     },
     claudeCode: {
       model: ws.get<string>('claudeCode.model', DEFAULT_MODEL)!,
-      models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus'])!,
+      models: ws.get<string[]>('claudeCode.models', ['haiku', 'sonnet', 'opus', 'fable'])!,
     },
     api: {
       preset: ws.get<string>('api.preset', DEFAULT_PRESET_ID)!,

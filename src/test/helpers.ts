@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     contextChars: 2500,
     suffixChars: 2000,
   },
-  claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus'] },
+  claudeCode: { model: DEFAULT_MODEL, models: ['haiku', 'sonnet', 'opus', 'fable'] },
   api: {
     preset: 'xai-grok',
     customPresets: [],
