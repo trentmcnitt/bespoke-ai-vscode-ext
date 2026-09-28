@@ -144,6 +144,19 @@ describe('OpenAICompatAdapter', () => {
       expect(requestOpts).toEqual({ signal });
     });
 
+    it('leaves temperature out when the preset says the model rejects sampling (OpenRouter Sonnet 5)', async () => {
+      await new OpenAICompatAdapter(
+        openrouterPreset({
+          modelId: 'anthropic/claude-sonnet-5',
+          promptStrategy: 'tag-extraction',
+          features: { prefill: false, sampling: false },
+        }),
+      ).complete('SYS', messages, opts({ temperature: 0.2 }));
+      const params = mocks.create.mock.calls[0][0];
+      expect(Object.keys(params)).not.toContain('temperature');
+      expect(params.model).toBe('anthropic/claude-sonnet-5');
+    });
+
     it('forwards an assistant prefill message in order', async () => {
       await new OpenAICompatAdapter(openrouterPreset()).complete(
         'SYS',

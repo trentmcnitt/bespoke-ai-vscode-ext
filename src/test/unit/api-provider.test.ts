@@ -230,6 +230,43 @@ describe('ApiCompletionProvider', () => {
       expect(messages[1].content).toBe(`<COMPLETION>${ctx.prefix.slice(-40).trimEnd()}`);
     });
 
+    it('anthropic-sonnet (Sonnet 5, no prefill support): sends only a user message and extracts tags', async () => {
+      const provider = new ApiCompletionProvider(
+        makeConfig({ api: { preset: 'anthropic-sonnet', customPresets: [] } }),
+        makeLogger(),
+      );
+      const adapter = lastAdapter();
+      // The adapter receives the capability flags it uses to leave out temperature.
+      expect(adapter.preset.features).toEqual({
+        promptCaching: true,
+        prefill: false,
+        sampling: false,
+        disableThinking: true,
+      });
+      adapter.complete.mockResolvedValue(
+        makeResult({ text: '<COMPLETION> ran into the forest.</COMPLETION>' }),
+      );
+
+      const ctx = makeProseContext({ prefix: 'The fox' });
+      await expect(provider.getCompletion(ctx, signal())).resolves.toBe(' ran into the forest.');
+      const messages = adapter.complete.mock.calls[0][1];
+      expect(messages).toEqual([
+        { role: 'user', content: expect.stringContaining('{{FILL_HERE}}') },
+      ]);
+    });
+
+    it('anthropic-sonnet applies prefix-overlap trimming (no prefill anchor to rely on)', async () => {
+      const provider = new ApiCompletionProvider(
+        makeConfig({ api: { preset: 'anthropic-sonnet', customPresets: [] } }),
+        makeLogger(),
+      );
+      lastAdapter().complete.mockResolvedValue(
+        makeResult({ text: '<COMPLETION>- item two</COMPLETION>' }),
+      );
+      const ctx = makeProseContext({ prefix: '- item one\n- ' });
+      await expect(provider.getCompletion(ctx, signal())).resolves.toBe('item two');
+    });
+
     it('prefill preset returns null when the model closes the tag immediately with nothing usable', async () => {
       const provider = new ApiCompletionProvider(
         makeConfig({ api: { preset: 'anthropic-haiku', customPresets: [] } }),

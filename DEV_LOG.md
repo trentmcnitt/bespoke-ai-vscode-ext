@@ -4,6 +4,16 @@ Reverse chronological. Most recent entry first.
 
 ---
 
+## 09-28-26
+
+### `anthropic-sonnet` preset fixed (branch `showcase/followup-sonnet`)
+
+- **Sonnet 5 rejects `temperature` and an assistant prefill (HTTP 400), so the preset had failed every request since 0.8.8.** Claude-model presets now take strategy and request features from `providers/api/model-capabilities.ts` (sourced from the Sonnet 5 migration guide and the Claude API skill): no prefill → `tag-extraction`; no sampling → `temperature` left out. Unknown ids keep the Haiku 4.5 behaviour, so add a row when a new Claude model ships.
+- **Sonnet 5 thinks by default, and thinking tokens count against `max_tokens`.** With the presets' 200-token cap, 3 of 51 sampled requests spent all 200 on thinking and returned no text. The adapter now sends `thinking: {type: "disabled"}` for Sonnet 5 / Opus 5. Opus 5.5 and Fable reject that, so a custom preset on them can still come back empty.
+- Tag extraction without a prefill kept the leading space on Sonnet 5 (0/29 glued in the sample, one misread word in the harness). The earlier 24/28 glued result (variant P1) was haiku with `<COMPLETION>` still prefilled, a different setup. See `evals/2026-09-28-sonnet-preset.md`.
+
+---
+
 ## 09-27-26
 
 ### CLI slot isolation, pool-kill outcomes, breaker and empties (branch `showcase/followup-pool`)

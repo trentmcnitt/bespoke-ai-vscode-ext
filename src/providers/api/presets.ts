@@ -1,8 +1,43 @@
 import { Preset } from './types';
 import { CustomPreset } from '../../types';
 import { resolveApiKey } from '../../utils/api-key-store';
+import { anthropicModelCapabilities } from './model-capabilities';
 
-const BUILT_IN_PRESETS: Preset[] = [
+/** True when the preset's model is a Claude model (direct API or OpenRouter `anthropic/…`). */
+export function isAnthropicModel(provider: string, modelId: string): boolean {
+  return (
+    provider === 'anthropic' || (provider === 'openrouter' && modelId.startsWith('anthropic/'))
+  );
+}
+
+/**
+ * Set a Claude-model preset's prompt strategy and request features from the
+ * model's capabilities (`model-capabilities.ts`). A model that accepts a
+ * prefill uses `prefill-extraction`; one that rejects it uses
+ * `tag-extraction`, the CLI backend's strategy, which sends no assistant
+ * message. `features.sampling` is false when the model rejects `temperature`.
+ * Prompt caching stays on for the direct Anthropic API. Non-Claude presets are
+ * returned unchanged.
+ */
+export function withAnthropicCapabilities(preset: Preset): Preset {
+  if (!isAnthropicModel(preset.provider, preset.modelId)) return preset;
+  const caps = anthropicModelCapabilities(preset.modelId);
+  const features: NonNullable<Preset['features']> = { ...preset.features, prefill: caps.prefill };
+  if (preset.provider === 'anthropic') features.promptCaching = true;
+  if (caps.sampling) delete features.sampling;
+  else features.sampling = false;
+  // Only the Anthropic adapter sends `thinking`; OpenRouter uses its own
+  // `reasoning` field (set through extraBody), so it is not set there.
+  if (caps.disableThinking && preset.provider === 'anthropic') features.disableThinking = true;
+  else delete features.disableThinking;
+  return {
+    ...preset,
+    promptStrategy: caps.prefill ? 'prefill-extraction' : 'tag-extraction',
+    features,
+  };
+}
+
+const BUILT_IN_PRESET_DEFS: Preset[] = [
   {
     id: 'anthropic-haiku',
     displayName: 'Haiku 4.5',
@@ -23,9 +58,12 @@ const BUILT_IN_PRESETS: Preset[] = [
     modelId: 'claude-sonnet-5',
     apiKeyEnvVar: 'ANTHROPIC_API_KEY',
     maxTokens: 200,
-    temperature: 0.2,
-    promptStrategy: 'prefill-extraction',
-    features: { promptCaching: true, prefill: true },
+    temperature: 0.2, // not sent: Sonnet 5 rejects sampling parameters
+    // Sonnet 5 rejects an assistant prefill, so this preset uses the CLI's
+    // tag extraction (withAnthropicCapabilities would set the same).
+    promptStrategy: 'tag-extraction',
+    // Sonnet 5 thinks by default; with a 200-token cap that can leave no text.
+    features: { promptCaching: true, prefill: false, sampling: false, disableThinking: true },
   },
   {
     id: 'openai-gpt-4.1-nano',
@@ -170,6 +208,8 @@ const BUILT_IN_PRESETS: Preset[] = [
   },
 ];
 
+const BUILT_IN_PRESETS: Preset[] = BUILT_IN_PRESET_DEFS.map(withAnthropicCapabilities);
+
 let customPresets: Preset[] = [];
 
 /** Slugify a display name into a custom preset ID. */
@@ -203,11 +243,6 @@ export function registerCustomPresets(customs: CustomPreset[]): string[] {
       const id = slugify(c.name);
       const provider =
         c.provider === 'openai-compat' ? 'openai' : (c.provider as Preset['provider']);
-      const isAnthropicModel =
-        c.provider === 'anthropic' ||
-        (c.provider === 'openrouter' && c.modelId.startsWith('anthropic/'));
-      const promptStrategy = isAnthropicModel ? 'prefill-extraction' : 'instruction-extraction';
-
       const preset: Preset = {
         id,
         displayName: c.name,
@@ -216,7 +251,7 @@ export function registerCustomPresets(customs: CustomPreset[]): string[] {
         modelId: c.modelId,
         maxTokens: c.maxTokens ?? 200,
         temperature: c.temperature ?? 0.2,
-        promptStrategy,
+        promptStrategy: 'instruction-extraction',
       };
 
       // Auto-populate baseUrl for providers that require non-default endpoints
@@ -243,17 +278,12 @@ export function registerCustomPresets(customs: CustomPreset[]): string[] {
         preset.apiKeyEnvVar = 'OPENROUTER_API_KEY';
       }
 
-      // Anthropic features (direct API gets caching + prefill; OpenRouter gets prefill only)
-      if (provider === 'anthropic') {
-        preset.features = { promptCaching: true, prefill: true };
-      } else if (isAnthropicModel) {
-        preset.features = { prefill: true };
-      }
-
       if (c.extraBody) preset.extraBody = c.extraBody;
       if (c.extraHeaders) preset.extraHeaders = c.extraHeaders;
 
-      return preset;
+      // Claude models (direct API, or OpenRouter `anthropic/…`): strategy,
+      // prefill, sampling and (direct API) prompt caching come from the model.
+      return withAnthropicCapabilities(preset);
     })
     .filter((p) => {
       if (builtInIds.has(p.id)) {

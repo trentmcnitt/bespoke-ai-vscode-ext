@@ -114,6 +114,37 @@ describe('AnthropicAdapter', () => {
       expect(requestOpts).toEqual({ signal });
     });
 
+    it('Sonnet 5 preset: no temperature key, and only the user message is sent', async () => {
+      const sonnet = makePreset({
+        modelId: 'claude-sonnet-5',
+        promptStrategy: 'tag-extraction',
+        features: { promptCaching: true, prefill: false, sampling: false, disableThinking: true },
+      });
+      await new AnthropicAdapter(sonnet).complete(
+        'SYS',
+        [{ role: 'user', content: '<document>...</document>' }],
+        opts({ temperature: 0.2 }),
+      );
+      const params = mocks.create.mock.calls[0][0];
+      expect(Object.keys(params)).not.toContain('temperature');
+      expect(params.thinking).toEqual({ type: 'disabled' });
+      expect(params.model).toBe('claude-sonnet-5');
+      expect(params.messages).toEqual([{ role: 'user', content: '<document>...</document>' }]);
+      expect(params.system).toEqual([
+        { type: 'text', text: 'SYS', cache_control: { type: 'ephemeral' } },
+      ]);
+    });
+
+    it('Haiku 4.5 preset (sampling not disabled) still sends temperature', async () => {
+      await new AnthropicAdapter(makePreset()).complete(
+        'SYS',
+        messages,
+        opts({ temperature: 0.2 }),
+      );
+      expect(mocks.create.mock.calls[0][0].temperature).toBe(0.2);
+      expect(Object.keys(mocks.create.mock.calls[0][0])).not.toContain('thinking');
+    });
+
     it('wraps the system prompt in a cache_control block when prompt caching is enabled', async () => {
       await new AnthropicAdapter(makePreset()).complete('SYS', messages, opts());
       expect(mocks.create.mock.calls[0][0].system).toEqual([
