@@ -72,6 +72,8 @@ Judged by four `claude-opus-5-5` agents following `validator-prompt.md`, one ver
 
 `code-full-py-pipeline-dispatch` returned an empty completion and passed: the scenario sets `expect_empty_ok` because the suffix already holds the next line.
 
+**Commands.** One live `ApiCommandProvider.sendPrompt` call on the preset (commit message for a one-line diff) returned `end_turn` with a sensible message, so commit messages and Suggest Edits, which share the adapter, no longer 400 either.
+
 ## Whitespace harness
 
 The targeted harness from [2026-09-28-whitespace-fix.md](2026-09-28-whitespace-fix.md) (same scenario selection: 44 word-boundary prose cases, 3 mid-word, 17 already-spaced; code controls off), `anthropic-sonnet` at `ac1cf3f`, 3 samples each, 192 calls:
