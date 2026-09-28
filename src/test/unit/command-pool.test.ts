@@ -118,6 +118,37 @@ describe('CommandPool', () => {
       expect(await waiting).toMatchObject({ text: null, errorType: 'pool_recycled' });
     });
 
+    it('a session that ends cleanly while holding the command is slot_stream_ended, not a hang', async () => {
+      let end: (() => void) | null = null;
+      let calls = 0;
+      mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        calls++;
+        async function* gen() {
+          const it = prompt[Symbol.asyncIterator]();
+          await it.next();
+          yield { type: 'result', subtype: 'success', result: 'READY' };
+          await it.next();
+          await new Promise<void>((r) => (end = r)); // the CLI exits without a result
+        }
+        return gen();
+      });
+      const pool = new CommandPool('haiku', makeLogger());
+      activePool = pool;
+      await pool.activate();
+
+      // No timeoutMs: nothing but the session itself can settle this command.
+      const held = pool.sendPrompt('one');
+      await settle();
+      end!();
+      const res = await Promise.race([
+        held,
+        new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), 200)),
+      ]);
+      expect(res).toEqual({ text: null, meta: null, errorType: 'slot_stream_ended' });
+      await settle();
+      expect(calls).toBe(2); // the slot respawned
+    });
+
     it('an unavailable pool reports slot_unavailable', async () => {
       const pool = new CommandPool('haiku', makeLogger());
       expect(await pool.sendPrompt('x')).toEqual({
