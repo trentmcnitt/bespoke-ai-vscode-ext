@@ -118,7 +118,7 @@ describe('AnthropicAdapter', () => {
       const sonnet = makePreset({
         modelId: 'claude-sonnet-5',
         promptStrategy: 'tag-extraction',
-        features: { promptCaching: true, prefill: false, sampling: false },
+        features: { promptCaching: true, prefill: false, sampling: false, disableThinking: true },
       });
       await new AnthropicAdapter(sonnet).complete(
         'SYS',
@@ -127,6 +127,7 @@ describe('AnthropicAdapter', () => {
       );
       const params = mocks.create.mock.calls[0][0];
       expect(Object.keys(params)).not.toContain('temperature');
+      expect(params.thinking).toEqual({ type: 'disabled' });
       expect(params.model).toBe('claude-sonnet-5');
       expect(params.messages).toEqual([{ role: 'user', content: '<document>...</document>' }]);
       expect(params.system).toEqual([
@@ -141,6 +142,7 @@ describe('AnthropicAdapter', () => {
         opts({ temperature: 0.2 }),
       );
       expect(mocks.create.mock.calls[0][0].temperature).toBe(0.2);
+      expect(Object.keys(mocks.create.mock.calls[0][0])).not.toContain('thinking');
     });
 
     it('wraps the system prompt in a cache_control block when prompt caching is enabled', async () => {

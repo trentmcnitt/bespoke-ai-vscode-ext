@@ -26,6 +26,10 @@ export function withAnthropicCapabilities(preset: Preset): Preset {
   if (preset.provider === 'anthropic') features.promptCaching = true;
   if (caps.sampling) delete features.sampling;
   else features.sampling = false;
+  // Only the Anthropic adapter sends `thinking`; OpenRouter uses its own
+  // `reasoning` field (set through extraBody), so it is not set there.
+  if (caps.disableThinking && preset.provider === 'anthropic') features.disableThinking = true;
+  else delete features.disableThinking;
   return {
     ...preset,
     promptStrategy: caps.prefill ? 'prefill-extraction' : 'tag-extraction',
@@ -58,7 +62,8 @@ const BUILT_IN_PRESET_DEFS: Preset[] = [
     // Sonnet 5 rejects an assistant prefill, so this preset uses the CLI's
     // tag extraction (withAnthropicCapabilities would set the same).
     promptStrategy: 'tag-extraction',
-    features: { promptCaching: true, prefill: false, sampling: false },
+    // Sonnet 5 thinks by default; with a 200-token cap that can leave no text.
+    features: { promptCaching: true, prefill: false, sampling: false, disableThinking: true },
   },
   {
     id: 'openai-gpt-4.1-nano',

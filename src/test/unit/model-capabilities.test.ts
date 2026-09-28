@@ -16,13 +16,34 @@ describe('anthropicModelCapabilities', () => {
     'anthropic/claude-sonnet-5',
     'anthropic/claude-opus-4.7',
   ])('%s: no prefill, no sampling parameters', (id) => {
-    expect(anthropicModelCapabilities(id)).toEqual({ prefill: false, sampling: false });
+    expect(anthropicModelCapabilities(id)).toMatchObject({ prefill: false, sampling: false });
+  });
+
+  it.each(['claude-sonnet-5', 'claude-opus-5', 'anthropic/claude-sonnet-5'])(
+    '%s: thinks by default, so thinking is disabled',
+    (id) => {
+      expect(anthropicModelCapabilities(id).disableThinking).toBe(true);
+    },
+  );
+
+  it.each([
+    'claude-opus-5-5', // rejects thinking: disabled
+    'claude-fable-5-1', // rejects thinking: disabled
+    'claude-opus-4-8', // no thinking unless asked
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5',
+  ])('%s: thinking field is not sent', (id) => {
+    expect(anthropicModelCapabilities(id).disableThinking).toBe(false);
   });
 
   it.each(['claude-opus-4-6', 'claude-sonnet-4-6', 'anthropic/claude-sonnet-4.6'])(
     '%s: no prefill, sampling parameters allowed',
     (id) => {
-      expect(anthropicModelCapabilities(id)).toEqual({ prefill: false, sampling: true });
+      expect(anthropicModelCapabilities(id)).toEqual({
+        prefill: false,
+        sampling: true,
+        disableThinking: false,
+      });
     },
   );
 
@@ -35,7 +56,11 @@ describe('anthropicModelCapabilities', () => {
     'claude-3-5-sonnet-latest',
     'claude-something-new',
   ])('%s: unknown or older model keeps prefill and sampling', (id) => {
-    expect(anthropicModelCapabilities(id)).toEqual({ prefill: true, sampling: true });
+    expect(anthropicModelCapabilities(id)).toEqual({
+      prefill: true,
+      sampling: true,
+      disableThinking: false,
+    });
   });
 
   it('does not match a longer version number that shares a prefix', () => {
@@ -43,6 +68,7 @@ describe('anthropicModelCapabilities', () => {
     expect(anthropicModelCapabilities('claude-opus-4-60')).toEqual({
       prefill: true,
       sampling: true,
+      disableThinking: false,
     });
   });
 

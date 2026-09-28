@@ -47,6 +47,9 @@ export class AnthropicAdapter implements ApiAdapter {
           // Left out, not sent as undefined, when the model rejects sampling
           // parameters (Sonnet 5, Opus 4.7+: HTTP 400). See model-capabilities.ts.
           ...(this.preset.features?.sampling === false ? {} : { temperature: options.temperature }),
+          // Models that think by default (Sonnet 5): thinking tokens count
+          // against max_tokens and can use up the whole completion budget.
+          ...(this.preset.features?.disableThinking ? { thinking: { type: 'disabled' } } : {}),
           system,
           messages: apiMessages,
           stop_sequences: options.stopSequences,

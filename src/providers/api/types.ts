@@ -26,6 +26,11 @@ export interface Preset {
      * Absent means sampling parameters are sent. See `model-capabilities.ts`.
      */
     sampling?: boolean;
+    /**
+     * Direct Anthropic API: send `thinking: {type: "disabled"}` (for models that
+     * think by default, e.g. Sonnet 5). See `model-capabilities.ts`.
+     */
+    disableThinking?: boolean;
   };
 
   /** Extra parameters merged into the API request body. */

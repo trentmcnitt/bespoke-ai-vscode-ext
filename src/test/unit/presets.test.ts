@@ -100,7 +100,12 @@ describe('Presets', () => {
       const preset = getPreset('anthropic-sonnet');
       expect(preset?.modelId).toBe('claude-sonnet-5');
       expect(preset?.promptStrategy).toBe('tag-extraction');
-      expect(preset?.features).toEqual({ promptCaching: true, prefill: false, sampling: false });
+      expect(preset?.features).toEqual({
+        promptCaching: true,
+        prefill: false,
+        sampling: false,
+        disableThinking: true,
+      });
     });
 
     it('every built-in Anthropic-model preset agrees with anthropicModelCapabilities()', () => {
@@ -115,6 +120,9 @@ describe('Presets', () => {
         expect(p.promptStrategy).toBe(caps.prefill ? 'prefill-extraction' : 'tag-extraction');
         expect(p.features?.prefill).toBe(caps.prefill);
         expect(p.features?.sampling === false).toBe(!caps.sampling);
+        expect(p.features?.disableThinking === true).toBe(
+          caps.disableThinking && p.provider === 'anthropic',
+        );
       }
     });
   });
@@ -183,7 +191,12 @@ describe('Presets', () => {
       ]);
       const preset = getPreset('custom-my-sonnet');
       expect(preset?.promptStrategy).toBe('tag-extraction');
-      expect(preset?.features).toEqual({ promptCaching: true, prefill: false, sampling: false });
+      expect(preset?.features).toEqual({
+        promptCaching: true,
+        prefill: false,
+        sampling: false,
+        disableThinking: true,
+      });
     });
 
     it('OpenRouter anthropic/claude-sonnet-5 gets tag-extraction, no prefill, no sampling, no caching', () => {

@@ -18,6 +18,16 @@
  * later, Sonnet 5, Fable 5 and Mythos 5). Both Sonnet 5 rejections were also
  * observed directly (evals/2026-09-28-sonnet-preset.md).
  *
+ * A third difference: Sonnet 5 and Opus 5 run adaptive thinking when the
+ * request has no `thinking` field ("Adaptive thinking on by default … To turn
+ * thinking off, pass thinking: {type: "disabled"}", same migration guide).
+ * Thinking tokens count against `max_tokens`, and with the presets' 200-token
+ * cap the model sometimes spent the whole budget thinking and returned no text
+ * (3 of 51 scenarios, evals/2026-09-28-sonnet-preset.md), so the adapter turns
+ * it off for these models. Opus 5.5 and Fable 5.x reject `disabled` (thinking
+ * is always on there); Opus 4.6–4.8 and Sonnet 4.6 run without thinking when
+ * the field is omitted. Neither group is sent the field.
+ *
  * Models not listed (Haiku 4.5, Sonnet 4.5, Opus 4.5 and older, and ids this
  * table does not recognise) keep the previous behaviour: prefill and
  * temperature allowed.
@@ -27,6 +37,11 @@ export interface AnthropicModelCapabilities {
   prefill: boolean;
   /** The model accepts `temperature` / `top_p` / `top_k`. */
   sampling: boolean;
+  /**
+   * The model thinks by default and accepts `thinking: {type: "disabled"}`;
+   * the adapter sends it so thinking cannot use up the small `max_tokens`.
+   */
+  disableThinking: boolean;
 }
 
 interface CapabilityRow {
@@ -35,12 +50,27 @@ interface CapabilityRow {
   caps: AnthropicModelCapabilities;
 }
 
-const NO_PREFILL_NO_SAMPLING: AnthropicModelCapabilities = { prefill: false, sampling: false };
-const NO_PREFILL: AnthropicModelCapabilities = { prefill: false, sampling: true };
+const NO_PREFILL_NO_SAMPLING: AnthropicModelCapabilities = {
+  prefill: false,
+  sampling: false,
+  disableThinking: false,
+};
+const NO_PREFILL_NO_SAMPLING_THINKS: AnthropicModelCapabilities = {
+  prefill: false,
+  sampling: false,
+  disableThinking: true,
+};
+const NO_PREFILL: AnthropicModelCapabilities = {
+  prefill: false,
+  sampling: true,
+  disableThinking: false,
+};
 
+// First match wins: `claude-opus-5-5` must come before `claude-opus-5`.
 const ROWS: CapabilityRow[] = [
-  { prefix: 'claude-sonnet-5', caps: NO_PREFILL_NO_SAMPLING },
-  { prefix: 'claude-opus-5', caps: NO_PREFILL_NO_SAMPLING }, // also Opus 5.5 (claude-opus-5-5)
+  { prefix: 'claude-sonnet-5', caps: NO_PREFILL_NO_SAMPLING_THINKS },
+  { prefix: 'claude-opus-5-5', caps: NO_PREFILL_NO_SAMPLING },
+  { prefix: 'claude-opus-5', caps: NO_PREFILL_NO_SAMPLING_THINKS },
   { prefix: 'claude-opus-4-8', caps: NO_PREFILL_NO_SAMPLING },
   { prefix: 'claude-opus-4-7', caps: NO_PREFILL_NO_SAMPLING },
   { prefix: 'claude-fable', caps: NO_PREFILL_NO_SAMPLING },
@@ -49,7 +79,11 @@ const ROWS: CapabilityRow[] = [
   { prefix: 'claude-sonnet-4-6', caps: NO_PREFILL },
 ];
 
-const DEFAULT_CAPS: AnthropicModelCapabilities = { prefill: true, sampling: true };
+const DEFAULT_CAPS: AnthropicModelCapabilities = {
+  prefill: true,
+  sampling: true,
+  disableThinking: false,
+};
 
 /**
  * Normalise a model id across the direct API and OpenRouter:

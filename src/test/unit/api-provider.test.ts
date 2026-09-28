@@ -241,6 +241,7 @@ describe('ApiCompletionProvider', () => {
         promptCaching: true,
         prefill: false,
         sampling: false,
+        disableThinking: true,
       });
       adapter.complete.mockResolvedValue(
         makeResult({ text: '<COMPLETION> ran into the forest.</COMPLETION>' }),
