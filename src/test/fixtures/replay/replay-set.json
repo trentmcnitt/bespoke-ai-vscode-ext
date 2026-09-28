@@ -98,14 +98,14 @@
       "prefix_omitted_chars": 0,
       "suffix_omitted_chars": 0,
       "raw": "{{FILL_HERE}}</COMPLETION>\n\nWait, let me reconsider. Looking at the code structure:\n\n```javascript\nconst users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => {{FILL_HERE}});\n```\n\nThe `.map()` callback needs to extract the name from each user object.\n\n<COMPLETION>user.name</COMPLETION>",
-      "expected_final": null,
-      "tags": ["drift:prefill-thinking-leak", "tag-strip", "final-null", "check-fail:non-empty"],
+      "expected_final": "user.name",
+      "tags": ["drift:prefill-thinking-leak", "drift:prefill-scaffold-retry", "prefill-retry-used"],
       "scenario_flags": {},
       "expected_checks": [
         {
           "id": "non-empty",
-          "pass": false,
-          "detail": "empty completion (empty after post-processing)"
+          "pass": true,
+          "detail": "completion has content"
         }
       ],
       "must_avoid": [
@@ -115,7 +115,7 @@
         }
       ],
       "recorded_final": "{{FILL_HERE}}</COMPLETION>\n\nWait, let me reconsider. Looking at the code structure:\n\n```javascript\nconst users = await db.query('SELECT * FROM users WHERE active = true');\nconst userNames = users.map(user => {{FILL_HERE}});\n```\n\nThe `.map()` callback needs to extract the name from each user object.\n\n<COMPLETION>user.name",
-      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text."
+      "drift": "prefill-thinking-leak: f0edfc3 (2026-03-01) made prefill extraction stop at the FIRST </COMPLETION> and retry a second <COMPLETION> pair after an immediate close; the recorded output kept the model's \"Wait, let me reconsider…\" text. Then: prefill-scaffold-retry: the thinking-leak retry now also applies when the first block is only prompt scaffolding ({{FILL_HERE}}); that block used to count as substantive, post-processing stripped the marker, and the retry's `user.name` was lost (final null). `user.name` is the right fill for `users.map(user => ` + `);`."
     },
     {
       "id": "2026-03-01T22-26-45-api-anthropic-haiku/code-py-list-comprehension",

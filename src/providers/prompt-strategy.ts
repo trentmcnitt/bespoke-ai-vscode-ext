@@ -275,10 +275,15 @@ function extractPrefillContent(raw: string): string | null {
   // and "valid-first-then-think" patterns). If empty, look for a
   // second <COMPLETION>...</COMPLETION> pair (the model's retry after
   // thinking).
+  //
+  // "Substantive" ignores prompt scaffolding: a first block that is only the
+  // {{FILL_HERE}} marker (the model echoing the placeholder, then retrying)
+  // counts as empty, so the retry is used. Otherwise the marker was returned,
+  // post-processing stripped it, and the retry's real text was lost.
   const close = raw.indexOf('</COMPLETION>');
   if (close !== -1) {
     const content = raw.slice(0, close);
-    if (content.trim()) {
+    if (!isScaffoldOnly(content)) {
       return content;
     }
     // Immediate close — model may have started thinking then retried.
@@ -289,7 +294,7 @@ function extractPrefillContent(raw: string): string | null {
       const secondClose = raw.indexOf('</COMPLETION>', afterOpen);
       if (secondClose !== -1) {
         const retryContent = raw.slice(afterOpen, secondClose);
-        if (retryContent.trim()) {
+        if (!isScaffoldOnly(retryContent)) {
           return retryContent;
         }
       }
@@ -298,6 +303,11 @@ function extractPrefillContent(raw: string): string | null {
     return null;
   }
   return raw; // fallback: no closing tag, use raw text
+}
+
+/** True when `text` is blank once prompt scaffolding tags / the fill marker are removed. */
+function isScaffoldOnly(text: string): boolean {
+  return !text.replace(/<\/?COMPLETION>|\{\{FILL_HERE\}\}/g, '').trim();
 }
 
 /** Common preamble patterns that non-Anthropic models produce. */

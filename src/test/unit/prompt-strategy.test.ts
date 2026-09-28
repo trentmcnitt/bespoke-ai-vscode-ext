@@ -194,6 +194,49 @@ describe('PrefillExtraction strategy', () => {
     );
   });
 
+  describe('thinking-leak retry (immediate close, then a second block)', () => {
+    it('uses the retry block when the first block is empty', () => {
+      expect(
+        prefillExtraction.extractCompletion(
+          '</COMPLETION>\n\nLet me redo that.\n<COMPLETION>ok</COMPLETION>',
+        ),
+      ).toBe('ok');
+    });
+
+    it('uses the first block when it is substantive, even if a second block follows', () => {
+      expect(
+        prefillExtraction.extractCompletion('first</COMPLETION>\n<COMPLETION>second</COMPLETION>'),
+      ).toBe('first');
+    });
+
+    // Recorded from claude-haiku-4-5 (quality run 2026-03-02T00-46-35, code-js-arrow-function):
+    // the model echoed the placeholder, closed, then answered. The echoed marker used to
+    // count as substantive, post-processing stripped it, and `user.name` was lost.
+    it('treats a first block that is only the {{FILL_HERE}} marker as empty', () => {
+      expect(
+        prefillExtraction.extractCompletion(
+          '{{FILL_HERE}}</COMPLETION>\n\n<COMPLETION>user.name</COMPLETION>',
+        ),
+      ).toBe('user.name');
+    });
+
+    it('returns null when there is nothing but scaffolding or whitespace', () => {
+      expect(prefillExtraction.extractCompletion('</COMPLETION>')).toBeNull();
+      expect(prefillExtraction.extractCompletion(' \n</COMPLETION>')).toBeNull();
+      expect(prefillExtraction.extractCompletion('{{FILL_HERE}}</COMPLETION>')).toBeNull();
+      expect(
+        prefillExtraction.extractCompletion('</COMPLETION><COMPLETION>{{FILL_HERE}}</COMPLETION>'),
+      ).toBeNull();
+    });
+
+    it('keeps a first block that contains the marker alongside real text', () => {
+      // Not scaffold-only; post-processing strips the leaked marker as before.
+      expect(prefillExtraction.extractCompletion('x{{FILL_HERE}}</COMPLETION>')).toBe(
+        'x{{FILL_HERE}}',
+      );
+    });
+  });
+
   it('falls back to raw text when no closing tag', () => {
     expect(prefillExtraction.extractCompletion('raw text without tags')).toBe(
       'raw text without tags',
