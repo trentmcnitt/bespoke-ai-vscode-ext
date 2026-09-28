@@ -108,8 +108,56 @@ The variants were checked against `prompt-writing.md` and `llm-biases.md`. Q1–
 ## Possible next steps (not done; each needs Trent's approval)
 
 - **End the prefill anchor at a word boundary** (drop the partial last word from the anchor), so the model never continues from inside a token. Extraction would then have to remove the re-typed partial word, which extends the `16a90c9` rule from whitespace to text. That is new post-processing: it goes wrong when the model finishes the word differently.
-- **Reject a first block that contains prompt scaffolding beyond a leading `{{FILL_HERE}}`** (for example `</document>` or the "Fill the marker" line), and use a retry block if there is one. `ef272ad` already treats a first block that is only scaffolding as blank; widening that to "contains scaffolding" is new post-processing, because the rule would then act on blocks that also hold real text.
+- ~~**Reject a first block that contains prompt scaffolding beyond a leading `{{FILL_HERE}}`**~~ Done in `80c4324`, see [Fix: a block that echoes the user message](#fix-a-block-that-echoes-the-user-message-80c4324).
 - **Raise `maxTokens` on the Anthropic presets** so a detour has room to finish its second block. This is cheaper than the two above, but it accepts the detour rather than removing it.
+
+## Fix: a block that echoes the user message (`80c4324`)
+
+**Rule.** On the prefill path, a block is not an answer when, besides being scaffolding only (`ef272ad`), it echoes the user message back:
+
+- it starts with `{{FILL_HERE}}` (after optional whitespace) **and** contains `</document>` — the model copying the document from the marker to the wrapper's closing tag; or
+- it contains one of the exact sentences `buildFillMessage()` appended for this request: "Fill the {{FILL_HERE}} marker.", the three whitespace-cue sentences with the author's last word quoted, or "The text before it already ends with a space." The sentences now come from one function, `fillInstructionSentences(prefix)`, used by both the builder and the check, so the check keys on exactly what was sent. The sent messages are byte-identical to before (1,248 strategy × scenario × prefix combinations compared).
+
+A signal that also appears in the prefix or suffix sent is ignored, so editing this repo's `prompt-strategy.ts` (which contains the marker, `</document>` and the instruction line) is not affected; extraction now receives the suffix for this. A rejected first block falls through to the existing retry: a closed second block is used, otherwise nothing is shown. The retry block and the no-closing-tag fallback get the same check. Nothing is stripped or rewritten; a block is either used whole or not at all.
+
+Neither half of the first signal is enough alone: `</document>` is a real closing tag in XML, and a leading marker followed by a real answer (`{{FILL_HERE}}ent to production.`) is still handled by `stripLeakedTags()` as before. Both are covered by no-op tests, along with prose about "filling the marker field in the document", a cue-shaped sentence naming a different word, and reasoning that quotes nothing from the prompt.
+
+**Not caught, on purpose.** Reasoning written before the first `</COMPLETION>` that quotes nothing from the prompt ("Wait, let me reconsider…", "I need to see…") is still shown. That wording can be legitimate prose, so it is not a safe trigger. In every recorded leak so far the reasoning came after an echoed `{{FILL_HERE}}…</document>`, so the echo carried it out, but a leak without the echo would get through. A related shape seen once in the live runs is also untouched: a first block that stops at the model's own `{{FILL_HERE}}` mid-sentence (`…it is {{FILL_HERE}}</COMPLETION>`, then a detour cut off by `max_tokens`). It shows the fragment before the marker; it is not an echo of the prompt.
+
+**Recovery is rare.** Only 1 of the 37 changed cases below had a closed second block to fall back to. In 24 of the other 36, the answer is inside the rejected block, after an inner `<COMPLETION>` the model reopened without closing the first (`…</document> I need to see… <COMPLETION>/contact">Contact</COMPLETION>`). Taking the text after the last inner `<COMPLETION>` would recover most of them. That is a further extraction change and was not made.
+
+### Offline replay (no API calls)
+
+Every recorded `anthropic-haiku` raw output from this investigation (all 15 variants), the whitespace-fix harness, the prefill A/B harness and the five March quality runs was replayed through the old and the new prefill extraction plus post-processing, with the same inputs. For P0 the old replay reproduces the recorded ghost text exactly (86/86).
+
+| Corpus                                           |      Raws | Ghost text changed | Echo leak → nothing | Echo leak → correct answer | Other changes |
+| ------------------------------------------------ | --------: | -----------------: | ------------------: | -------------------------: | ------------: |
+| P0 grid (current prompt)                         |        62 |                  0 |                   0 |                          0 |             0 |
+| P0 mid-word set (current prompt)                 |        24 |                  2 |                   2 |                          0 |             0 |
+| Other variants, 2026-09-28                       |     1,064 |                 26 |                  25 |                          1 |             0 |
+| Whitespace-fix and prefill A/B harnesses         |       984 |                  8 |                   8 |                          0 |             0 |
+| March quality runs (`anthropic-haiku`/`-sonnet`) |       331 |                  1 |                   1 |                          0 |             0 |
+| **Total**                                        | **2,465** |             **37** |              **36** |                      **1** |         **0** |
+
+All 37 changes are echo leaks: 32 at `code-html-tag` (`href="`), 2 `the deploym`, and 3 in the whitespace-fix and prefill A/B harnesses (`prose-list-continuation` ×2, `regression-code-suffix-echo-shell-quote`), one of them under an older cue wording that the sentence check does not know; the marker-plus-`</document>` signal caught it. No completion that was not an echo changed. The replay set (`src/test/fixtures/replay/replay-set.json`) is unchanged, so no drift notes were needed; the builder gained a `prefill-echo-rejected` drift label for the March `code-html-tag` case should it be rebuilt. After the fix, no ghost text in the corpus contains `</document>`, "Fill the", the cue, or reasoning phrases (one legitimate "when I need to edit files" in prose).
+
+### Live confirmation (fixed code, `anthropic-haiku`)
+
+| Set                         | Calls | Echo leaks in ghost text | Would have leaked (old extraction, same raws) | Glued | Double space | Mid-word failures | `code-html-tag` result                             |
+| --------------------------- | ----: | -----------------------: | --------------------------------------------: | ----: | -----------: | ----------------: | -------------------------------------------------- |
+| P0, grid (recorded)         |    62 |                        0 |                                             — |  0/28 |          0/8 |               3/8 | 2/2 `/contact">Contact` via the detour             |
+| Fixed, grid ×3              |   186 |                        0 |                                             4 |  0/84 |         0/24 |     4/8, 4/8, 5/8 | 2/6 correct, 4/6 nothing (all 4 echo rejections)   |
+| P0, mid-word set (recorded) |    24 |                        2 |                                             — |     — |            — |              2/24 | —                                                  |
+| Fixed, mid-word set         |    24 |                        0 |                                             0 |     — |            — |              0/24 | —                                                  |
+| Fixed, `code-html-tag` ×6   |     6 |                        0 |                                             1 |     — |            — |                 — | 5/6 `/contact` or `/contact">Contact`, 1/6 nothing |
+
+Mid-word failures count a leading space, empty or invisible character; in the grid they are the four mid-word scenarios, and the changes between runs are sampling (none of those raws was touched by the new rule). `the deploym` did not echo in this run's 3 samples, so the mid-word improvement is the replay's 2 → 0, not the live 2/24 → 0/24. At `href="`, the old code showed the echo (suffix, `</document>`, reasoning) as ghost text whenever haiku took that path; it now shows nothing. Empty results in the fixed grid runs were 10, 8 and 11 of 62 (P0: 7); 1–2 per run are the rejected echoes, the rest are the existing immediate-close and `code-ts-partial-word` `max_tokens` cases.
+
+## Decision for Trent: `maxTokens` (not changed)
+
+The Anthropic presets cap output at 200 tokens. On the current prompt (P0 and the fixed runs, 302 calls), 13 hit the cap (4%). 8 of those showed nothing: 7 are `code-ts-partial-word`, which detours and then runs out inside its second block every time (6/6 in the fixed grid runs), and 1 is an echo at `href="`. The other 5 still showed an answer (a closed retry before the cut, or a long first block passed through the no-closing-tag fallback, truncated). Across all 1,366 saved calls (1,150 variant calls whose results were kept, plus the 216 fixed-code calls), 72 hit the cap: 39 were a first block that never closed (shown as-is, truncated), 31 a second block cut off (26 of them after a blank first block, which shows nothing unless an earlier retry had closed).
+
+Raising the cap to 400 would let most cut-off retry blocks close, so `code-ts-partial-word`-type cases would get an answer instead of nothing. It would cost little: only the ~4% of calls that hit the cap run longer, by up to 200 output tokens (about $0.001 each on Haiku, $0.003 on Sonnet at $15/MTok), and those calls take roughly a second longer. It would also make the no-closing-tag fallback show up to twice as much truncated text when a first block runs on. It does not reduce the detour itself, and the fixed rule already keeps echoed prompt text out of the ghost text regardless of the cap. Recommendation: leave it at 200 unless the empty `code-ts-partial-word`-type results matter in daily use; if raised, raise it together with a cap on how much of an unclosed first block is shown.
 
 ## Task 2: a retry block cut off by `max_tokens`
 
@@ -125,7 +173,7 @@ The variants were checked against `prompt-writing.md` and `llm-biases.md`. Q1–
 
 **Two paths already behave differently.** When the **first** block is unclosed, the fallback shows it: 38 of the 38 unclosed first blocks in this session were `max_tokens` truncations, and the fallback passed each one on as the completion. When a **retry** block is unclosed, it is discarded. Separately, a closed first block is shown whole: of the 28 completions in this session whose ghost text contained echoed prompt text or reasoning, 26 came through a closed first block (echo and reasoning written before the first `</COMPLETION>`) and 2 through the no-closing-tag fallback. **Proposed Known Limitation** (not added to AGENTS.md; for Trent to decide):
 
-> **Prefill extraction treats an unclosed block two ways.** If the model never writes `</COMPLETION>`, the raw output is shown as-is, including text cut off by `maxTokens` (200). If the model closes a blank first block and its retry block is cut off by `maxTokens`, nothing is shown. Using the truncated retry would show truncated code, so it is left alone. The lever is `maxTokens` on the Anthropic presets. Separately, anything haiku writes before its first `</COMPLETION>` is shown, so an echoed prompt line or reasoning written before the answer reaches the ghost text (2 of 24 mid-word samples under the current prompt).
+> **Prefill extraction treats an unclosed block two ways.** If the model never writes `</COMPLETION>`, the raw output is shown as-is, including text cut off by `maxTokens` (200). If the model closes a blank first block and its retry block is cut off by `maxTokens`, nothing is shown. Using the truncated retry would show truncated code, so it is left alone. The lever is `maxTokens` on the Anthropic presets. Separately, anything haiku writes before its first `</COMPLETION>` is shown, so an echoed prompt line or reasoning written before the answer reaches the ghost text (2 of 24 mid-word samples under the current prompt). (Since `80c4324`, a block that echoes the user message is rejected; reasoning that quotes nothing from the prompt is still shown.)
 
 ## Provenance
 
@@ -133,3 +181,4 @@ The variants were checked against `prompt-writing.md` and `llm-biases.md`. Q1–
 - 1,181 `anthropic-haiku` calls (about 71k output tokens and roughly 3M input tokens, so on the order of $3–4 at Haiku list prices; input tokens were not recorded per call). No calls to the other models: the other backends' messages are byte-identical to the current code for every variant except S1, and S1 was dropped after it failed on `anthropic-haiku`. The cross-model detour rates above were re-read from the raw outputs of the 2026-09-28 whitespace-fix harness runs, so they cost no new calls.
 - The harness (`harness.ts`, `analyze.py`, variant source trees) and the per-call results (full prompts) live in the session scratchpad and are not committed, so the tables are reported results, not something a reader can regenerate from this checkout. The same is true of the whitespace-fix harness runs used for the cross-model table.
 - One sample per call and no judge. Every metric is a mechanical check on the raw or final text.
+- Fix follow-up (`80c4324`): 216 live `anthropic-haiku` calls on the fixed code (grid ×3, mid-word ×3, `code-html-tag` ×6), 2026-09-28 02:20 UTC: 357k input and 14k output tokens, $0.43 at $1/$5 per MTok (no cache hits). The grid ran three times instead of once because of a harness invocation mistake; all three are reported. The offline replay made no calls. The harness copy (`harness-fix.ts`), the replay script and the per-call results are in the session scratchpad and not committed.
