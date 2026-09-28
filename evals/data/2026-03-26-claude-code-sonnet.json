@@ -60,10 +60,10 @@
     "pass": false,
     "score": 3,
     "judge_reason_short": "The completion `user.isActive(` is syntactically incomplete — it ends with an unclosed parenthesis.",
-    "failure_class": null,
-    "analyst_agrees_with_judge": false,
+    "failure_class": "post-processing bracket trim",
+    "analyst_agrees_with_judge": true,
     "missing_leading_space": false,
-    "analyst_note": "Raw \"user.isActive()\"; post-processing trimmed \")\" because suffix starts with \")\". Inserted result is valid Java (rubric criterion 8). Same completion scored 9 in the 20:54 run."
+    "analyst_note": "Corrected 2026-09-28: the trim removed the completion's own \")\", leaving `.filter(` unclosed; the judge was right. Fixed by the code-mode bracket guard in post-process.ts."
   },
   {
     "id": "code-js-arrow-function",

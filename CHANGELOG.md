@@ -6,6 +6,7 @@
 - **Optional trace file and export:** `bespokeAI.trace.file` writes records to `~/.bespokeai/traces.jsonl` (owner-only). `bespokeAI.trace.otlp.endpoint` exports them over OTLP/HTTP to your own backend (Langfuse, an OpenTelemetry Collector). Off by default, paused while VS Code telemetry is disabled, and sends prompt text only with `bespokeAI.trace.otlp.captureContent`. All trace settings are user-level only.
 - **Fix — words glued together:** completions that start a new word right after the cursor often left out the leading space (`behind` + `inadequate` → `behindinadequate`). The prompt now tells the model when the cursor sits flush against a word. Fixed for Claude and Grok; GPT-4.1 Nano still does it.
 - **Fix — doubled spaces and blank lines with the Anthropic API presets:** completions after a space or line break repeated that whitespace.
+- **Fix — code completions losing their own closing bracket:** when the text after the cursor started with `)`, `]`, or `}`, the de-duplication step could remove a bracket that closed something the completion itself opened (e.g. `user.isActive()` became `user.isActive(`), leaving invalid code. It now only removes closers that really repeat the text after the cursor.
 - **Fix — pool robustness:** a corrupt lockfile is reclaimed instead of blocking every window; a pool server that fails to start no longer stays bound or hangs; a window disabled during startup no longer ends up running the shared Claude Code pool.
 
 ## 0.8.15 — Explain / Fix / Do with opencode

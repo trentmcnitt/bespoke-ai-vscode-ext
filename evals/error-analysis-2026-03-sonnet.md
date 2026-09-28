@@ -2,6 +2,8 @@
 
 This is an error analysis of an existing Layer 1 + Layer 2 quality run. No new model calls were made. I read each failed scenario (prefix tail, suffix head, completion, the raw model response, and the judge's reasoning), wrote a short note on each, grouped the notes into failure classes, and counted them. I also spot-checked 14 passes by hand and ran a mechanical check over all 99 completions. That check found a class of defect the judge had missed.
 
+> **Correction (2026-09-28).** This analysis originally counted `code-java-mid-file` as a judge false fail, calling the trimmed result valid Java. It is not: the prefix ends `.filter(user -> `, so after `)` was trimmed the suffix's `)` closes `isActive(` and `.filter(` is never closed. The judge was right, and the trim was a post-processing bug (fixed on this branch: the code-mode overlap trim no longer removes a closer of a scope the completion opened itself). Figures below are corrected: analyst pass 69/99, judge disagreements 19, false fails 3.
+
 Per-scenario records: [`data/2026-03-26-claude-code-sonnet.json`](data/2026-03-26-claude-code-sonnet.json).
 
 ## Provenance
@@ -24,14 +26,14 @@ Per-scenario records: [`data/2026-03-26-claude-code-sonnet.json`](data/2026-03-2
 | -------------------------------------------------------- | ------- | ----- |
 | Judge pass (from the 99 `validation.md` files)           | 82 / 99 | 82.8% |
 | `layer2-summary.md` claims                               | 83 / 99 | 83.8% |
-| Analyst pass, all classes                                | 70 / 99 | 70.7% |
-| Analyst pass, not counting the boundary-whitespace class | 87 / 99 | 87.9% |
+| Analyst pass, all classes                                | 69 / 99 | 69.7% |
+| Analyst pass, not counting the boundary-whitespace class | 86 / 99 | 86.9% |
 
 The summary is off by one. Its failure list names 15 scenarios. It leaves out `code-java-mid-file` (score 3) and `prose-full-api-pagination` (score 2), and it includes `prose-journal-medium-current`. The validation files contain 17 fails. The summary's "Prose (full-doc) 2/5" row should read 3/5.
 
-**Judge disagreements: 20 of 99.**
+**Judge disagreements: 19 of 99.**
 
-- **4 false fails.** Details below.
+- **3 false fails.** Details below.
 - **16 false passes.** 15 of them are the boundary-whitespace defect. The other is `regression-prose-distant-suffix-completion`.
 - **2 fails where I agree with the verdict but not the reason:** `prose-long-prefix-technical` and `prose-journal-chronological-notes`. The judge objected to length and wording. The actual defect is a missing leading space.
 
@@ -76,11 +78,10 @@ Each failure is counted once, under its primary class.
 - **Prompt writing:** there were no failures. The "answers the question instead of continuing" failure did not appear in any of the 6 prompt-writing scenarios or in `regression-prose-assistant-mode-response`.
 - **Journal:** this is where the real failures concentrate once whitespace is set aside. All prompt-writing scenarios are prefix-only; the journal and bridge scenarios with a close suffix are where the model struggles.
 
-## Judge false fails (4)
+## Judge false fails (3)
 
 | Scenario                               | Why the verdict is wrong                                                                                                                                                                                                                                                                  |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `code-java-mid-file`                   | The raw output was `user.isActive()`. `trimSuffixOverlap` removed the `)` because the suffix starts with `)`. The inserted result is valid Java, which is what rubric criterion 8 asks for. The judge was not told that post-processing already trims the suffix overlap.                 |
 | `regression-prose-list-marker-echo`    | The completion does not start with `- `. The literal `must_not_include: ["- "]` matched the inline `-` separator that every item in the list uses. The judge's own notes call this a false positive and fail it anyway. This is a bug in the spec.                                        |
 | `code-full-py-pipeline-dispatch`       | The gap is empty: the prefix ends after a complete line and the suffix begins with the next line. The raw output was `"\n"`, which post-processing turned into null. A blank fill is correct here. The harness cannot express "empty is acceptable", and AGENTS.md treats null as a fail. |
 | `prose-journal-jnl-after-bold-heading` | "Finally checked out the new ramen place downtown that everyone's been talking about. " followed by "Sarah and I went for dinner." reads naturally. The same completion passed at 7 in the earlier run.                                                                                   |
@@ -169,4 +170,4 @@ This is a mechanical check. A case is flagged when the prefix ends in `[A-Za-z0-
 - A scenario counts as judge-failed if its `validation.md` JSON says `pass: false`. Five files needed a `\'` escape fix to parse. All 99 parsed.
 - Categories come from the scenario source file (`scenarios.ts`, `scenarios/*.ts`, `regression-scenarios.ts`). They differ slightly from the category labels in the summary.
 - Spot-checked passes: `jnl-new-date`, `jnl-full-window` (borderline: the judge ticked `appropriate_length: false` and still passed a 636-char two-paragraph entry), `full-mid-entry`, two prompt-writing scenarios, `assistant-mode-response`, `bridge-small-clause`, `short-prefix`, `instructional-recipe`, `mid-doc-tutorial-full`, `partial-word-newline-suffix`, `essay-presence`, `distant-suffix-completion`, and `mid-doc-blog-full`. Apart from the whitespace class, the only false pass found was `distant-suffix-completion`.
-- The whitespace class is my judgment of how the inserted text renders. A reader who counts only what the judge could see should use the 87.9% figure.
+- The whitespace class is my judgment of how the inserted text renders. A reader who counts only what the judge could see should use the 86.9% figure.

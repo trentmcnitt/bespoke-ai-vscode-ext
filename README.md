@@ -117,7 +117,6 @@ CI replays 52 recorded model outputs through the current extraction and cleanup 
 
 - **GPT-4.1 Nano often glues the completion to the previous word** (no leading space). Prompting did not fix it; prefer another model for prose.
 - **Models sometimes copy the text after the cursor.** The copy is trimmed, which can leave no suggestion at all. xAI Grok does this more often since the whitespace fix.
-- **In code, a closing brace is sometimes trimmed that the following text does not supply**, leaving unbalanced code. Under investigation.
 - **Cost is only shown for the Claude Code backend**, where the CLI reports it; the API backend shows tokens only.
 
 ## 🧩 Available Models
