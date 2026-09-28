@@ -13,7 +13,7 @@ vi.mock('vscode', () => ({
 }));
 
 import * as vscode from 'vscode';
-import { Logger, LogLevel, generateRequestId } from '../../utils/logger';
+import { Logger, LogLevel, generateRequestId, isLogLevel } from '../../utils/logger';
 
 const SEPARATOR = '─'.repeat(67);
 
@@ -192,7 +192,7 @@ describe('Logger', () => {
     });
 
     it('does not truncate long content (callers own truncation)', () => {
-      // The doc comment mentions a ⋮ marker, but traceBlock writes content verbatim.
+      // Truncation was removed deliberately (10e2781): trace logs show exactly what was sent.
       const content = Array.from({ length: 500 }, (_, i) => `line ${i}`).join('\n');
       makeLogger('trace').traceBlock('→ sent', content);
       const body = lines()[1];
@@ -216,6 +216,59 @@ describe('Logger', () => {
     it('is suppressed below trace level', () => {
       makeLogger('debug').traceInline('model', 'sonnet');
       expect(lines()).toEqual([]);
+    });
+  });
+
+  describe('invalid levels (hand-edited settings.json)', () => {
+    const emitGated = (logger: Logger) => {
+      logger.debug('d');
+      logger.trace('t');
+      logger.requestStart('a7f3', {
+        mode: 'prose',
+        backend: 'api',
+        file: 'notes.md',
+        prefixLen: 1,
+        suffixLen: 0,
+      });
+      logger.requestEnd('a7f3', { durationMs: 5, resultLen: 3 });
+      logger.cacheHit('a7f3', 3);
+      logger.traceBlock('prefix', 'SECRET DOCUMENT TEXT');
+      logger.traceInline('model', 'm');
+    };
+
+    // 'error' reads like a level but is not one; 'Debug' is a case slip; 'constructor'
+    // is a prototype key, so an `in` check would wrongly accept it.
+    for (const bad of ['error', 'Debug', 'constructor', '__proto__', '']) {
+      it(`'${bad}' silences every gated method and behaves as info`, () => {
+        const logger = makeLogger(bad as LogLevel);
+        emitGated(logger);
+        logger.info('i');
+        logger.error('e');
+        expect(lines()).toEqual(['[INFO  00:51:11.539] i', '[ERROR 00:51:11.539] e']);
+      });
+    }
+
+    it('a later valid setLevel still takes effect', () => {
+      const logger = makeLogger('error' as LogLevel);
+      logger.setLevel('debug');
+      logger.debug('d');
+      expect(lines()).toEqual(['[DEBUG 00:51:11.539] d']);
+    });
+
+    it('isLogLevel accepts exactly info, debug, trace', () => {
+      expect(['info', 'debug', 'trace'].every(isLogLevel)).toBe(true);
+      for (const v of [
+        'error',
+        'Debug',
+        'constructor',
+        'toString',
+        '__proto__',
+        '',
+        undefined,
+        1,
+      ]) {
+        expect(isLogLevel(v)).toBe(false);
+      }
     });
   });
 

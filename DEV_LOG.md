@@ -16,6 +16,10 @@ Reverse chronological. Most recent entry first.
 - **Sonnet 5 thinks by default, and thinking tokens count against `max_tokens`.** With the presets' 200-token cap, 3 of 51 sampled requests spent all 200 on thinking and returned no text. The adapter now sends `thinking: {type: "disabled"}` for Sonnet 5 / Opus 5. Opus 5.5 and Fable reject that, so a custom preset on them can still come back empty.
 - Tag extraction without a prefill kept the leading space on Sonnet 5 (0/29 glued in the sample, one misread word in the harness). The earlier 24/28 glued result (variant P1) was haiku with `<COMPLETION>` still prefilled, a different setup. See `evals/2026-09-28-sonnet-preset.md`.
 
+### Invalid logLevel no longer writes trace content (#8) (branch `showcase/held-misc`)
+
+- **#8:** the Logger's two guard styles (`rank <= X` vs early-return `rank > X`) disagreed on an unknown level's `undefined` rank, so `logLevel: "error"` silenced `debug()` but wrote full trace blocks; every gated method now uses one `enabled()` helper, and `setLevel`/`readLogLevel` fall back to `info` (via `typeof`, since `'constructor' in LEVEL_RANK` is true).
+
 ---
 
 ## 09-27-26

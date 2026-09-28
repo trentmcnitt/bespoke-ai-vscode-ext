@@ -331,7 +331,7 @@ The `Logger` class (`src/utils/logger.ts`) wraps a VS Code `OutputChannel` ("Bes
 | `debug`          | Per-request flow: start/end with timing, cache hits, request IDs |
 | `trace`          | Full content: prefix, suffix, messages sent, responses received  |
 
-`[ERROR]` lines (all errors and failures) are always written, regardless of the level; `error` is not a setting value.
+`[ERROR]` lines (all errors and failures) are always written, regardless of the level; `error` is not a setting value. Any value outside `info`/`debug`/`trace` (e.g. `error`, `Debug`) is treated as `info` — by `readLogLevel()` at config load and again by `Logger.setLevel()`; every level-gated Logger method goes through one private `enabled()` check.
 
 `bespokeAI.logLevel` is application-scoped (user settings only). At `trace` the Output channel receives full prompts, and VS Code persists output logs to disk, so a repository's `.vscode/settings.json` must not be able to turn it on. `trace.captureContent` does not govern this log; it covers trace records only.
 
