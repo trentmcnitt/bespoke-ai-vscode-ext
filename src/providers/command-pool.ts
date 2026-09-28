@@ -116,7 +116,7 @@ export class CommandPool extends SlotPool {
     // Wrap slot.resultPromise to set resolved atomically on win
     const resultWithFlag = slot.resultPromise.then((result) => {
       resolved = true;
-      return result;
+      return result.text;
     });
 
     // Build race promises
@@ -131,7 +131,7 @@ export class CommandPool extends SlotPool {
           resolved = true;
           this.logger.debug(`CommandPool: request timed out after ${options.timeoutMs}ms`);
           // Timeout: deliver null to unblock, close channel to force recycle
-          slot.deliverResult?.(null);
+          slot.deliverResult?.({ text: null });
           slot.channel?.close();
           resolve(null);
         }, options.timeoutMs);
@@ -147,7 +147,7 @@ export class CommandPool extends SlotPool {
         if (timeoutId !== undefined) {
           clearTimeout(timeoutId);
         }
-        slot.deliverResult?.(null);
+        slot.deliverResult?.({ text: null });
         slot.channel?.close();
         return { text: null, meta: null };
       }
@@ -157,7 +157,7 @@ export class CommandPool extends SlotPool {
           resolved = true;
           this.logger.debug('CommandPool: request cancelled');
           // Clean up slot to prevent "busy forever" leak — matches timeout behavior
-          slot.deliverResult?.(null);
+          slot.deliverResult?.({ text: null });
           slot.channel?.close();
           resolve(null);
         };

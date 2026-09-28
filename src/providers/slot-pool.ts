@@ -136,13 +136,51 @@ export interface ResultMetadata {
   turnCostUsd?: number;
 }
 
+/**
+ * Why a request got no answer from the model although nobody cancelled it.
+ * Recorded as the trace's `error.type`, so a pool kill is not mistaken for a
+ * user-superseded (`aborted`) or model-empty (`empty`) request.
+ *
+ * - `pool_recycled`: the pool was recycled or restarted (config change, Restart Pools).
+ * - `pool_warmup_failed`: a slot failed warmup, which kills every slot.
+ * - `slot_stream_error`: the CLI session's stream threw.
+ * - `slot_unavailable`: the pool is degraded, or the slot lost its session after acquisition.
+ * - `cli_<subtype>`: the CLI returned a non-success result (e.g. `cli_error_during_execution`).
+ */
+export type SlotFailure =
+  | 'pool_recycled'
+  | 'pool_warmup_failed'
+  | 'slot_stream_error'
+  | 'slot_unavailable'
+  | `cli_${string}`;
+
+/**
+ * Why a request ended without a slot or a result. `superseded` (a newer request
+ * took the single waiter place) and `disposed` (shutdown) are cancellations;
+ * everything else is a {@link SlotFailure}.
+ */
+export type SlotDenial = 'superseded' | 'disposed' | SlotFailure;
+
+/** What a slot's result promise resolves with. `failure` is set only when `text` is null. */
+export interface SlotResult {
+  text: string | null;
+  failure?: SlotDenial;
+}
+
+/** Reasons `killAllSlots()` passes to waiting and in-flight requests. */
+type KillReason = 'pool_recycled' | 'pool_warmup_failed' | 'disposed';
+
 export interface Slot {
   state: SlotState;
   channel: MessageChannel | null;
-  /** Resolves with the next result from the stream consumer. */
-  resultPromise: Promise<string | null> | null;
+  /**
+   * Resolves with the next result from the stream consumer. The reason for a
+   * null travels in the value, not on the slot: a kill resets the slot's fields
+   * and a recycle reuses the object before the caller's continuation runs.
+   */
+  resultPromise: Promise<SlotResult> | null;
   /** Call to deliver a result from the background consumer. */
-  deliverResult: ((value: string | null) => void) | null;
+  deliverResult: ((value: SlotResult) => void) | null;
   /** Number of completions delivered by this slot (excludes warmup). */
   resultCount: number;
   /** Monotonically increasing generation — incremented on killAllSlots to invalidate stale consumers. */
@@ -184,7 +222,7 @@ export abstract class SlotPool {
   protected readonly poolSize: number;
   protected ledger: UsageLedger | null = null;
   /** Single-waiter queue: only one request can wait for a slot at a time. */
-  protected pendingWaiter: ((index: number | null) => void) | null = null;
+  protected pendingWaiter: ((result: number | SlotDenial) => void) | null = null;
   /** Deduplicates overlapping recycleAll calls. */
   private _recyclePromise: Promise<void> | null = null;
   protected _warmupResolvers: (((ok: boolean) => void) | null)[];
@@ -309,7 +347,7 @@ export abstract class SlotPool {
    * Fires onPoolDegraded if the SDK is unavailable on restart.
    */
   async restart(): Promise<void> {
-    this.killAllSlots();
+    this.killAllSlots('pool_recycled');
     this._warmupFailureCount = 0;
     this._warmupFailureHandled = false;
     this._cliConfigCorrupted = false;
@@ -330,7 +368,7 @@ export abstract class SlotPool {
   }
 
   dispose(): void {
-    this.killAllSlots();
+    this.killAllSlots('disposed');
     this.sdkAvailable = false;
     this.queryFn = null;
     this.logger.info(`${this.getPoolLabel()} provider: disposed`);
@@ -496,13 +534,28 @@ export abstract class SlotPool {
 
   /**
    * Acquire an available slot. Returns the slot index (already marked busy)
-   * or null if cancelled by a newer waiter.
+   * or null if no slot was handed out. {@link acquireSlotOrDenial} says why.
+   */
+  protected async acquireSlot(): Promise<number | null> {
+    const result = await this.acquireSlotOrDenial();
+    return typeof result === 'number' ? result : null;
+  }
+
+  /**
+   * Acquire an available slot. Returns the slot index (already marked busy),
+   * or why none was handed out: `superseded` by a newer waiter, `disposed`,
+   * or a {@link SlotFailure} when the pool was killed while this request waited.
    *
    * Fast path: find any available slot, mark busy, return.
    * Slow path: register as single waiter. A new arrival cancels the previous
-   * waiter (resolve(null)), so only the most recent request waits.
+   * waiter ('superseded'), so only the most recent request waits.
    */
-  protected async acquireSlot(): Promise<number | null> {
+  protected async acquireSlotOrDenial(): Promise<number | SlotDenial> {
+    // Degraded (warmup retries exhausted) or disposed: no slot will ever come.
+    if (this.sdkAvailable === false) {
+      return 'slot_unavailable';
+    }
+
     // Fast path: find an available slot
     for (let i = 0; i < this.slots.length; i++) {
       const idx = (this.nextSlot + i) % this.slots.length;
@@ -515,14 +568,14 @@ export abstract class SlotPool {
 
     // Slow path: cancel existing waiter and register self
     if (this.pendingWaiter) {
-      this.pendingWaiter(null);
+      this.pendingWaiter('superseded');
     }
 
     this.logger.trace(
       `waiting for slot (${this.slots.map((s, i) => `slot${i}=${s.state}`).join(', ')})`,
     );
 
-    return new Promise<number | null>((resolve) => {
+    return new Promise<number | SlotDenial>((resolve) => {
       this.pendingWaiter = resolve;
     });
   }
@@ -576,7 +629,7 @@ export abstract class SlotPool {
   }
 
   protected resetResultPromise(slot: Slot): void {
-    slot.resultPromise = new Promise<string | null>((resolve) => {
+    slot.resultPromise = new Promise<SlotResult>((resolve) => {
       slot.deliverResult = resolve;
     });
   }
@@ -703,9 +756,15 @@ export abstract class SlotPool {
           // Store metadata for callers to read
           slot.lastResultMeta = meta;
 
-          // Real completion result — deliver to the waiting caller
+          // Real completion result — deliver to the waiting caller. A non-success
+          // result (e.g. error_during_execution) is the CLI failing, not the model
+          // returning nothing.
           slot.resultCount++;
-          slot.deliverResult?.(text);
+          slot.deliverResult?.(
+            message.subtype === 'success' || text !== null
+              ? { text }
+              : { text: null, failure: `cli_${String(message.subtype ?? 'error')}` },
+          );
 
           // Update pool-level statistics
           this._totalRequests++;
@@ -760,7 +819,7 @@ export abstract class SlotPool {
         }
       }
       this.drainStderr(slotIndex, 'error');
-      slot.deliverResult?.(null);
+      slot.deliverResult?.({ text: null, failure: 'slot_stream_error' });
       // Also resolve warmup if still pending (failure)
       this._warmupResolvers[slotIndex]?.(false);
       this._warmupResolvers[slotIndex] = null;
@@ -779,16 +838,18 @@ export abstract class SlotPool {
   /**
    * Kill all slots immediately. Cancels pending waiters, resolves in-flight
    * deliverResult and warmup promises, closes channels, marks all slots dead.
+   * `reason` tells the waiting and in-flight requests why they got no result.
    */
-  protected killAllSlots(): void {
+  protected killAllSlots(reason: KillReason): void {
     if (this.pendingWaiter) {
-      this.pendingWaiter(null);
+      const waiter = this.pendingWaiter;
       this.pendingWaiter = null;
+      waiter(reason);
     }
     for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       slot.generation++;
-      slot.deliverResult?.(null);
+      slot.deliverResult?.({ text: null, failure: reason });
       slot.state = 'dead';
       try {
         slot.channel?.close();
@@ -823,7 +884,7 @@ export abstract class SlotPool {
     // Recycles follow model changes — the new warmup will repopulate this.
     this._resolvedModel = null;
     this.logger.info(`${this.getPoolLabel()}: recycling all slots`);
-    this.killAllSlots();
+    this.killAllSlots('pool_recycled');
 
     // Reinitialize all slots
     await this.initAllSlots();
@@ -1008,7 +1069,7 @@ export abstract class SlotPool {
       this.drainStderr(i, 'error');
     }
 
-    this.killAllSlots();
+    this.killAllSlots('pool_warmup_failed');
 
     if (this._warmupFailureCount >= 2 || this._cliConfigCorrupted || this._cliBillingError) {
       // Exhausted retries (or a retry-won't-help failure) — shut down

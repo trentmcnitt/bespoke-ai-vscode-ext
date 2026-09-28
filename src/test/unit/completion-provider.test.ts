@@ -45,7 +45,7 @@ vi.mock('vscode', () => {
 
 // Import after mock is set up
 import { CompletionProvider } from '../../completion-provider';
-import { TraceRecorder, attachDetailToError } from '../../utils/trace';
+import { TraceRecorder, attachDetailToError, buildSpanAttributes } from '../../utils/trace';
 import * as vscode from 'vscode';
 
 // Create a mock document
@@ -799,6 +799,19 @@ describe('CompletionProvider — trace outcomes', () => {
     }));
     await invoke(provider);
     expect(recorder.getRecent()[0].outcome).toBe('error');
+    provider.dispose();
+  });
+
+  it('records a pool kill as error with its type, not as aborted', async () => {
+    const { provider, recorder } = setup(async () => ({
+      text: null,
+      detail: { providerName: 'anthropic', requestModel: 'sonnet', errorType: 'pool_recycled' },
+    }));
+    await invoke(provider);
+    const [r] = recorder.getRecent();
+    expect(r.outcome).toBe('error');
+    expect(r.detail?.errorType).toBe('pool_recycled');
+    expect(buildSpanAttributes(r, false)['error.type']).toBe('pool_recycled');
     provider.dispose();
   });
 

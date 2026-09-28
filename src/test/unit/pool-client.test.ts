@@ -96,6 +96,14 @@ vi.mock('../../providers/claude-code', () => ({
       _s: unknown,
       opts?: { captureContent?: boolean },
     ) {
+      // A pool kill / a superseded request, as ClaudeCodeProvider reports them.
+      if (ctx.prefix === 'RECYCLED' || ctx.prefix === 'SUPERSEDED') {
+        const why = ctx.prefix === 'RECYCLED' ? { errorType: 'pool_recycled' } : { aborted: true };
+        return {
+          text: null,
+          detail: { providerName: 'anthropic', requestModel: this.config.claudeCode.model, ...why },
+        };
+      }
       const text = await this.getCompletion(ctx);
       return {
         text,
@@ -350,6 +358,30 @@ describe.skipIf(IS_WINDOWS)('PoolClient', () => {
           finishReason: 'end_turn',
           content: { systemPrompt: 'SYS', userMessage: 'U:hi', rawOutput: 'RAW' },
         });
+      }
+    });
+
+    it('a pool kill reaches the requester as an error type, a superseded request as aborted, on both paths', async () => {
+      const a = makeClient('A');
+      const b = makeClient('B');
+      await a.client.activate();
+      await b.client.activate();
+
+      for (const h of [a, b]) {
+        const killed = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'RECYCLED' }),
+          signal(),
+        );
+        expect(killed.text).toBeNull();
+        expect(killed.detail?.errorType).toBe('pool_recycled');
+        expect(killed.detail?.aborted).toBeUndefined();
+
+        const superseded = await h.client.getCompletionWithDetail(
+          makeProseContext({ prefix: 'SUPERSEDED' }),
+          signal(),
+        );
+        expect(superseded.detail?.aborted).toBe(true);
+        expect(superseded.detail?.errorType).toBeUndefined();
       }
     });
 

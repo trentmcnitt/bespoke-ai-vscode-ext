@@ -616,3 +616,172 @@ describe('ClaudeCodeProvider — generation detail', () => {
     expect(res).toMatchObject({ text: null, detail: { errorType: 'sdk_unavailable' } });
   });
 });
+
+describe('ClaudeCodeProvider — why a request got no result', () => {
+  let provider: ClaudeCodeProvider | null = null;
+  afterEach(() => {
+    provider?.dispose();
+    provider = null;
+  });
+
+  /**
+   * SDK mock whose completion results are released by the test. Each spawned session
+   * answers warmup with `ctl.warmup`, then waits for `ctl.respond()` / `ctl.fail()`
+   * for every message pushed to it.
+   */
+  function controlledQuery() {
+    const ctl = {
+      warmup: '<COMPLETION>four</COMPLETION>',
+      spawns: 0,
+      pending: null as null | { resolve: (m: object) => void; reject: (e: Error) => void },
+      respond(message: object) {
+        const p = ctl.pending;
+        ctl.pending = null;
+        p?.resolve(message);
+      },
+      fail(err: Error) {
+        const p = ctl.pending;
+        ctl.pending = null;
+        p?.reject(err);
+      },
+    };
+    mockQueryFn.mockImplementation(({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+      ctl.spawns++;
+      const warmup = ctl.warmup;
+      async function* gen() {
+        const it = prompt[Symbol.asyncIterator]();
+        await it.next(); // warmup message
+        yield { type: 'result', subtype: 'success', result: warmup };
+        while (!(await it.next()).done) {
+          yield await new Promise<object>((resolve, reject) => {
+            ctl.pending = { resolve, reject };
+          });
+        }
+      }
+      return gen();
+    });
+    return ctl;
+  }
+
+  const signal = () => new AbortController().signal;
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+
+  it('a request superseded by a newer one is aborted, with no error type', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const superseded = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const latest = provider.getCompletionWithDetail(makeProseContext(), signal());
+
+    const s = await superseded;
+    expect(s.text).toBeNull();
+    expect(s.detail?.aborted).toBe(true);
+    expect(s.detail?.errorType).toBeUndefined();
+
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> one</COMPLETION>' });
+    expect((await holding).text).toBe(' one');
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', result: '<COMPLETION> two</COMPLETION>' });
+    expect((await latest).text).toBe(' two');
+  });
+
+  it('a pool recycle ends both the holding and the waiting request as pool_recycled', async () => {
+    controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const waiting = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    await provider.recycleAll();
+
+    for (const res of [await holding, await waiting]) {
+      expect(res.text).toBeNull();
+      expect(res.detail?.errorType).toBe('pool_recycled');
+      expect(res.detail?.aborted).toBeUndefined();
+    }
+    expect(provider.isAvailable()).toBe(true);
+  });
+
+  it('a warmup failure ends the waiting request as pool_warmup_failed; once degraded, slot_unavailable', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    ctl.warmup = '<COMPLETION>garbage</COMPLETION>';
+    const recycling = provider.recycleAll();
+    // The slot is re-initializing, so this request waits for it.
+    const waiting = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const res = await waiting;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('pool_warmup_failed');
+    await recycling;
+
+    // The retry fails too, and the pool gives up.
+    for (let i = 0; i < 10 && provider.isAvailable(); i++) await settle();
+    expect(provider.isAvailable()).toBe(false);
+    const after = await provider.getCompletionWithDetail(makeProseContext(), signal());
+    expect(after.detail?.errorType).toBe('slot_unavailable');
+  });
+
+  it('a stream error while the request holds the slot is slot_stream_error, not empty', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.fail(new Error('subprocess exited'));
+    const res = await holding;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('slot_stream_error');
+  });
+
+  it('a non-success CLI result is an error with the subtype, not empty', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'error_during_execution' });
+    const res = await holding;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBe('cli_error_during_execution');
+  });
+
+  it('a success result with no text is still empty (the model answered)', async () => {
+    const ctl = controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    ctl.respond({ type: 'result', subtype: 'success', result: '' });
+    const res = await holding;
+    expect(res.text).toBeNull();
+    expect(res.detail?.errorType).toBeUndefined();
+    expect(res.detail?.aborted).toBeUndefined();
+  });
+
+  it('dispose (shutdown) ends holding and waiting requests as aborted', async () => {
+    controlledQuery();
+    provider = new ClaudeCodeProvider(makeConfig(), makeLogger());
+    await provider.activate();
+
+    const holding = provider.getCompletionWithDetail(makeProseContext(), signal());
+    const waiting = provider.getCompletionWithDetail(makeProseContext(), signal());
+    await settle();
+    provider.dispose();
+    provider = null;
+
+    for (const res of [await holding, await waiting]) {
+      expect(res.text).toBeNull();
+      expect(res.detail?.aborted).toBe(true);
+      expect(res.detail?.errorType).toBeUndefined();
+    }
+  });
+});
