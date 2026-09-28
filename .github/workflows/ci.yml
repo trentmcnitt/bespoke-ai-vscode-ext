@@ -60,6 +60,18 @@ jobs:
           name: coverage-report
           path: coverage/
 
+  # The branch ruleset requires a check named "Test". The matrix reports as
+  # "Test (<os>)", so this job reports "Test" and passes only if every OS passed.
+  test-all:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: All test legs passed
+        run: test "${{ needs.test.result }}" = success
+
   build:
     name: Build VSIX
     runs-on: ubuntu-latest

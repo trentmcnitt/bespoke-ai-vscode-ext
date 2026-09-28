@@ -18,3 +18,5 @@ The OS matrix exists because the extension ships on all three platforms and some
 - **Quality evals** (`npm run test:quality`) generate completions from real models and are judged in a second, LLM-as-judge step. Results from these runs are summarized in `evals/`.
 
 Run both locally; see AGENTS.md → Testing.
+
+The branch ruleset on `main` requires checks named `Quality` and `Test`. Because the test job is a matrix (reported as `Test (<os>)`), a small `Test` job waits for all three legs and passes only if every one passed.
