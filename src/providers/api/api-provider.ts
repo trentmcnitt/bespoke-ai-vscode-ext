@@ -112,6 +112,21 @@ export class ApiCompletionProvider implements CompletionProvider {
     return this.adapter?.isConfigured() ?? false;
   }
 
+  /**
+   * Availability of a code-override preset: its own slot and breaker, independent
+   * of the main preset's. Creates the slot if needed (the request that follows
+   * would create it anyway). Unknown preset or unbuildable adapter → false.
+   *
+   * A missing API key is deliberately not checked: the request then throws "API
+   * key invalid or missing", which the orchestrator shows the user. The main
+   * preset has the status bar's setup state for that; the override has nothing else.
+   */
+  isPresetAvailable(presetId: string): boolean {
+    const slot = this.getOverrideSlot(presetId);
+    if ('unavailable' in slot) return false;
+    return !slot.breaker.isOpen();
+  }
+
   updateConfig(config: ExtensionConfig): void {
     const presetChanged = config.api.preset !== this.config.api.preset;
     this.config = config;

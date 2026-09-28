@@ -73,7 +73,12 @@ export interface CompletionProvider {
     signal: AbortSignal,
     options?: GenerationOptions,
   ): Promise<CompletionWithDetail>;
-  isAvailable(): boolean;
+  /**
+   * Whether a request can be sent now. With `mode`, answers for the backend/preset
+   * that mode routes to (the code override may use a different one); without it,
+   * for the primary backend.
+   */
+  isAvailable(mode?: 'prose' | 'code'): boolean;
   updateConfig?(config: ExtensionConfig): void;
   recycleAll?(): Promise<void>;
 }
