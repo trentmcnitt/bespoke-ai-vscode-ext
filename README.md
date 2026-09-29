@@ -19,7 +19,7 @@
 
 > Actively developed. Completion quality varies by model and context — see [How quality is measured](#how-quality-is-measured) and [Known issues](#known-issues). [Open an issue](https://github.com/trentmcnitt/bespoke-ai-vscode-ext/issues) if something looks wrong.
 
-**💻 macOS, Linux, and Windows** — Also works in VSCodium.
+**💻 macOS, Linux, and Windows** — Also works in VSCodium ([Open VSX](https://open-vsx.org/extension/trentmcnitt/bespoke-ai)).
 
 **🖊️ Writing, not just code** — Inline completions for prompts, journals, notes, docs, and code. Matches your voice and style in prose; language-aware in code.
 
@@ -47,7 +47,7 @@
 
 ## 🚀 Getting Started
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai) (search for "Bespoke AI")
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=trentmcnitt.bespoke-ai), or in VSCodium from [Open VSX](https://open-vsx.org/extension/trentmcnitt/bespoke-ai) (search for "Bespoke AI" in the Extensions view either way)
 2. On first launch, the extension detects whether you have the Claude Code CLI — if not, it offers to help you set it up or switch to **API key** mode
 3. Start typing — completions appear as gray suggestion text after a ~2-second pause plus the model's response time (typically another 2–3 seconds on the Claude Code backend)
 
