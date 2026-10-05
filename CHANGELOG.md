@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.17 — Grok presets updated for xAI's model retirement
+
+**If you use the default `xai-grok` preset, suggestions now cost more than they did in the spring.** xAI retired Grok 4.1 Fast on 2026-05-15 and has since answered requests for it with Grok 4.3 at Grok 4.3's price ($1.25 in / $2.50 out per million tokens, up from $0.20 / $0.50). That already applied to 0.8.16 and earlier; this release names the model you're actually getting. For a cheaper default, switch to `openai-gpt-4.1-nano` or `google-gemini-flash` in the status bar menu.
+
+- **`xai-grok` (default) is now Grok 4.3 with reasoning turned off.** Grok 4.3 thinks before answering unless told not to (about 2.3 s instead of 0.7 s in our test), so the preset sends `reasoning_effort: "none"`: the same request the retired id was being served as.
+- **`xai-grok-code` now asks for Grok Build 0.1**, which xAI serves in place of the retired `grok-code-fast-1`. Not tested: our API key does not have access to it.
+- **`xai-grok-4` is now labelled Grok 4.3 (reasoning).** xAI retired `grok-4-0709` and serves it as Grok 4.3 with low reasoning; the preset now asks for exactly that. It thinks before answering, so suggestions take about 6–9 s. Kept so existing settings keep working.
+- Preset ids are unchanged, so nothing in your settings needs to change.
+
 ## 0.8.16 — Privacy fix, Sonnet 5 preset, better completions
 
 **If you use the Claude Code backend, please update.** Completion sessions were starting with your whole Claude Code setup — claude.ai connectors, auto-memory, CLAUDE.md files, and custom agents — which sent that context with every autocomplete session and used plan tokens each time a session started (100k–125k tokens on the setup we measured; it depends on your connectors and memory). They now start isolated, at about 650 tokens.

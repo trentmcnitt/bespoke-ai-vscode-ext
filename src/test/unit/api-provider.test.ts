@@ -920,7 +920,7 @@ describe('ApiCompletionProvider', () => {
       lastAdapter().complete.mockRejectedValue(new Error('API key invalid'));
       await expect(provider.testConnection()).resolves.toEqual({
         ok: false,
-        model: 'grok-4-1-fast-non-reasoning',
+        model: 'grok-4.3',
         durationMs: 0,
         error: 'API key invalid',
       });
