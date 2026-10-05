@@ -120,7 +120,10 @@ require(['vs/editor/editor.main'], async function () {
     wordWrap: 'on',
     minimap: { enabled: false },
     fontSize: 14,
-    inlineSuggest: { enabled: true },
+    // No hint toolbar: resting the pointer on the ghost text shows it, and showing it makes Monaco ask
+    // the provider again (hoverParticipant → triggerExplicitly), which in live mode was a second paid
+    // request for the same spot, any time later.
+    inlineSuggest: { enabled: true, showToolbar: 'never' },
     quickSuggestions: false,
     suggestOnTriggerCharacters: false,
     autoClosingBrackets: 'never',
@@ -145,6 +148,12 @@ require(['vs/editor/editor.main'], async function () {
   let liveCfg = null; // GET api/live/config, when this copy has a live backend
   // The document the editor holds, so live mode sends its language.
   let lastDoc = { languageId: 'markdown', fileName: 'notes.md' };
+  // When a live request may go out (live-requests.js): a visitor's edit arms it.
+  const LR = window.LiveRequests;
+  const gate = LR.createGate();
+  editor.onDidChangeModelContent(() => {
+    if (live) gate.edited();
+  });
   monaco.languages.registerInlineCompletionsProvider(
     { pattern: '**' },
     {
@@ -547,6 +556,7 @@ require(['vs/editor/editor.main'], async function () {
       liveSel.value = presetSel.value;
     }
     live = { debounceMs: 800, ...lastDoc };
+    gate.reset();
     document.body.classList.remove('replaying');
     $('mode').hidden = false;
     $('mode').textContent = '▶ Back to replay';
@@ -562,6 +572,7 @@ require(['vs/editor/editor.main'], async function () {
 
   function leaveLive() {
     live = null;
+    dropPending();
     $('desc').replaceChildren(); // the live note no longer applies; the next replay sets its own
     $('mode').hidden = true;
     $('replayControls').hidden = false;
@@ -588,48 +599,187 @@ require(['vs/editor/editor.main'], async function () {
     });
   }
 
+  // ── live requests and their bench runs (live-requests.js; the gate is set up with the editor) ──
+  /** A pause shorter than this is just typing: the bench's debounce step appears once a pause is this
+   * long (stamped from the pause's start), so ordinary keystrokes don't open and abandon runs. */
+  const PAUSE_SHOW_MS = 250;
+  /** A shown debounce whose ask was cancelled with no new ask this soon after (the cursor moved, the
+   * editor lost focus) is over: the run ends as aborted. */
+  const ABANDON_MS = 1500;
+  let liveRunCount = 0;
+  // The run being shown for the current pause (the debounce), until its request leaves.
+  let pending = null; // { run, since, shown, showTimer, abandonTimer }
+  const nowSec = () => Date.now() / 1000;
+  function liveRunFor() {
+    if (pending) {
+      clearTimeout(pending.abandonTimer);
+      return pending;
+    }
+    const runId = 'live-' + Date.now().toString(36) + '-' + ++liveRunCount;
+    pending = {
+      run: LR.newRun(runId, benchSession || 'live'),
+      since: nowSec(),
+      shown: false,
+      showTimer: 0,
+      abandonTimer: 0,
+    };
+    return pending;
+  }
+  function showPending(p) {
+    if (p.shown) return;
+    p.shown = true;
+    clearTimeout(p.showTimer);
+    sendEvent(
+      // What the request is (e.g. "prose · xai-grok") comes from the server, as run_updated.
+      LR.own(p.run, '_run', 'run_started', p.since, { label: 'live', origin: 'web' }),
+    );
+    sendEvent(LR.own(p.run, 'queue', 'step_started', p.since));
+  }
+  /** The ask behind the pending run was cancelled before its request left. */
+  function pauseCancelled(p) {
+    if (pending !== p) return;
+    clearTimeout(p.showTimer);
+    if (!p.shown) {
+      pending = null;
+      return;
+    }
+    // Typing again re-asks at once and keeps this run (the debounce restarts); anything else ends it.
+    p.abandonTimer = setTimeout(() => {
+      if (pending !== p) return;
+      pending = null;
+      endRun();
+    }, ABANDON_MS);
+  }
+  function dropPending() {
+    if (!pending) return;
+    clearTimeout(pending.showTimer);
+    clearTimeout(pending.abandonTimer);
+    pending = null;
+  }
+
+  /** Reads a live completion response: NDJSON as it streams (each events line goes to the bench as
+   * it arrives), or plain JSON (a refusal, or a host that buffered). Returns { status, body }. */
+  async function readLive(r, run) {
+    const type = r.headers.get('content-type') || '';
+    if (!type.includes('ndjson') || !r.body) {
+      const body = await r.json();
+      if (r.ok && body.events) LR.adopt(run, body.events, nowSec()).forEach(sendEvent);
+      return { status: r.status, body };
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let final = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) buf += dec.decode(value, { stream: true });
+      const got = LR.lines(done ? buf + '\n' : buf);
+      buf = got.rest;
+      // Everything that arrived together is placed on the page's clock together.
+      let events = [];
+      for (const line of got.lines) {
+        const msg = JSON.parse(line);
+        if (msg.events) events = events.concat(msg.events);
+        else if (msg.body) {
+          final = msg;
+          if (msg.body.events) events = events.concat(msg.body.events);
+        }
+      }
+      LR.adopt(run, events, nowSec()).forEach(sendEvent);
+      if (done) break;
+    }
+    if (!final) throw new Error('the live response ended early');
+    return final;
+  }
+
   async function liveComplete(model, position, context, token) {
     const explicit = context.triggerKind === monaco.languages.InlineCompletionTriggerKind.Explicit;
-    const debounceMs = explicit ? 0 : live.debounceMs;
-    if (debounceMs && !(await sleep(debounceMs, token))) return null;
     const offset = model.getOffsetAt(position);
     const text = model.getValue();
     if (!text.trim()) return null;
+    const prefix = text.slice(0, offset);
+    const suffix = text.slice(offset);
+    const k = LR.key(liveSel.value, prefix, suffix);
+    const decision = gate.decide(k, explicit);
+    if (decision === 'reuse') return gate.lastText();
+    if (decision === 'skip') return null;
+
+    // The debounce: the bench shows it once the pause is long enough to be one.
+    const debounceMs = explicit ? 0 : live.debounceMs;
+    const p = liveRunFor();
+    if (debounceMs) {
+      if (!p.shown) {
+        clearTimeout(p.showTimer);
+        p.since = nowSec();
+        p.showTimer = setTimeout(() => showPending(p), PAUSE_SHOW_MS);
+      }
+      if (!(await sleep(debounceMs, token))) {
+        pauseCancelled(p);
+        return null;
+      }
+    }
+    if (pending !== p || token.isCancellationRequested) return null;
+    showPending(p);
+    pending = null;
+    const run = p.run;
+    gate.sent();
+    sendEvent(
+      LR.own(run, 'queue', 'step_finished', nowSec(), {
+        status: 'ok',
+        latency_ms: Math.round((nowSec() - p.since) * 1000),
+        timings: { debounce: debounceMs },
+      }),
+    );
+
     const ac = new AbortController();
     token.onCancellationRequested(() => ac.abort());
-    const request = (sess) =>
-      fetch(LIVE_API + 'complete', {
+    let promptStarted = false;
+    const request = (sess) => {
+      if (!promptStarted) {
+        promptStarted = true;
+        sendEvent(LR.own(run, 'prompt_build', 'step_started', nowSec()));
+      }
+      return fetch(LIVE_API + 'complete', {
         method: 'POST',
         signal: ac.signal,
-        headers: { 'content-type': 'application/json', 'x-live-session': sess },
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/x-ndjson, application/json',
+          'x-live-session': sess,
+        },
         body: JSON.stringify({
           presetId: liveSel.value,
-          prefix: text.slice(0, offset),
-          suffix: text.slice(offset),
+          prefix,
+          suffix,
           languageId: live.languageId || 'markdown',
           fileName: live.fileName || 'notes.md',
           sessionId: benchSession || 'live',
           debounceMs,
+          stream: true,
         }),
       });
+    };
     setStatus([el('span', {}, 'asking ' + liveSel.selectedOptions[0].textContent + '…')]);
-    let r, body;
+    let out;
     try {
-      r = await request(await getSession(false));
+      let r = await request(await getSession(false));
       if (r.status === 401) r = await request(await getSession(true));
-      body = await r.json();
+      out = await readLive(r, run);
     } catch (err) {
+      endRun();
       if (!ac.signal.aborted) setStatus([el('span', { className: 'bad' }, String(err))]);
       return null;
     }
-    if (!r.ok) {
+    const body = out.body;
+    if (out.status < 200 || out.status >= 300) {
+      endRun();
       if (body.fallback === 'replay') {
         dispatch({ type: 'liveFailed', reason: body.error });
         setStatus([el('span', { className: 'bad' }, body.error)]);
-      } else setStatus([el('span', { className: 'bad' }, body.error || 'HTTP ' + r.status)]);
+      } else setStatus([el('span', { className: 'bad' }, body.error || 'HTTP ' + out.status)]);
       return null;
     }
-    if (body.events && body.events.length) toBench({ type: 'bench:events', events: body.events });
+    gate.answered(k, body.text);
     showResult(body);
     liveDesc(body.remaining);
     if (token.isCancellationRequested || !live) return null;

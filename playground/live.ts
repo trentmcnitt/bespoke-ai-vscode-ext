@@ -21,6 +21,7 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { getPreset, isPresetAvailable } from '../src/providers/api/presets';
+import type { BenchEvent } from './bench';
 import { complete } from './complete';
 import { hasPrice } from './prices';
 
@@ -193,6 +194,12 @@ export interface LiveRequest {
   ip: string;
   headers: Record<string, string | undefined>;
   signal: AbortSignal;
+  /**
+   * A completion's bench events as they happen (the adapter streams them to the page): the run's
+   * first events the moment the request goes to the model. The response's `events` then holds only
+   * the rest. Without it, every event arrives in the response.
+   */
+  onEvents?: (events: BenchEvent[]) => void;
 }
 
 export interface LiveResponse {
@@ -285,7 +292,7 @@ export async function handleLive(cfg: LiveConfig, req: LiveRequest): Promise<Liv
   req.signal.addEventListener('abort', abort);
   timeout.addEventListener('abort', abort);
   try {
-    const { response, events } = await complete(
+    const { response, events, streamed } = await complete(
       {
         presetId,
         prefix,
@@ -298,13 +305,14 @@ export async function handleLive(cfg: LiveConfig, req: LiveRequest): Promise<Liv
         label: 'live',
       },
       ac.signal,
+      { onEvents: req.onEvents },
     );
     if (response.costUsd) await cfg.store.incrByFloat(spendKey, response.costUsd, 2 * 86_400);
     return {
       status: 200,
       body: {
         ...response,
-        events,
+        events: events.slice(streamed),
         remaining: { hour: LIMITS.perHour - hour, day: LIMITS.perDay - day },
       },
     };

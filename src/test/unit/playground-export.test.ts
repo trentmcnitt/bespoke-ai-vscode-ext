@@ -33,7 +33,7 @@ describe('playground export', () => {
       execFileSync(TSX, [join(ROOT, 'playground', 'export.ts'), dir], { stdio: 'pipe' });
       const html = readFileSync(join(dir, 'index.html'), 'utf8');
       const local = [...html.matchAll(/<script src="([^":]+)"/g)].map((m) => m[1]);
-      expect(local).toEqual(['replay-state.js', 'replay.js']);
+      expect(local).toEqual(['replay-state.js', 'live-requests.js', 'replay.js']);
       for (const f of local) expect(existsSync(join(dir, f))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

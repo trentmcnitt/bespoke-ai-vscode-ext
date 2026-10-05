@@ -984,6 +984,48 @@ describe('ApiCompletionProvider — generation detail', () => {
     expect(detail?.content?.extracted).toBe(' ran into the forest.');
   });
 
+  it('onRequestSent fires once, as the request goes out, with the prompt built', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    const order: string[] = [];
+    let atSend: string | undefined;
+    lastAdapter().complete.mockImplementation(async () => {
+      order.push('adapter');
+      return makeResult();
+    });
+    await provider.getCompletionWithDetail(makeProseContext({ prefix: 'The fox' }), signal(), {
+      captureContent: true,
+      onRequestSent: (d) => {
+        order.push('sent');
+        atSend = d.content?.userMessage;
+      },
+    });
+    expect(order).toEqual(['sent', 'adapter']);
+    expect(atSend).toBe(lastAdapter().complete.mock.calls[0][1][0].content);
+  });
+
+  it('onRequestSent never fires when nothing is sent, and a throwing one never stops the request', async () => {
+    const provider = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),
+      makeLogger(),
+    );
+    const { text } = await provider.getCompletionWithDetail(makeProseContext(), signal(), {
+      onRequestSent: () => {
+        throw new Error('observer');
+      },
+    });
+    expect(text).toBe(' ran into the forest.');
+    const none = new ApiCompletionProvider(
+      makeConfig({ backend: 'api', api: { preset: 'no-such-preset', customPresets: [] } }),
+      makeLogger(),
+    );
+    const sent = vi.fn();
+    await none.getCompletionWithDetail(makeProseContext(), signal(), { onRequestSent: sent });
+    expect(sent).not.toHaveBeenCalled();
+  });
+
   it('omits content when capture is off (the default)', async () => {
     const provider = new ApiCompletionProvider(
       makeConfig({ backend: 'api', api: { preset: 'xai-grok', customPresets: [] } }),

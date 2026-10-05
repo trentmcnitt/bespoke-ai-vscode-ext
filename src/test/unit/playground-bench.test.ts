@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildEvents, type RunTrace } from '../../../playground/bench';
+import { buildEvents, headEvents, HEAD_EVENTS, type RunTrace } from '../../../playground/bench';
 
 function run(overrides: Partial<RunTrace> = {}): RunTrace {
   return {
@@ -160,5 +160,39 @@ describe('playground buildEvents', () => {
       passed: true,
       detail: 'completion has content',
     });
+  });
+
+  it('with a measured send, model_call runs from the send to the answer', () => {
+    const events = buildEvents(run({ sentMs: 1_000_020 }));
+    const at = (node: string, t: string) =>
+      events.find((e) => e.node === node && e.event_type === t)!.ts * 1000;
+    expect(at('prompt_build', 'step_finished')).toBeCloseTo(1_000_020);
+    expect(at('model_call', 'step_started')).toBeCloseTo(1_000_020);
+    expect(at('model_call', 'step_finished')).toBeCloseTo(1_000_900);
+  });
+
+  it('headEvents at the send are exactly the first events of the finished run', () => {
+    // complete() sends these the moment the request goes out; the rest follow with the answer.
+    const final = run({ sentMs: 1_000_020 });
+    const atSend = run({
+      sentMs: 1_000_020,
+      endMs: 1_000_020,
+      checkedMs: 1_000_020,
+      finalText: null,
+      checks: [],
+      detail: { ...final.detail!, outputTokens: undefined, durationApiMs: undefined },
+    });
+    const head = headEvents(atSend);
+    expect(head).toHaveLength(HEAD_EVENTS);
+    expect(head).toEqual(buildEvents(final).slice(0, HEAD_EVENTS));
+    expect(head.map((e) => `${e.node}:${e.event_type}`)).toEqual([
+      '_run:run_started',
+      'queue:step_started',
+      'queue:step_finished',
+      'prompt_build:step_started',
+      'prompt_build:step_finished',
+      'model_call:step_started',
+    ]);
+    expect(head[4].data.output).toBe('msg'); // the prompt, built before the send
   });
 });

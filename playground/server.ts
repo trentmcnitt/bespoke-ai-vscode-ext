@@ -17,6 +17,7 @@ import { benchClient, APP_ID } from './bench';
 import { hasPrice } from './prices';
 import { SpendTally } from './spend';
 import { handleLive, liveConfigFromEnv } from './live';
+import { liveResponder, wantsStream } from './live-stream';
 import { randomBytes } from 'crypto';
 
 const PORT = Number(process.env.PLAYGROUND_PORT ?? 8791);
@@ -60,6 +61,7 @@ const STATIC: Record<string, { file: string; type: string }> = {
   '/style.css': { file: 'client/style.css', type: 'text/css; charset=utf-8' },
   '/replay.html': { file: 'client/replay.html', type: 'text/html; charset=utf-8' },
   '/replay-state.js': { file: 'client/replay-state.js', type: 'text/javascript; charset=utf-8' },
+  '/live-requests.js': { file: 'client/live-requests.js', type: 'text/javascript; charset=utf-8' },
   '/replay.js': { file: 'client/replay.js', type: 'text/javascript; charset=utf-8' },
   '/topology.json': { file: 'topology.json', type: 'application/json; charset=utf-8' },
 };
@@ -174,15 +176,19 @@ const server = createServer((req, res) => {
         res.on('close', () => {
           if (!res.writableEnded) ac.abort();
         });
+        const route = url.pathname.slice('/api/live/'.length);
+        const body = req.method === 'POST' ? await readJson(req) : undefined;
+        const responder = liveResponder(res, wantsStream(route, body));
         const out = await handleLive(live, {
           method: req.method ?? 'GET',
-          route: url.pathname.slice('/api/live/'.length),
-          body: req.method === 'POST' ? await readJson(req) : undefined,
+          route,
+          body,
           ip: req.socket.remoteAddress ?? '',
           headers: { 'x-live-session': req.headers['x-live-session'] as string | undefined },
           signal: ac.signal,
+          onEvents: responder.onEvents,
         });
-        if (!res.destroyed) send(res, out.status, out.body);
+        responder.finish(out.status, out.body);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/complete')

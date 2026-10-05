@@ -91,6 +91,11 @@ export interface CompletionWithDetail {
 export interface GenerationOptions {
   /** When false, providers omit `detail.content` (and the pool server never ships it). */
   captureContent?: boolean;
+  /**
+   * Called once, synchronously, as the request goes to the model (after the prompt is built),
+   * with the detail so far (its `content` when captured). Not called when nothing is sent.
+   */
+  onRequestSent?: (detail: GenerationDetail) => void;
 }
 
 export interface TraceRecord {

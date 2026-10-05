@@ -8,6 +8,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import { handleLive, liveConfigFromEnv, MemoryStore } from './live';
+import { liveResponder, wantsStream } from './live-stream';
 
 const cfg = liveConfigFromEnv();
 // Once per cold start, to the function log (not the public config): which limiter store is in use.
@@ -37,24 +38,23 @@ export default async function handler(req: VercelRequest, res: ServerResponse): 
   });
   let status = 500;
   let body: Record<string, unknown> = { error: 'internal error' };
+  let responder = liveResponder(res, false);
   try {
     const session = req.headers['x-live-session'];
+    const reqBody: unknown = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    responder = liveResponder(res, wantsStream(route, reqBody));
     ({ status, body } = await handleLive(cfg, {
       method: req.method ?? 'GET',
       route,
-      body: typeof req.body === 'string' ? JSON.parse(req.body) : req.body,
+      body: reqBody,
       ip: clientIp(req),
       headers: { 'x-live-session': Array.isArray(session) ? session[0] : session },
       signal: ac.signal,
+      onEvents: responder.onEvents,
     }));
   } catch (err) {
     // Error class only: never the request content.
     console.error('[live] failed:', err instanceof Error ? err.name : 'unknown');
   }
-  if (res.destroyed) return;
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  });
-  res.end(JSON.stringify(body));
+  responder.finish(status, body);
 }

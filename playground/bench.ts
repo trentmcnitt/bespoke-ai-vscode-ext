@@ -2,12 +2,16 @@
  * The playground's bench adapter: one completion run → bench/0 events
  * (~/working_dir/agent-lab-bench/SPEC.md), plus registration and delivery.
  *
- * Step boundaries: the pipeline runs inside ApiCompletionProvider as one call, so
- * the only interior time it reports is the adapter's HTTP round trip
- * (`detail.durationApiMs`). `model_call` spans exactly that; `prompt_build` is
- * the time before it and `extract` + `post_process` share the time after it, all
- * measured around the one call. The in-process steps take well under a
- * millisecond, so their bars are real but not individually timed.
+ * Step boundaries: the pipeline runs inside ApiCompletionProvider as one call. It
+ * reports when the request went to the model (`onRequestSent`, `RunTrace.sentMs`)
+ * and the adapter's HTTP round trip (`detail.durationApiMs`). `prompt_build` runs
+ * from the request arriving to the send, `model_call` from the send to the answer,
+ * and `extract` + `post_process` share the time after it. The in-process steps
+ * take well under a millisecond, so their bars are real but not individually timed.
+ *
+ * `HEAD_EVENTS`: the first events of every run that reached the model (run_started
+ * through model_call's step_started) depend only on what is known at the send, so a
+ * caller can send them then (`headEvents`) and the rest when the run ends.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -34,6 +38,8 @@ export interface RunTrace {
   debounceMs: number;
   /** Server received the request (end of debounce). */
   startMs: number;
+  /** The request went to the model (onRequestSent), when it did. */
+  sentMs?: number;
   /** Provider call returned. */
   endMs: number;
   /** Deterministic checks finished. */
@@ -103,9 +109,13 @@ export function buildEvents(run: RunTrace): BenchEvent[] {
   const content = d?.content;
   const queuedMs = run.startMs - run.debounceMs;
   const apiMs = Math.min(d?.durationApiMs ?? run.endMs - run.startMs, run.endMs - run.startMs);
-  // The HTTP call ends at endMs minus the in-process tail; place it last in the window.
+  // The model call runs from the send to the answer. Without a measured send (a run recorded
+  // before onRequestSent existed), the HTTP call is placed last in the window.
   const modelEnd = run.endMs;
-  const modelStart = modelEnd - apiMs;
+  const modelStart =
+    run.sentMs !== undefined
+      ? Math.min(Math.max(run.sentMs, run.startMs), modelEnd)
+      : modelEnd - apiMs;
   const reachedModel =
     d !== undefined && d.errorType !== 'circuit_open' && d.errorType !== 'backend_unavailable';
 
@@ -213,6 +223,20 @@ export function buildEvents(run: RunTrace): BenchEvent[] {
     latency_ms: Math.round(run.checkedMs - queuedMs),
   });
   return events;
+}
+
+/** How many of a run's events (buildEvents) lead up to the model call: run_started, the queue and
+ * prompt_build steps, and model_call's step_started. */
+export const HEAD_EVENTS = 6;
+
+/** The first HEAD_EVENTS events of a run, as buildEvents will give them, from what is known when the
+ * request goes to the model. `run` needs sentMs and the detail so far (its captured prompt). */
+export function headEvents(run: RunTrace): BenchEvent[] {
+  return buildEvents({
+    ...run,
+    endMs: run.sentMs ?? run.endMs,
+    checkedMs: run.sentMs ?? run.endMs,
+  }).slice(0, HEAD_EVENTS);
 }
 
 // ─── Delivery ─────────────────────────────────────────────────────────

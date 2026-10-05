@@ -27,7 +27,14 @@ import {
   type CheckScenarioFlags,
 } from '../src/test/quality/deterministic-checks';
 import { playgroundConfig, playgroundLogger } from './config';
-import { buildEvents, type BenchEvent, type RunOutcome, type RunTrace } from './bench';
+import {
+  buildEvents,
+  HEAD_EVENTS,
+  headEvents,
+  type BenchEvent,
+  type RunOutcome,
+  type RunTrace,
+} from './bench';
 import { estimateCost } from './prices';
 
 export interface CompleteRequest {
@@ -70,10 +77,20 @@ function providerFor(presetId: string): ApiCompletionProvider {
   return p;
 }
 
+/** Optional: receive the run's bench events as they happen instead of only at the end. */
+export interface CompleteHooks {
+  /**
+   * Called with the run's first events (through model_call's step_started) the moment the request
+   * goes to the model. The returned `streamed` says how many of `events` it was given.
+   */
+  onEvents?: (events: BenchEvent[]) => void;
+}
+
 export async function complete(
   req: CompleteRequest,
   signal: AbortSignal,
-): Promise<{ response: CompleteResponse; events: BenchEvent[] }> {
+  hooks: CompleteHooks = {},
+): Promise<{ response: CompleteResponse; events: BenchEvent[]; streamed: number }> {
   const preset = getPreset(req.presetId);
   if (!preset) throw new Error(`unknown preset ${req.presetId}`);
   const config = playgroundConfig(req.presetId);
@@ -84,6 +101,38 @@ export async function complete(
 
   const runId = `run-${randomBytes(6).toString('hex')}`;
   const startMs = Date.now();
+  let sentMs: number | undefined;
+  let streamed = 0;
+  const fixed = {
+    runId,
+    sessionId: req.sessionId,
+    label: req.label,
+    origin: 'web' as const,
+    debounceMs: req.debounceMs,
+    startMs,
+    mode,
+    presetId: req.presetId,
+    params: sentParams(preset),
+  };
+  const trace = (rest: Omit<RunTrace, keyof typeof fixed>): RunTrace => ({ ...fixed, ...rest });
+  // The request went to the model: what led up to it is final, so it can be sent now.
+  const onRequestSent = (detail: GenerationDetail) => {
+    sentMs = Date.now();
+    if (!hooks.onEvents) return;
+    const head = headEvents(
+      trace({
+        sentMs,
+        endMs: sentMs,
+        checkedMs: sentMs,
+        detail,
+        finalText: null,
+        outcome: 'ok',
+        checks: [],
+      }),
+    );
+    streamed = HEAD_EVENTS;
+    hooks.onEvents(head);
+  };
   let result: CompletionWithDetail;
   let errorMessage: string | undefined;
   let threw = false;
@@ -98,7 +147,7 @@ export async function complete(
         mode,
       },
       signal,
-      { captureContent: true },
+      { captureContent: true, onRequestSent },
     );
   } catch (err) {
     threw = true;
@@ -134,25 +183,17 @@ export async function complete(
   const checkedMs = Date.now();
   const cost = estimateCost(preset.modelId, detail);
 
-  const run: RunTrace = {
-    runId,
-    sessionId: req.sessionId,
-    label: req.label,
-    origin: 'web',
-    debounceMs: req.debounceMs,
-    startMs,
+  const run = trace({
+    sentMs,
     endMs,
     checkedMs,
-    mode,
-    presetId: req.presetId,
     detail,
     finalText: result.text,
     outcome,
     errorMessage: errorMessage ?? detail?.errorMessage,
     checks,
     cost,
-    params: sentParams(preset),
-  };
+  });
 
   return {
     response: {
@@ -167,6 +208,7 @@ export async function complete(
       checks: checks.map((c) => ({ id: c.id, pass: c.pass, detail: c.detail })),
     },
     events: buildEvents(run),
+    streamed,
   };
 }
 
