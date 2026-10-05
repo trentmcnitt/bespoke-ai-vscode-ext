@@ -1,0 +1,167 @@
+{
+  "v": "bench-topology/0",
+  "app": {
+    "id": "bespoke-playground",
+    "name": "Bespoke AI playground",
+    "description": "One inline completion through Bespoke AI's real API-backend pipeline: prompt build, model call, extraction, post-processing, then the deterministic quality checks."
+  },
+  "nodes": [
+    {
+      "id": "queue",
+      "label": "debounce",
+      "kind": "step",
+      "description": "The editor waits for a typing pause before asking."
+    },
+    {
+      "id": "prompt_build",
+      "label": "build prompt",
+      "kind": "step",
+      "description": "Truncate the document around the cursor and build the fill-in-the-middle prompt for the preset's strategy."
+    },
+    {
+      "id": "model_call",
+      "label": "model call",
+      "kind": "llm"
+    },
+    {
+      "id": "extract",
+      "label": "extract",
+      "kind": "step",
+      "description": "Pull the completion out of the model's reply (tag, prefill or instruction strategy)."
+    },
+    {
+      "id": "post_process",
+      "label": "post-process",
+      "kind": "step",
+      "description": "Trim text that overlaps the prefix or suffix."
+    },
+    {
+      "id": "checks",
+      "label": "checks",
+      "kind": "terminal",
+      "description": "Deterministic checks from the eval suite, run on the ghost text."
+    }
+  ],
+  "edges": [
+    {
+      "from": "queue",
+      "to": "prompt_build"
+    },
+    {
+      "from": "prompt_build",
+      "to": "model_call"
+    },
+    {
+      "from": "model_call",
+      "to": "extract"
+    },
+    {
+      "from": "extract",
+      "to": "post_process"
+    },
+    {
+      "from": "post_process",
+      "to": "checks"
+    }
+  ],
+  "panels": [
+    {
+      "id": "model",
+      "title": "Model call",
+      "event_types": ["llm_call"],
+      "fields": [
+        {
+          "key": "model",
+          "label": "model"
+        },
+        {
+          "key": "provider",
+          "label": "provider"
+        },
+        {
+          "key": "latency_ms",
+          "label": "latency",
+          "format": "ms"
+        },
+        {
+          "key": "input_tokens",
+          "label": "input",
+          "format": "tokens"
+        },
+        {
+          "key": "cache_read_tokens",
+          "label": "cache read",
+          "format": "tokens"
+        },
+        {
+          "key": "output_tokens",
+          "label": "output",
+          "format": "tokens"
+        },
+        {
+          "key": "cost_usd",
+          "label": "cost",
+          "format": "usd"
+        },
+        {
+          "key": "cost_source",
+          "label": "cost source"
+        },
+        {
+          "key": "finish_reason",
+          "label": "finish"
+        }
+      ]
+    },
+    {
+      "id": "errors",
+      "title": "Errors",
+      "event_types": ["error"],
+      "mode": "append",
+      "fields": [
+        {
+          "key": "message",
+          "label": "message"
+        },
+        {
+          "key": "type",
+          "label": "type"
+        }
+      ]
+    },
+    {
+      "id": "ghost",
+      "title": "Ghost text",
+      "event_types": ["step_finished"],
+      "nodes": ["post_process"],
+      "fields": [
+        {
+          "key": "output",
+          "label": "shown",
+          "format": "quote"
+        }
+      ]
+    },
+    {
+      "id": "checks",
+      "title": "Checks",
+      "event_types": ["check_result"],
+      "mode": "append",
+      "fields": [
+        {
+          "key": "name",
+          "label": "check"
+        },
+        {
+          "key": "passed",
+          "label": "passed"
+        },
+        {
+          "key": "detail",
+          "label": "detail"
+        }
+      ]
+    }
+  ],
+  "story": false
+}

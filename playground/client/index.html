@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bespoke Playground</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/monaco-editor@0.57.0/min/vs/editor/editor.main.css"
+    />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Bespoke AI playground</h1>
+      <label
+        >Model
+        <select id="preset"></select
+      ></label>
+      <label
+        >Scenario
+        <select id="scenario"></select
+      ></label>
+      <label
+        >Language
+        <select id="language"></select
+      ></label>
+      <label
+        >Trigger
+        <select id="trigger">
+          <option value="800">eager (0.8 s)</option>
+          <option value="2000">relaxed (2 s)</option>
+          <option value="manual">on demand</option>
+        </select>
+      </label>
+      <button id="ask" title="Ask now (Alt+Enter)">Ask now ⌥↵</button>
+      <span class="spacer"></span>
+      <a id="bench" target="_blank" rel="noopener">Open bench ↗</a>
+    </header>
+    <div id="desc"></div>
+    <div id="editor"></div>
+    <footer id="status">Loading…</footer>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.57.0/min/vs/loader.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

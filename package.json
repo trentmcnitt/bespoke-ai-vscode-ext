@@ -448,8 +448,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "lint": "eslint src/",
-    "check": "npm run lint && tsc --noEmit",
+    "lint": "eslint src/ playground/",
+    "check": "npm run lint && tsc --noEmit && tsc --noEmit -p playground",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
@@ -462,9 +462,13 @@
     "judge:sample": "tsx src/test/quality/judge-validation/build-sample.ts",
     "judge:score": "tsx src/test/quality/judge-validation/score.ts",
     "dump-prompts": "tsx src/scripts/dump-prompts.ts",
+    "playground": "tsx playground/server.ts",
+    "playground:record": "tsx playground/record.ts",
+    "playground:export": "tsx playground/export.ts",
+    "playground:build-api": "esbuild playground/serverless.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/playground-api/live.js",
     "install-ext": "npm run compile && vsce package -o bespoke-ai.vsix && codium --install-extension bespoke-ai.vsix --force",
-    "format": "prettier --write 'src/**/*.ts' '*.{json,mjs,md}'",
-    "format:check": "prettier --check 'src/**/*.ts' '*.{json,mjs,md}'",
+    "format": "prettier --write 'src/**/*.ts' 'playground/**/*.{ts,js,json,html,md}' '*.{json,mjs,md}'",
+    "format:check": "prettier --check 'src/**/*.ts' 'playground/**/*.{ts,js,json,html,md}' '*.{json,mjs,md}'",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -473,6 +477,9 @@
       "eslint --fix"
     ],
     "*.{json,mjs,md}": [
+      "prettier --write"
+    ],
+    "playground/**/*.{ts,js,json,html,md}": [
       "prettier --write"
     ]
   },

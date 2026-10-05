@@ -403,4 +403,4 @@ export const proseFullWindowScenarios: TestScenario[] = [
         'Personal essay about woodworking and software. The prefix ends with "my mind enters a state that I can only describe as quietly". The suffix begins with "alert." The completion should bridge these fragments — most likely just the word "alert" or a very short phrase. However, the model does not see the suffix, so it may generate a longer continuation describing this meditative state. Either a brief bridge or a plausible continuation of the thought is acceptable. Reflective, introspective prose voice. Should not introduce headings or structural elements.',
     },
   },
-] as const satisfies readonly TestScenario[];
+];

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Where live mode's API lives, relative to this page. -->
+    <meta name="bespoke-live-api" content="api/live/" />
+    <title>Bespoke Replay</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/monaco-editor@0.57.0/min/vs/editor/editor.main.css"
+    />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Bespoke AI</h1>
+      <span id="replayControls" class="group">
+        <label
+          >Scenario
+          <select id="scenario"></select
+        ></label>
+        <label
+          >Model
+          <select id="preset"></select
+        ></label>
+        <button id="play">▶ Play</button>
+        <label title="Play every model and scenario in turn"
+          ><input type="checkbox" id="auto" checked /> auto-advance</label
+        >
+      </span>
+      <span id="liveControls" class="group" hidden>
+        <label
+          >Model
+          <select id="liveModel"></select
+        ></label>
+        <button id="ask" title="Ask now (Alt+Enter)">Ask now ⌥↵</button>
+      </span>
+      <span class="spacer"></span>
+      <button id="mode" class="primary" hidden>✎ Try it yourself</button>
+    </header>
+    <div id="turnstile"></div>
+    <div id="desc"></div>
+    <div id="editor"></div>
+    <footer id="status">Loading…</footer>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.57.0/min/vs/loader.js"></script>
+    <script src="replay.js"></script>
+  </body>
+</html>

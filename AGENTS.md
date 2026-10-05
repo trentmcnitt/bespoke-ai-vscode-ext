@@ -68,6 +68,10 @@ npm run latency-report        # p50/p90/p95 backend latency from ~/.bespokeai/us
 npm run judge:sample          # Build the judge-validation sample (refuses once labels exist)
 npm run judge:score           # Judge TPR/TNR vs human labels per split (needs evals/judge-validation/labels.csv)
 npm run dump-prompts     # Dump exact prompt strings for Claude Code to prompt-dump.txt
+npm run playground       # Local Monaco playground on the real API pipeline, traced to the bench (playground/README.md)
+npm run playground:record  # Record the replay runs (API keys; ~$0.04)
+npm run playground:export  # Static replay page → dist/playground/
+npm run playground:build-api  # Bundle the live-mode serverless function → dist/playground-api/live.js
 npm run install-ext      # Compile, package VSIX, and install into VSCodium
 ```
 
@@ -232,6 +236,8 @@ File paths relative to `src/`. Read source files for full API surface; the Notes
 | `utils/latency-stats.ts`     | Percentiles and grouping for the latency report                             | Pure. CLI ledger rows never had `backend`, so a missing field means CLI. CLI `durationApiMs` is ignored (cumulative per session in older rows; an approximate per-turn delta since the per-turn fix)                      |
 | `types.ts`                   | `CompletionProvider`, `ExtensionConfig`, `CustomPreset`, `TriggerPreset`    | `ExtensionConfig` mirrors `bespokeAI.*` in `package.json` — keep in sync                                                                                                                                                  |
 | `types/git.d.ts`             | Type defs for VS Code's built-in Git extension API                          |                                                                                                                                                                                                                           |
+
+**Playground** (`playground/`, dev tooling, not in the VSIX): a local Monaco page + Node server that runs `ApiCompletionProvider` outside VS Code and reports each completion to the agent-labs bench as `bench/0` events (`bench.ts`, map in `topology.json`). Type-checked by `npm run check` via `playground/tsconfig.json`. `replay.html` is the static form (recorded runs in `playground/recordings/`, `npm run playground:record` / `playground:export`), guarded by `playground-recordings.test.ts`. Live mode (`live.ts`, Vercel adapter `serverless.ts`, `npm run playground:build-api`) adds rate-limited live completions behind Turnstile; tests in `playground-live.test.ts`. See `playground/README.md`.
 
 Omitted from table (simple/trivial): `pool-server/index.ts` and `providers/api/index.ts` (re-exports), `utils/message-channel.ts`, `utils/model-name.ts`, `utils/workspace.ts`, `utils/usage-tracker.ts`, `utils/truncation.ts`, `scripts/dump-prompts.ts`, `scripts/latency-report.ts`.
 
