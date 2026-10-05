@@ -99,24 +99,30 @@ const BUILT_IN_PRESET_DEFS: Preset[] = [
     temperature: 0.2,
     promptStrategy: 'instruction-extraction',
   },
+  // xAI retired grok-4-1-fast-non-reasoning, grok-code-fast-1 and grok-4-0709 on
+  // 2026-05-15 and serves those ids from grok-4.3 / grok-build-0.1
+  // (docs.x.ai/developers/migration/may-15-retirement). grok-4.3 reasons by default
+  // (measured 2026-09-29: 262 reasoning tokens and ~2.3 s on a 7-token answer), so the
+  // fast preset turns it off with reasoning_effort "none" (~0.7 s).
   {
     id: 'xai-grok',
-    displayName: 'Grok 4.1 Fast',
-    description: 'Fast, non-reasoning',
+    displayName: 'Grok 4.3',
+    description: 'Fast, reasoning off',
     provider: 'xai',
-    modelId: 'grok-4-1-fast-non-reasoning',
+    modelId: 'grok-4.3',
     baseUrl: 'https://api.x.ai/v1',
     apiKeyEnvVar: 'XAI_API_KEY',
     maxTokens: 200,
     temperature: 0.3,
     promptStrategy: 'instruction-extraction',
+    extraBody: { reasoning_effort: 'none' },
   },
   {
     id: 'xai-grok-code',
-    displayName: 'Grok Code Fast',
+    displayName: 'Grok Build 0.1',
     description: 'Coding-optimized',
     provider: 'xai',
-    modelId: 'grok-code-fast-1',
+    modelId: 'grok-build-0.1',
     baseUrl: 'https://api.x.ai/v1',
     apiKeyEnvVar: 'XAI_API_KEY',
     maxTokens: 200,
@@ -124,16 +130,19 @@ const BUILT_IN_PRESET_DEFS: Preset[] = [
     promptStrategy: 'instruction-extraction',
   },
   {
+    // What grok-4-0709 has been served as since the retirement: slow for autocomplete
+    // (6-9 s measured), kept so existing settings keep working.
     id: 'xai-grok-4',
-    displayName: 'Grok 4',
-    description: 'Full capability',
+    displayName: 'Grok 4.3 (reasoning)',
+    description: 'Thinks first; slower',
     provider: 'xai',
-    modelId: 'grok-4-0709',
+    modelId: 'grok-4.3',
     baseUrl: 'https://api.x.ai/v1',
     apiKeyEnvVar: 'XAI_API_KEY',
     maxTokens: 200,
     temperature: 0.3,
     promptStrategy: 'instruction-extraction',
+    extraBody: { reasoning_effort: 'low' },
   },
   {
     id: 'openrouter-haiku',
