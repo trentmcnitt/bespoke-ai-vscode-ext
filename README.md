@@ -70,7 +70,7 @@ The default model is Sonnet — best balance of quality and speed. Switch models
 1. Choose **"Use an API key instead"** when prompted (or set `bespokeAI.backend` to `api` in settings)
 2. Run **Bespoke AI: Enter API Key** from the Command Palette (`Ctrl/Cmd+Shift+P`) to store your key securely
 
-The default model is [Grok 4.1 Fast](https://console.x.ai/) by xAI — fast, affordable, and high quality. Change models anytime via the status bar menu. See [Available Models](#available-models) for the full list.
+The default model is [Grok 4.3](https://console.x.ai/) by xAI, with reasoning turned off for speed. Change models anytime via the status bar menu. See [Available Models](#available-models) for the full list.
 
 </details>
 
@@ -131,9 +131,9 @@ The API backend includes presets for popular providers. Change the active preset
 
 | Preset                    | Provider                                      | Model                                                          |
 | ------------------------- | --------------------------------------------- | -------------------------------------------------------------- |
-| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4-1-fast-non-reasoning                                    |
-| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-code-fast-1                                               |
-| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4-0709                                                    |
+| `xai-grok` _(default)_    | [xAI](https://console.x.ai/)                  | grok-4.3 (reasoning off)                                       |
+| `xai-grok-code`           | [xAI](https://console.x.ai/)                  | grok-build-0.1                                                 |
+| `xai-grok-4`              | [xAI](https://console.x.ai/)                  | grok-4.3 (low reasoning; slower)                               |
 | `anthropic-haiku`         | [Anthropic](https://console.anthropic.com/)   | claude-haiku-4-5-20251001                                      |
 | `anthropic-sonnet`        | [Anthropic](https://console.anthropic.com/)   | claude-sonnet-5                                                |
 | `openai-gpt-4.1-nano`     | [OpenAI](https://platform.openai.com/)        | gpt-4.1-nano                                                   |
@@ -413,17 +413,20 @@ npm run latency-report            # p50/p90/p95 from your local usage ledger
 
 The quality suite has been run against these models. The reference set for prompt changes is CLI sonnet, `xai-grok` and `openai-gpt-4.1-nano`, one per extraction strategy; the others were last run before the 2026-09 prompt change.
 
-| #   | Backend | Preset ID             | Model                       | Last full run                               |
-| --- | ------- | --------------------- | --------------------------- | ------------------------------------------- |
-| 1   | CLI     | _(default)_           | sonnet                      | 2026-09-28                                  |
-| 2   | CLI     | —                     | haiku                       | 2026-03-02                                  |
-| 3   | API     | `xai-grok`            | grok-4-1-fast-non-reasoning | 2026-09-28                                  |
-| 4   | API     | `xai-grok-code`       | grok-code-fast-1            | 2026-03-01                                  |
-| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001   | 2026-03-02                                  |
-| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5             | sampled 51 of 106 (2026-09-28); no full run |
-| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano                | 2026-09-28                                  |
-| 8   | API     | `google-gemini-flash` | gemini-2.5-flash            | 2026-03-01                                  |
-| 9   | API     | `ollama-default`      | qwen2.5-coder:7b            | 2026-03-01                                  |
+| #   | Backend | Preset ID             | Model                     | Last full run                               |
+| --- | ------- | --------------------- | ------------------------- | ------------------------------------------- |
+| 1   | CLI     | _(default)_           | sonnet                    | 2026-09-28                                  |
+| 2   | CLI     | —                     | haiku                     | 2026-03-02                                  |
+| 3   | API     | `xai-grok`            | grok-4.3 (reasoning off)  | 2026-09-28 ¹                                |
+| 4   | API     | `xai-grok-code`       | grok-build-0.1            | not run ²                                   |
+| 5   | API     | `anthropic-haiku`     | claude-haiku-4-5-20251001 | 2026-03-02                                  |
+| 6   | API     | `anthropic-sonnet`    | claude-sonnet-5           | sampled 51 of 106 (2026-09-28); no full run |
+| 7   | API     | `openai-gpt-4.1-nano` | gpt-4.1-nano              | 2026-09-28                                  |
+| 8   | API     | `google-gemini-flash` | gemini-2.5-flash          | 2026-03-01                                  |
+| 9   | API     | `ollama-default`      | qwen2.5-coder:7b          | 2026-03-01                                  |
+
+¹ Run under the retired id `grok-4-1-fast-non-reasoning`, which xAI has served since 2026-05-15 as grok-4.3 with reasoning off: the same request this preset now sends.
+² The earlier run (2026-03-01) was on `grok-code-fast-1`, retired 2026-05-15 and now served as grok-build-0.1.
 
 Coverage: all 3 extraction strategies, 6 providers, 3 cost tiers, code-specialized model, local option. See `AGENTS.md` for testing commands.
 

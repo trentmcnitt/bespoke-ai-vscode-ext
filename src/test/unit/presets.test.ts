@@ -132,6 +132,20 @@ describe('Presets', () => {
       expect(getPreset('openai-gpt-4o-mini')?.promptStrategy).toBe('instruction-extraction');
     });
 
+    // xAI serves the retired grok ids from grok-4.3, which reasons unless told not to.
+    it('xai-grok is grok-4.3 with reasoning off', () => {
+      const p = getPreset('xai-grok')!;
+      expect(p.modelId).toBe('grok-4.3');
+      expect(p.extraBody).toEqual({ reasoning_effort: 'none' });
+    });
+
+    it('no built-in xAI preset names a retired model', () => {
+      const retired = ['grok-4-1-fast-non-reasoning', 'grok-code-fast-1', 'grok-4-0709'];
+      for (const p of getAllPresets().filter((x) => x.provider === 'xai')) {
+        expect(retired).not.toContain(p.modelId);
+      }
+    });
+
     it('xai-grok uses instruction-extraction', () => {
       expect(getPreset('xai-grok')?.promptStrategy).toBe('instruction-extraction');
     });
