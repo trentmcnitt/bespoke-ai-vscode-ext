@@ -14,3 +14,5 @@ prompt-dump*.txt
 FEATURE_MAP.md
 docs/claude-code-subscription-risks.md
 docs/oracle-dev-log.md
+# Playground spend tally
+playground/.data/

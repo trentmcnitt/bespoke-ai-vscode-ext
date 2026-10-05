@@ -1,0 +1,195 @@
+:root {
+  --bg: #fbfbfa;
+  --panel: #f1f0ed;
+  --text: #1d1d1b;
+  --muted: #6b6a66;
+  --line: #dddbd5;
+  --ok: #2f7d4f;
+  --bad: #b3372b;
+  --accent: #3d5afe;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1d;
+    --panel: #232326;
+    --text: #e7e6e3;
+    --muted: #9a9892;
+    --line: #34343a;
+    --ok: #5fbf85;
+    --bad: #e8766b;
+    --accent: #8c9eff;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+body {
+  display: flex;
+  flex-direction: column;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+header h1 {
+  font-size: 14px;
+  margin: 0 6px 0 0;
+  font-weight: 600;
+}
+label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+}
+select,
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 6px;
+  max-width: 260px;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--accent);
+}
+a {
+  color: var(--accent);
+}
+.spacer {
+  flex: 1;
+}
+#editor {
+  flex: 1;
+  min-height: 320px;
+  border-top: 2px solid var(--accent);
+}
+footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  min-height: 30px;
+}
+footer b {
+  color: var(--text);
+  font-weight: 600;
+}
+.ok {
+  color: var(--ok);
+}
+.bad {
+  color: var(--bad);
+}
+.checks span {
+  margin-right: 8px;
+}
+#desc {
+  padding: 4px 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  min-height: 24px;
+}
+#desc .note {
+  margin-left: 8px;
+}
+button.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.group {
+  display: contents;
+}
+.group[hidden] {
+  display: none;
+}
+#turnstile:empty {
+  display: none;
+}
+#turnstile {
+  padding: 6px 12px;
+}
+/* Monaco's floating "show keyboard" button on touch devices covers the ghost text; a
+   replay needs no keyboard. Live mode keeps it. */
+body.replaying .monaco-editor .iPadShowKeyboard {
+  display: none;
+}
+/* The replay banner: what this is, and the one thing to do. */
+#banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  font-size: 14px;
+}
+#banner[hidden] {
+  display: none;
+}
+#bannerText {
+  flex: 1 1 320px;
+}
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button.big {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  max-width: none;
+}
+button.big.primary {
+  background: var(--accent);
+  color: #fff;
+}
+button.big.primary:hover {
+  filter: brightness(1.08);
+}
+/* A keystroke during a replay doesn't edit: the banner says why, with a brief nudge. */
+#banner.nudge {
+  animation: nudge 0.5s ease-in-out;
+}
+@keyframes nudge {
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #banner.nudge {
+    animation: none;
+  }
+}

@@ -1,0 +1,911 @@
+{
+ "v": "bespoke-replay/0",
+ "scenarios": {
+  "prose-journal-jnl-personal-mix": {
+   "label": "Prose \u00b7 personal journal",
+   "description": "Entry mixing personal life and tech notes, casual voice",
+   "mode": "prose",
+   "languageId": "markdown",
+   "fileName": "journal.jnl.md",
+   "prefix": "every time I use the scroll wheel. Ordered a Logitech MX Master 3S as a replacement \u2014 everyone at work swears by it and it's on sale.\n\n02-05-26\n\nRough night \u2014 the baby was up every two hours. Managed to get some work done during the morning nap though. Fixed that race condition in the pool server where two clients could both think they won the leader election if the lockfile write and the socket listen happened in the wrong order. Added a verification step: after acquiring the lock, the new leader tries to connect to the socket as a client. If the connection succeeds, someone else is already serving \u2014 release the lock and become a client instead.\n\n---\n\n**Lunch with Dave at the brewery**\n\nMet Dave for lunch at the new brewery on Oak Street. He's been doing woodworking as a hobby and showed me photos of a bookshelf he built \u2014 mortise and tenon joints, no screws. Really impressive. He's been watching YouTube tutorials from a channel called \"Wood By Wright\" and says it's the best resource he's found for hand-tool woodworking. Might check it out \u2014 I've been wanting to build a standing desk and doing it by hand sounds more satisfying than just buying one from Ikea.\n\nDave also mentioned he's been using [Obsidian](https://obsidian.md) for his notes and really likes the graph view for connecting ideas. I'm happy with my current setup (just markdown files in a git repo) but the backlink feature is tempting. Maybe I'll try it for a week and see if it sticks.\n\n---\n\n**The `esbuild` treeshaking rabbit hole**\n\nNoticed the extension bundle was 2.3MB which seemed high. Ran `esbuild --analyze` and found that the `openai` npm package was pulling in a bunch of Node.js polyfills that",
+   "suffix": ""
+  },
+  "prose-prompt-short-question-continue": {
+   "label": "Prose \u00b7 writing a prompt",
+   "description": "Very short prompt that looks like a single question, must continue as author",
+   "mode": "prose",
+   "languageId": "markdown",
+   "fileName": "message.md",
+   "prefix": "Can you take a look at the cache invalidation logic in src/utils/cache.ts? I noticed that when the user changes the active backend from claude-code to api, the cached completions from the previous backend can still get served. I think we should clear the cache on backend switch, or maybe",
+   "suffix": ""
+  },
+  "prose-bridge-large-detail": {
+   "label": "Prose \u00b7 mid-document paragraph",
+   "description": "Design-oriented guide, add supporting detail (~2 sentences) about migration tooling tradeoffs",
+   "mode": "prose",
+   "languageId": "markdown",
+   "fileName": "guide.md",
+   "prefix": "Each step is independently deployable and reversible. If step 3 causes problems, you can roll back to reading from `userName` without any data loss because both columns are still being written.\n\nThe downside is obvious: what used to be one migration is now four, each requiring its own deployment. For teams that deploy multiple times a day this is manageable, but for teams on a weekly or monthly release cycle it can turn a simple rename into a multi-week project. Some teams mitigate this by batching related expand-and-contract steps and using feature flags to control the cutover, but that introduces its own complexity around flag cleanup and stale code paths.\n\n### Tooling\n\nStandard migration tools (Flyway, Liquibase, `knex migrate`, Django migrations, Alembic) don't enforce zero-downtime patterns \u2014 they'll happily run whatever SQL you give them. A few newer tools try to fill this gap:\n\n- **`gh-ost`** (GitHub's Online Schema Tool) \u2014 performs MySQL schema changes by creating a shadow table, copying data in the background, and swapping tables atomically. Avoids table locks entirely. Only works with MySQL.\n- **`pgroll`** \u2014 Postgres-specific tool that automates expand-and-contract for common schema changes. Still relatively new (as of 2024) but promising.\n- **`reshape`** \u2014 Similar to pgroll but written in Rust. Handles Postgres migrations with automatic expand/contract phases.\n\nThese tools are great when they support your specific use case, but they have limitations. `gh-ost` doesn't handle foreign key constraints well and requires binlog access, `pgroll` doesn't yet support all DDL operations (no enum or constraint changes as of v0.6), and `reshape` requires that your application connect through a migration-aware proxy. For many teams, the pragmatic choice is to use a standard migration tool and manually apply expand-and-contract discipline,",
+   "suffix": " Regardless of which tool you use (or whether you roll your own), the most important practice is to test every migration against a production-sized dataset before running it in production. A migration that takes 50ms on your dev database with 1000 rows might take 45 minutes on a production table with 200 million rows \u2014 and that's the difference between a non-event and a major incident.\n\nSome teams maintain a \"migration staging\" environment with a recent copy of production data (anonymized where necessary) specifically for this purpose. The migration runs there first, and only if it completes within the time budget does it get promoted to the production pipeline. This adds friction to the deployment process but has saved us from at least three potential outages in the past year.\n\n### Rollback Strategies\n\nNot every migration can be trivially rolled back. Adding a column is easy to reverse (just drop it), but dropping a column is not \u2014 once the data is gone, you need a backup to restore it. This asymmetry means you should think about rollback before writing the migration, not after.\n\nA useful mental model is to classify migrations into three categories:\n\n- **Fully reversible** \u2014 add column, add index, add table. Rollback is a simple DROP.\n- **Data-destructive** \u2014 drop column, drop table, truncate. Rollback requires a backup or a rebuild from event logs.\n- **One-way structural** \u2014 change column type, split a table, merge tables. These often can't be rolled back without data loss or application changes"
+  },
+  "code-mid-file-ts-handler-full": {
+   "label": "Code \u00b7 TypeScript route handler",
+   "description": "Express handler file, cursor in new route handler body",
+   "mode": "code",
+   "languageId": "typescript",
+   "fileName": "routes.ts",
+   "prefix": "      if (roleFilter) {\n        query = query.where('role', roleFilter);\n      }\n\n      const [users, countResult] = await Promise.all([\n        query.clone().offset(offset).limit(limit).orderBy('created_at', 'desc'),\n        query.clone().count('* as total').first(),\n      ]);\n\n      const total = Number(countResult?.total ?? 0);\n\n      res.json(paginatedResponse(users, page, limit, total));\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * GET /users/:id\n * Retrieve a single user by ID, with recent activity summary.\n */\nrouter.get(\n  '/users/:id',\n  authenticateToken,\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      // Check cache first\n      const cached = await redis.get(`user:${req.params.id}:profile`);\n      if (cached) {\n        res.json(JSON.parse(cached));\n        return;\n      }\n\n      const user = await db('users')\n        .select(\n          'id', 'email', 'display_name', 'role',\n          'avatar_url', 'bio', 'created_at', 'updated_at', 'last_login_at',\n        )\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      // Attach recent activity counts\n      const [activityCount, projectCount] = await Promise.all([\n        db('activity_log')\n          .where('user_id', req.params.id)\n          .where('created_at', '>', db.raw(\"now() - interval '30 days'\"))\n          .count('* as total')\n          .first(),\n        db('project_members')\n          .where('user_id', req.params.id)\n          .count('* as total')\n          .first(),\n      ]);\n\n      const profile = {\n        ...user,\n        recentActivityCount: Number(activityCount?.total ?? 0),\n        projectCount: Number(projectCount?.total ?? 0),\n      };\n\n      // Cache for 5 minutes\n      await redis.setex(`user:${req.params.id}:profile`, 300, JSON.stringify(profile));\n\n      res.json(profile);\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * POST /users\n * Create a new user account. Sends a welcome email on success.\n */\nrouter.post(\n  '/users',\n  authenticateToken,\n  requireRole('admin'),\n  validateBody(schemas.createUser),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const { email, displayName, role, password } = req.body;\n\n      // Check for existing user with same email\n      const existing = await db('users').where('email', email.toLowerCase()).first();\n      if (existing) {\n        throw new ConflictError(`User with email ${email} already exists`);\n      }\n\n      const passwordHash = await hashPassword(password);\n\n      const [newUser] = await db('users')\n        .insert({\n          email: email.toLowerCase(),\n          display_name: displayName,\n          password_hash: passwordHash,\n          role: role || 'member',\n          created_at: new Date(),\n          updated_at: new Date(),\n        })\n        .returning(['id', 'email', 'display_name', 'role', 'created_at']);\n\n      logger.info({ userId: newUser.id, email }, 'User created');\n\n      // Send welcome email asynchronously \u2014 don't block the response\n      sendEmail({\n        to: email,\n        template: 'welcome',\n        data: { displayName, loginUrl: `${process.env.APP_URL}/login` },\n      }).catch(err => logger.error({ err, email }, 'Failed to send welcome email'));\n\n      res.status(201).json(newUser);\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * PUT /users/:id\n * Update an existing user's profile fields.\n */\nrouter.put(\n  '/users/:id',\n  authenticateToken,\n  validateBody(schemas.updateUser),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const { displayName, role, avatarUrl, bio } = req.body;\n\n",
+   "suffix": "\n      await invalidateUserCache(req.params.id);\n      logger.info({ userId: req.params.id, changes: req.body }, 'User updated');\n\n      res.json(updated);\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n/**\n * DELETE /users/:id\n * Soft-delete a user account and revoke all sessions.\n */\nrouter.delete(\n  '/users/:id',\n  authenticateToken,\n  requireRole('admin'),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const user = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n\n      if (!user) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      // Prevent self-deletion\n      const requestingUser = (req as any).user;\n      if (requestingUser.id === req.params.id) {\n        throw new ForbiddenError('Cannot delete your own account');\n      }\n\n      // Soft-delete: mark as deleted rather than removing the row\n      await db('users').where('id', req.params.id).update({\n        deleted_at: new Date(),\n        updated_at: new Date(),\n        email: db.raw(\"email || '_deleted_' || id\"),\n      });\n\n      // Revoke all active sessions\n      await db('sessions')\n        .where('user_id', req.params.id)\n        .where('expires_at', '>', new Date())\n        .update({ revoked: true });\n\n      await invalidateUserCache(req.params.id);\n      logger.info({ userId: req.params.id, deletedBy: requestingUser.id }, 'User soft-deleted');\n\n      res.status(204).send();\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n// \u2500\u2500 Invite routes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n/**\n * POST /users/invite\n * Generate an invite link and send it via email.\n */\nrouter.post(\n  '/users/invite',\n  authenticateToken,\n  requireRole('admin'),\n  validateBody(schemas.inviteUser),\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const { email, role } = req.body;\n      const invitedBy = (req as any).user.id;\n\n      // Check if user already exists\n      const existing = await db('users').where('email', email.toLowerCase()).first();\n      if (existing) {\n        throw new ConflictError(`User with email ${email} already exists`);\n      }\n\n      const token = generateInviteToken();\n      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days\n\n      await db('invitations').insert({\n        email: email.toLowerCase(),\n        token,\n        role: role || 'member',\n        invited_by: invitedBy,\n        expires_at: expiresAt,\n        created_at: new Date(),\n      });\n\n      await sendEmail({\n        to: email,\n        template: 'invite',\n        data: {\n          inviteUrl: `${process.env.APP_URL}/accept-invite?token=${token}`,\n          expiresAt: expiresAt.toISOString(),\n        },\n      });\n\n      logger.info({ email, invitedBy }, 'Invitation sent');\n\n      res.status(201).json({ email, expiresAt });\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\n// \u2500\u2500 Team routes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n/**\n * GET /teams\n * List all teams the authenticated user belongs to.\n */\nrouter.get(\n  '/teams',\n  authenticateToken,\n  async (req: Request, res: Response, next: NextFunction) => {\n    try {\n      const userId = (req as any).user.id;\n\n      const teams = await db('teams')\n        .join('team_members', 'teams.id', 'team_members.team_id')\n        .where('team_members.user_id', userId)\n        .select(\n          'teams.id',\n          'teams.name',\n          'teams.description',\n          'team_members.role as memberRole',\n          'teams.created_at',\n        )\n        .orderBy('teams.name');\n\n      res.json({ data: teams });\n    } catch (err) {\n      next(err);\n    }\n  },\n);\n\nexport default router;"
+  },
+  "code-py-class-method": {
+   "label": "Code \u00b7 Python class method",
+   "description": "Complete a Python class method",
+   "mode": "code",
+   "languageId": "python",
+   "fileName": "models.py",
+   "prefix": "class Stack:\n    def __init__(self):\n        self.items = []\n\n    def push(self, item):\n        ",
+   "suffix": "\n\n    def pop(self):\n        return self.items.pop()"
+  },
+  "code-mid-file-go-full": {
+   "label": "Code \u00b7 Go service method",
+   "description": "Go service package, cursor in a method body",
+   "mode": "code",
+   "languageId": "go",
+   "fileName": "service.go",
+   "prefix": "\t\"sync\"\n\t\"time\"\n)\n\n// ErrNotFound indicates the requested resource does not exist.\nvar ErrNotFound = errors.New(\"not found\")\n\n// ErrConflict indicates a conflicting operation (e.g., duplicate key).\nvar ErrConflict = errors.New(\"conflict\")\n\n// Repository defines the persistence interface for orders.\ntype Repository interface {\n\tGetByID(ctx context.Context, id string) (*Order, error)\n\tList(ctx context.Context, filter OrderFilter) ([]Order, error)\n\tCreate(ctx context.Context, order *Order) error\n\tUpdate(ctx context.Context, order *Order) error\n\tDelete(ctx context.Context, id string) error\n}\n\n// Notifier sends notifications about order state changes.\ntype Notifier interface {\n\tSendOrderConfirmation(ctx context.Context, order *Order) error\n\tSendShipmentUpdate(ctx context.Context, order *Order, tracking string) error\n\tSendDeliveryConfirmation(ctx context.Context, order *Order) error\n}\n\n// OrderStatus represents the lifecycle state of an order.\ntype OrderStatus string\n\nconst (\n\tStatusPending    OrderStatus = \"pending\"\n\tStatusConfirmed  OrderStatus = \"confirmed\"\n\tStatusShipped    OrderStatus = \"shipped\"\n\tStatusDelivered  OrderStatus = \"delivered\"\n\tStatusCancelled  OrderStatus = \"cancelled\"\n)\n\n// Order represents a customer order in the system.\ntype Order struct {\n\tID             string      `json:\"id\"`\n\tCustomerID     string      `json:\"customer_id\"`\n\tStatus         OrderStatus `json:\"status\"`\n\tItems          []OrderItem `json:\"items\"`\n\tShippingAddr   Address     `json:\"shipping_address\"`\n\tTotalCents     int64       `json:\"total_cents\"`\n\tTrackingNumber string      `json:\"tracking_number,omitempty\"`\n\tNotes          string      `json:\"notes,omitempty\"`\n\tCreatedAt      time.Time   `json:\"created_at\"`\n\tUpdatedAt      time.Time   `json:\"updated_at\"`\n}\n\n// OrderItem is a single line item within an order.\ntype OrderItem struct {\n\tProductID   string `json:\"product_id\"`\n\tProductName string `json:\"product_name\"`\n\tQuantity    int    `json:\"quantity\"`\n\tUnitCents   int64  `json:\"unit_cents\"`\n}\n\n// Address holds a shipping or billing address.\ntype Address struct {\n\tStreet  string `json:\"street\"`\n\tCity    string `json:\"city\"`\n\tState   string `json:\"state\"`\n\tZipCode string `json:\"zip_code\"`\n\tCountry string `json:\"country\"`\n}\n\n// OrderFilter controls what orders are returned by List.\ntype OrderFilter struct {\n\tCustomerID string\n\tStatus     OrderStatus\n\tSince      time.Time\n\tLimit      int\n}\n\n// Service implements the business logic for order management.\ntype Service struct {\n\trepo     Repository\n\tnotifier Notifier\n\tmu       sync.Mutex\n\tlogger   *log.Logger\n}\n\n// NewService creates a new order management service.\nfunc NewService(repo Repository, notifier Notifier, logger *log.Logger) *Service {\n\treturn &Service{\n\t\trepo:     repo,\n\t\tnotifier: notifier,\n\t\tlogger:   logger,\n\t}\n}\n\n// GetOrder retrieves an order by its ID.\nfunc (s *Service) GetOrder(ctx context.Context, id string) (*Order, error) {\n\torder, err := s.repo.GetByID(ctx, id)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"get order %s: %w\", id, err)\n\t}\n\treturn order, nil\n}\n\n// ListOrders returns orders matching the given filter.\nfunc (s *Service) ListOrders(ctx context.Context, filter OrderFilter) ([]Order, error) {\n\tif filter.Limit <= 0 || filter.Limit > 500 {\n\t\tfilter.Limit = 100\n\t}\n\torders, err := s.repo.List(ctx, filter)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"list orders: %w\", err)\n\t}\n\treturn orders, nil\n}\n\n// CreateOrder validates and persists a new order.\nfunc (s *Service) CreateOrder(ctx context.Context, order *Order) error {\n\tif err := s.validateOrder(order); err != nil {\n\t\treturn fmt.Errorf(\"validate order: %w\", err)\n\t}\n\n\torder.ID = generateID()\n\torder.Status = StatusPending\n\torder.CreatedAt = time.Now().UTC()\n\torder.UpdatedAt = order.CreatedAt\n\torder.TotalCents = s.calculateTotal(order.Items)\n\n",
+   "suffix": "\n\ts.logger.Printf(\"order created: id=%s customer=%s total=%d\", order.ID, order.CustomerID, order.TotalCents)\n\n\t// Send confirmation asynchronously \u2014 don't block the create response\n\tgo func() {\n\t\tnotifyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\tif err := s.notifier.SendOrderConfirmation(notifyCtx, order); err != nil {\n\t\t\ts.logger.Printf(\"failed to send order confirmation for %s: %v\", order.ID, err)\n\t\t}\n\t}()\n\n\treturn nil\n}\n\n// ShipOrder transitions an order to shipped status and records the tracking number.\nfunc (s *Service) ShipOrder(ctx context.Context, id string, trackingNumber string) error {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\n\torder, err := s.repo.GetByID(ctx, id)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"get order for shipment %s: %w\", id, err)\n\t}\n\n\tif order.Status != StatusConfirmed {\n\t\treturn fmt.Errorf(\"cannot ship order in status %s: expected confirmed\", order.Status)\n\t}\n\n\torder.Status = StatusShipped\n\torder.TrackingNumber = trackingNumber\n\torder.UpdatedAt = time.Now().UTC()\n\n\tif err := s.repo.Update(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"update order %s for shipment: %w\", id, err)\n\t}\n\n\ts.logger.Printf(\"order shipped: id=%s tracking=%s\", id, trackingNumber)\n\n\tgo func() {\n\t\tnotifyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\tif err := s.notifier.SendShipmentUpdate(notifyCtx, order, trackingNumber); err != nil {\n\t\t\ts.logger.Printf(\"failed to send shipment notification for %s: %v\", id, err)\n\t\t}\n\t}()\n\n\treturn nil\n}\n\n// CancelOrder cancels a pending or confirmed order.\nfunc (s *Service) CancelOrder(ctx context.Context, id string, reason string) error {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\n\torder, err := s.repo.GetByID(ctx, id)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"get order for cancellation %s: %w\", id, err)\n\t}\n\n\tif order.Status == StatusShipped || order.Status == StatusDelivered {\n\t\treturn fmt.Errorf(\"cannot cancel order in status %s\", order.Status)\n\t}\n\n\torder.Status = StatusCancelled\n\torder.Notes = reason\n\torder.UpdatedAt = time.Now().UTC()\n\n\tif err := s.repo.Update(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"update order %s for cancellation: %w\", id, err)\n\t}\n\n\ts.logger.Printf(\"order cancelled: id=%s reason=%s\", id, reason)\n\treturn nil\n}\n\n// validateOrder checks that an order has all required fields.\nfunc (s *Service) validateOrder(order *Order) error {\n\tif order.CustomerID == \"\" {\n\t\treturn errors.New(\"customer_id is required\")\n\t}\n\tif len(order.Items) == 0 {\n\t\treturn errors.New(\"order must contain at least one item\")\n\t}\n\tfor i, item := range order.Items {\n\t\tif item.ProductID == \"\" {\n\t\t\treturn fmt.Errorf(\"item %d: product_id is required\", i)\n\t\t}\n\t\tif item.Quantity <= 0 {\n\t\t\treturn fmt.Errorf(\"item %d: quantity must be positive\", i)\n\t\t}\n\t\tif item.UnitCents <= 0 {\n\t\t\treturn fmt.Errorf(\"item %d: unit_cents must be positive\", i)\n\t\t}\n\t}\n\tif order.ShippingAddr.Street == \"\" || order.ShippingAddr.City == \"\" {\n\t\treturn errors.New(\"shipping address is incomplete\")\n\t}\n\treturn nil\n}\n\n// calculateTotal computes the total cost in cents for a list of order items.\nfunc (s *Service) calculateTotal(items []OrderItem) int64 {\n\tvar total int64\n\tfor _, item := range items {\n\t\ttotal += item.UnitCents * int64(item.Quantity)\n\t}\n\treturn total\n}\n\n// generateID creates a new unique order identifier.\nfunc generateID() string {\n\treturn fmt.Sprintf(\"ord_%d\", time.Now().UnixNano())\n}"
+  }
+ },
+ "runs": [
+  {
+   "id": "prose-journal-jnl-personal-mix__xai-grok",
+   "scenarioId": "prose-journal-jnl-personal-mix",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": " aren't needed in a browser extension. Switched to a lighter-weight client that only includes the API types and request logic, dropping the bundle to 340KB.",
+   "outcome": "ok",
+   "latencyMs": 1322,
+   "costUsd": 0.00210935,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:16.225Z",
+   "recording": "prose-journal-jnl-personal-mix__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "prose-journal-jnl-personal-mix__anthropic-sonnet",
+   "scenarioId": "prose-journal-jnl-personal-mix",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": " aren't needed in the browser/extension environment. Turns out the package tries to support both server-side and client-side usage, so it bundles `crypto`, `stream`, and `fs` shims even though the extension never touches the filesystem. Swapped it out for a lightweight fetch-based wrapper that just hits the API directly, and the bundle dropped to 340KB.",
+   "outcome": "ok",
+   "latencyMs": 2449,
+   "costUsd": 0.0072415,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:10.920Z",
+   "recording": "prose-journal-jnl-personal-mix__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "prose-journal-jnl-personal-mix__anthropic-haiku",
+   "scenarioId": "prose-journal-jnl-personal-mix",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": " weren't being used by the browser extension at all. The package includes both browser and Node.js implementations, but esbuild was bundling both even though the extension only needs the browser version.",
+   "outcome": "ok",
+   "latencyMs": 1003,
+   "costUsd": 0.00195,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:12.726Z",
+   "recording": "prose-journal-jnl-personal-mix__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "prose-journal-jnl-personal-mix__openai-gpt-4.1-nano",
+   "scenarioId": "prose-journal-jnl-personal-mix",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "are unnecessary in the browser environment, inflating the bundle size significantly. I need to configure esbuild to exclude or replace these polyfills to reduce the overall size.",
+   "outcome": "ok",
+   "latencyMs": 2265,
+   "costUsd": 0.00017460000000000002,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": false,
+     "detail": "missing separator at start: \u2026\"de.js polyfills that\" + \"are unnecessary in t\u2026\""
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:15.792Z",
+   "recording": "prose-journal-jnl-personal-mix__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "prose-journal-jnl-personal-mix__google-gemini-flash",
+   "scenarioId": "prose-journal-jnl-personal-mix",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": " weren't",
+   "outcome": "ok",
+   "latencyMs": 1335,
+   "costUsd": 0.0005072,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:17.928Z",
+   "recording": "prose-journal-jnl-personal-mix__google-gemini-flash.recording.jsonl"
+  },
+  {
+   "id": "prose-prompt-short-question-continue__xai-grok",
+   "scenarioId": "prose-prompt-short-question-continue",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": " add a backend identifier to the cache key so that completions from different backends never collide in the first place.",
+   "outcome": "ok",
+   "latencyMs": 864,
+   "costUsd": 0.0016993499999999999,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:17.893Z",
+   "recording": "prose-prompt-short-question-continue__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "prose-prompt-short-question-continue__anthropic-sonnet",
+   "scenarioId": "prose-prompt-short-question-continue",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": " namespace the cache keys by backend so entries from different backends never collide in the first place. Either approach should work, but I'd lean toward namespacing since it avoids losing cached results unnecessarily when switching back and forth.",
+   "outcome": "ok",
+   "latencyMs": 2392,
+   "costUsd": 0.0016282,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:21.121Z",
+   "recording": "prose-prompt-short-question-continue__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "prose-prompt-short-question-continue__anthropic-haiku",
+   "scenarioId": "prose-prompt-short-question-continue",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": " namespace the cache by backend so each one has its own isolated store.",
+   "outcome": "ok",
+   "latencyMs": 748,
+   "costUsd": 0.001465,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:22.671Z",
+   "recording": "prose-prompt-short-question-continue__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "prose-prompt-short-question-continue__openai-gpt-4.1-nano",
+   "scenarioId": "prose-prompt-short-question-continue",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "implement a more granular cache invalidation strategy that listens for backend change events and clears only relevant entries, to avoid unnecessary cache misses and improve performance.",
+   "outcome": "ok",
+   "latencyMs": 1080,
+   "costUsd": 0.0001422,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": false,
+     "detail": "missing separator at start: \u2026\"end switch, or maybe\" + \"implement a more gra\u2026\""
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:24.552Z",
+   "recording": "prose-prompt-short-question-continue__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "prose-prompt-short-question-continue__google-gemini-flash",
+   "scenarioId": "prose-prompt-short-question-continue",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": " scope the cache",
+   "outcome": "ok",
+   "latencyMs": 1682,
+   "costUsd": 0.0004076,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:27.035Z",
+   "recording": "prose-prompt-short-question-continue__google-gemini-flash.recording.jsonl"
+  },
+  {
+   "id": "prose-bridge-large-detail__xai-grok",
+   "scenarioId": "prose-bridge-large-detail",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": " which is often the path of least resistance.",
+   "outcome": "ok",
+   "latencyMs": 628,
+   "costUsd": 0.0024556,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:19.322Z",
+   "recording": "prose-bridge-large-detail__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "prose-bridge-large-detail__anthropic-sonnet",
+   "scenarioId": "prose-bridge-large-detail",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": " writing the expand and contract steps as separate, ordinary migration files rather than relying on a specialized tool to enforce the pattern.",
+   "outcome": "ok",
+   "latencyMs": 2025,
+   "costUsd": 0.0033022,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:29.864Z",
+   "recording": "prose-bridge-large-detail__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "prose-bridge-large-detail__anthropic-haiku",
+   "scenarioId": "prose-bridge-large-detail",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": " though it requires more discipline and testing overhead.",
+   "outcome": "ok",
+   "latencyMs": 2993,
+   "costUsd": 0.002999,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:33.659Z",
+   "recording": "prose-bridge-large-detail__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "prose-bridge-large-detail__openai-gpt-4.1-nano",
+   "scenarioId": "prose-bridge-large-detail",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "but it requires careful planning and thorough testing to ensure data integrity and minimal downtime.",
+   "outcome": "ok",
+   "latencyMs": 1498,
+   "costUsd": 0.00020140000000000002,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": false,
+     "detail": "missing separator at start: \u2026\"contract discipline,\" + \"but it requires care\u2026\""
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:35.958Z",
+   "recording": "prose-bridge-large-detail__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "prose-bridge-large-detail__google-gemini-flash",
+   "scenarioId": "prose-bridge-large-detail",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": " and",
+   "outcome": "ok",
+   "latencyMs": 1375,
+   "costUsd": 0.0006048,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "boundary-whitespace",
+     "pass": true,
+     "detail": "both seams separated"
+    },
+    {
+     "id": "double-space",
+     "pass": true,
+     "detail": "no doubled space at either seam"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:38.136Z",
+   "recording": "prose-bridge-large-detail__google-gemini-flash.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-ts-handler-full__xai-grok",
+   "scenarioId": "code-mid-file-ts-handler-full",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": "const [updated] = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .update({\n          display_name: displayName,\n          role,\n          avatar_url: avatarUrl,\n          bio,\n          updated_at: new Date(),\n        })\n        .returning(['id', 'email', 'display_name', 'role', 'avatar_url', 'bio', 'created_at', 'updated_at']);",
+   "outcome": "ok",
+   "latencyMs": 1286,
+   "costUsd": 0.00308685,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:21.409Z",
+   "recording": "code-mid-file-ts-handler-full__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-ts-handler-full__anthropic-sonnet",
+   "scenarioId": "code-mid-file-ts-handler-full",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": "      const existingUser = await db('users')\n        .where('id', req.params.id)\n        .whereNull('deleted_at')\n        .first();\n\n      if (!existingUser) {\n        throw new NotFoundError(`User ${req.params.id} not found`);\n      }\n\n      const updates: Record<string, unknown> = { updated_at: new Date() };\n      if (displayName !== undefined) updates.display_name = displayName;\n      if (role !== undefined) updates.role = role;\n      if (avatarUrl !== undefined) updates.avatar_url = avatarUrl;\n      if (bio !",
+   "outcome": "ok",
+   "latencyMs": 3609,
+   "costUsd": 0.005814199999999999,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:42.547Z",
+   "recording": "code-mid-file-ts-handler-full__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-ts-handler-full__anthropic-haiku",
+   "scenarioId": "code-mid-file-ts-handler-full",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": "      // Only admins can change role; users can only update their own profile\n      const isAdmin = (req as any).user.role === 'admin';\n      const isOwnProfile = (req as any).user.id === req.params.id;\n\n      if (!isAdmin && !isOwnProfile) {\n        throw new ForbiddenError('Cannot update another user\\'s profile');\n      }\n\n      if (!isAdmin && role) {\n        throw new ForbiddenError('Only admins can change user roles');\n      }\n\n      const updateData: Record<string, any> = {\n        updated_at: new Date(),\n      };\n\n      if (displayName) updateData.display_name = displayName;\n      if (isAdmin && role) updateData.role = role;\n      if (avatarUrl) updateData.avatar_url = avat",
+   "outcome": "ok",
+   "latencyMs": 2008,
+   "costUsd": 0.003622,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:45.357Z",
+   "recording": "code-mid-file-ts-handler-full__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-ts-handler-full__openai-gpt-4.1-nano",
+   "scenarioId": "code-mid-file-ts-handler-full",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "const updatedUser = await db('users')\n        .where('id', req.params.id)\n        .update({\n          display_name: displayName,\n          role,\n          avatar_url: avatarUrl,\n          bio,\n          updated_at: new Date(),\n        })\n        .returning(['id', 'email', 'display_name', 'role', 'avatar_url', 'bio', 'updated_at']);",
+   "outcome": "ok",
+   "latencyMs": 2104,
+   "costUsd": 0.00026010000000000003,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:48.264Z",
+   "recording": "code-mid-file-ts-handler-full__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-ts-handler-full__google-gemini-flash",
+   "scenarioId": "code-mid-file-ts-handler-full",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": null,
+   "outcome": "empty",
+   "latencyMs": 1541,
+   "costUsd": 0.0007538,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": false,
+     "detail": "empty completion (model returned whitespace only (inside tags))"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:50.607Z",
+   "recording": "code-mid-file-ts-handler-full__google-gemini-flash.recording.jsonl"
+  },
+  {
+   "id": "code-py-class-method__xai-grok",
+   "scenarioId": "code-py-class-method",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": "self.items.append(item)",
+   "outcome": "ok",
+   "latencyMs": 706,
+   "costUsd": 0.00156435,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:22.918Z",
+   "recording": "code-py-class-method__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "code-py-class-method__anthropic-sonnet",
+   "scenarioId": "code-py-class-method",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": "self.items.append(item)",
+   "outcome": "ok",
+   "latencyMs": 1114,
+   "costUsd": 0.0008122,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:52.523Z",
+   "recording": "code-py-class-method__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "code-py-class-method__anthropic-haiku",
+   "scenarioId": "code-py-class-method",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": "self.items.append(item)",
+   "outcome": "ok",
+   "latencyMs": 896,
+   "costUsd": 0.001379,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:54.219Z",
+   "recording": "code-py-class-method__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "code-py-class-method__openai-gpt-4.1-nano",
+   "scenarioId": "code-py-class-method",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "self.items.append(item)",
+   "outcome": "ok",
+   "latencyMs": 715,
+   "costUsd": 0.0001251,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:55.736Z",
+   "recording": "code-py-class-method__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "code-py-class-method__google-gemini-flash",
+   "scenarioId": "code-py-class-method",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": "self.items.append(item)",
+   "outcome": "ok",
+   "latencyMs": 762,
+   "costUsd": 0.00041,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:57.299Z",
+   "recording": "code-py-class-method__google-gemini-flash.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-go-full__xai-grok",
+   "scenarioId": "code-mid-file-go-full",
+   "presetId": "xai-grok",
+   "presetName": "Grok 4.3",
+   "model": "grok-4.3",
+   "text": "if err := s.repo.Create(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"create order: %w\", err)\n\t}",
+   "outcome": "ok",
+   "latencyMs": 714,
+   "costUsd": 0.0018357,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T17:28:24.433Z",
+   "recording": "code-mid-file-go-full__xai-grok.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-go-full__anthropic-sonnet",
+   "scenarioId": "code-mid-file-go-full",
+   "presetId": "anthropic-sonnet",
+   "presetName": "Sonnet 5",
+   "model": "claude-sonnet-5",
+   "text": "\tif err := s.repo.Create(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"create order: %w\", err)\n\t}\n\n",
+   "outcome": "ok",
+   "latencyMs": 1746,
+   "costUsd": 0.0050202,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:43:59.845Z",
+   "recording": "code-mid-file-go-full__anthropic-sonnet.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-go-full__anthropic-haiku",
+   "scenarioId": "code-mid-file-go-full",
+   "presetId": "anthropic-haiku",
+   "presetName": "Haiku 4.5",
+   "model": "claude-haiku-4-5-20251001",
+   "text": "\tif err := s.repo.Create(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"create order: %w\", err)\n\t}\n",
+   "outcome": "ok",
+   "latencyMs": 803,
+   "costUsd": 0.002953,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:44:01.450Z",
+   "recording": "code-mid-file-go-full__anthropic-haiku.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-go-full__openai-gpt-4.1-nano",
+   "scenarioId": "code-mid-file-go-full",
+   "presetId": "openai-gpt-4.1-nano",
+   "presetName": "GPT-4.1 Nano",
+   "model": "gpt-4.1-nano-2025-04-14",
+   "text": "order.Status = StatusCancelled\n\torder.UpdatedAt = time.Now().UTC()\n\n\tif err := s.repo.Update(ctx, order); err != nil {\n\t\treturn fmt.Errorf(\"update order %s for cancellation: %w\", id, err)\n\t}\n\n\ts.logger.Printf(\"order canceled: id=%s reason=%s\", id, reason)\n\n\tgo func() {\n\t\tnotifyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\tif err := s.notifier.SendCancellationNotice(notifyCtx, order, reason); err != nil {\n\t\t\ts.logger.Printf(\"failed to send cancellation notification for %s: %v\", id, err)\n\t\t}\n\t}()\n\n\treturn nil",
+   "outcome": "ok",
+   "latencyMs": 2680,
+   "costUsd": 0.0002899,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": true,
+     "detail": "completion has content"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:44:04.932Z",
+   "recording": "code-mid-file-go-full__openai-gpt-4.1-nano.recording.jsonl"
+  },
+  {
+   "id": "code-mid-file-go-full__google-gemini-flash",
+   "scenarioId": "code-mid-file-go-full",
+   "presetId": "google-gemini-flash",
+   "presetName": "Gemini 2.5 Flash",
+   "model": "gemini-2.5-flash",
+   "text": null,
+   "outcome": "empty",
+   "latencyMs": 1549,
+   "costUsd": 0.00050159,
+   "checks": [
+    {
+     "id": "non-empty",
+     "pass": false,
+     "detail": "empty completion (model returned whitespace only (inside tags))"
+    },
+    {
+     "id": "suffix-echo",
+     "pass": true,
+     "detail": "suffix head not in raw output"
+    }
+   ],
+   "recordedAt": "2026-09-29T15:44:07.282Z",
+   "recording": "code-mid-file-go-full__google-gemini-flash.recording.jsonl"
+  }
+ ]
+}

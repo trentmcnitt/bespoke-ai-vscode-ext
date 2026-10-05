@@ -656,4 +656,4 @@ export const codeFullWindowScenarios: TestScenario[] = [
         'Cursor is inside _consume_loop, after incrementing records_received by the batch length, and before dispatching processing tasks. The suffix starts with "            tasks = [self._process_record(r) for r in batch]" followed by asyncio.gather. The completion should lead naturally into the task creation line or produce equivalent dispatch logic. Must use self._process_record and asyncio patterns consistent with the surrounding code. Python indentation: 12 spaces (inside the async for loop body).',
     },
   },
-] as const satisfies readonly TestScenario[];
+];

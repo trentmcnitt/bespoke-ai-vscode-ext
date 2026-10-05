@@ -239,6 +239,11 @@ export class ApiCompletionProvider implements CompletionProvider {
       : undefined;
     if (content) detail.content = content;
 
+    try {
+      options?.onRequestSent?.(detail);
+    } catch {
+      // An observer only: it never stops the request.
+    }
     let result;
     try {
       result = await adapter.complete(system, adapterMessages, {
