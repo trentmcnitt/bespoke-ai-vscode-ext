@@ -127,13 +127,16 @@ export function liveConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LiveCon
   const redisUrl = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
   const redisToken = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
   const store = redisUrl && redisToken ? new UpstashStore(redisUrl, redisToken) : new MemoryStore();
+  // A cap that isn't a number would compare false against every spend (NaN), so it keeps live off.
+  const dailyCapUsd = Number(env.LIVE_DAILY_CAP_USD ?? 5);
+  const capValid = Number.isFinite(dailyCapUsd) && dailyCapUsd >= 0;
   return {
-    enabled: env.LIVE_ENABLED === '1' && secret.length >= 32,
+    enabled: env.LIVE_ENABLED === '1' && secret.length >= 32 && capValid,
     sessionSecret: secret,
     turnstileSecret: env.TURNSTILE_SECRET_KEY || undefined,
     turnstileSiteKey: env.TURNSTILE_SITE_KEY || undefined,
     allowNoTurnstile: env.LIVE_ALLOW_NO_TURNSTILE === '1',
-    dailyCapUsd: Number(env.LIVE_DAILY_CAP_USD ?? 5),
+    dailyCapUsd: capValid ? dailyCapUsd : 0,
     ipSalt: secret,
     store,
   };

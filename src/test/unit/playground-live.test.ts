@@ -86,6 +86,20 @@ describe('live config', () => {
     );
   });
 
+  it('keeps live off when the daily cap is not a non-negative number', () => {
+    const on = { LIVE_ENABLED: '1', LIVE_SESSION_SECRET: SECRET };
+    for (const cap of ['$2', 'five', '-1', 'Infinity']) {
+      const c = liveConfigFromEnv({ ...on, LIVE_DAILY_CAP_USD: cap });
+      expect(c.enabled).toBe(false);
+      expect(c.dailyCapUsd).toBe(0);
+    }
+    expect(liveConfigFromEnv({ ...on, LIVE_DAILY_CAP_USD: '2' })).toMatchObject({
+      enabled: true,
+      dailyCapUsd: 2,
+    });
+    expect(liveConfigFromEnv(on).dailyCapUsd).toBe(5);
+  });
+
   it('uses Upstash under either env naming, else the in-memory store', () => {
     expect(liveConfigFromEnv({}).store).toBeInstanceOf(MemoryStore);
     expect(

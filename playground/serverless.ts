@@ -11,9 +11,12 @@ import { handleLive, liveConfigFromEnv, MemoryStore } from './live';
 import { liveResponder, wantsStream } from './live-stream';
 
 const cfg = liveConfigFromEnv();
-// Once per cold start, to the function log (not the public config): which limiter store is in use.
-// "memory" means the limits and the daily cap are per instance.
-console.log(`[live] store: ${cfg.store instanceof MemoryStore ? 'memory' : 'upstash'}`);
+// Once per cold start, to the function log (not the public config): which limiter store is in use
+// and the daily cap. "memory" means the limits and the daily cap are per instance; a cap that
+// isn't a number keeps live off.
+console.log(
+  `[live] store: ${cfg.store instanceof MemoryStore ? 'memory' : 'upstash'}, enabled: ${cfg.enabled}, daily cap: $${cfg.dailyCapUsd}`,
+);
 
 type VercelRequest = IncomingMessage & {
   body?: unknown;

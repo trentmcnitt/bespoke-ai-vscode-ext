@@ -52,7 +52,7 @@ The replay page opens on a replay; **Try it yourself** switches to live completi
 Protections:
 
 - **Per visitor:** 100 completions an hour and 200 a day (Trent, 2026-09-29), keyed on a salted hash of the IP (the raw IP is never stored).
-- **Global daily cap:** estimated spend (`prices.ts`), `LIVE_DAILY_CAP_USD` (default 5). Over any limit, the page drops back to replay with the reason.
+- **Global daily cap:** estimated spend (`prices.ts`), `LIVE_DAILY_CAP_USD` (default 5; a value that is not a non-negative number keeps live off). Over any limit, the page drops back to replay with the reason.
 - **Bots:** Cloudflare Turnstile once per visit, then a signed session token for an hour.
 - **Size:** 20k characters each side of the cursor accepted; the pipeline then uses the extension's window. `max_tokens` is the preset's (200). Request timeout 20 s.
 - **Privacy:** the page says the text goes to the model provider and is not stored; nothing logs content, and bench events stay in the visitor's browser.
