@@ -40,6 +40,17 @@
       <span class="spacer"></span>
       <button id="mode" class="primary" hidden>✎ Try it yourself</button>
     </header>
+    <!-- Replay mode: say plainly that this is a recording, and give one obvious action. -->
+    <div id="banner" role="region" aria-label="About this replay">
+      <span id="bannerText"
+        ><b>This is a recording of a real run.</b> Press Play to watch the ghost text arrive and the
+        bench light up.</span
+      >
+      <span class="banner-actions">
+        <button id="bigPlay" class="big primary">▶ Play the recorded completion</button>
+        <button id="bigTry" class="big" hidden>✎ Try it yourself: live completions</button>
+      </span>
+    </div>
     <div id="turnstile"></div>
     <div id="desc"></div>
     <div id="editor"></div>

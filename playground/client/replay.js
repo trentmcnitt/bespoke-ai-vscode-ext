@@ -196,10 +196,108 @@ require(['vs/editor/editor.main'], async function () {
     }
   }
 
+  // ── what the bench has been told ──
+  // The run the bench is following, until its run_finished: { runId, open } (open: the step
+  // started and not finished). A replay that stops mid-run must end it (bench SPEC §3a), or the
+  // bench keeps that step running by the wall clock.
+  let inflight = null;
+  function sendEvent(out) {
+    if (out.event_type === 'run_started') inflight = { runId: out.run_id, open: null, last: out };
+    if (inflight && out.run_id === inflight.runId) {
+      inflight.last = out;
+      if (out.event_type === 'step_started') inflight.open = out;
+      else if (out.event_type === 'step_finished') inflight.open = null;
+      else if (out.event_type === 'run_finished') inflight = null;
+    }
+    toBench({ type: 'bench:events', events: [out] });
+  }
+  /** Ends the run the bench is following, if any: the open step and the run as aborted. */
+  function endRun() {
+    if (!inflight) return;
+    const { runId, open, last } = inflight;
+    inflight = null;
+    // Stamped like the run's own events, numbered on after its last one.
+    let seq = typeof last.seq === 'number' ? last.seq : 0;
+    const base = {
+      v: 'bench/0',
+      session_id: last.session_id,
+      run_id: runId,
+      ts: Math.max(Date.now() / 1000, last.ts),
+      content_mode: last.content_mode,
+    };
+    const events = [];
+    if (open) {
+      events.push({
+        ...base,
+        seq: ++seq,
+        event_type: 'step_finished',
+        node: open.node,
+        step_id: open.step_id,
+        data: { status: 'aborted' },
+      });
+    }
+    events.push({
+      ...base,
+      seq: ++seq,
+      event_type: 'run_finished',
+      node: '_run',
+      data: { status: 'aborted', outcome: 'aborted' },
+    });
+    toBench({ type: 'bench:events', events });
+  }
+
+  // ── the replay's state, shown in the banner and on the Play buttons ──
+  let playing = false;
+  let playedOnce = false;
+  function showReplayState(text) {
+    const liveOn = !!(liveCfg && liveCfg.enabled);
+    $('play').textContent = playing ? '■ Stop' : '▶ Play';
+    $('bigPlay').textContent = playing
+      ? '■ Stop'
+      : playedOnce
+        ? '▶ Play the recording again'
+        : '▶ Play the recorded completion';
+    $('bigPlay').classList.toggle('primary', !playing || !liveOn);
+    $('bigTry').hidden = !liveOn;
+    $('bigTry').classList.toggle('primary', liveOn && playing);
+    const lead = el('b', {}, 'This is a recording of a real run. ');
+    $('bannerText').replaceChildren(
+      lead,
+      text ||
+        (liveOn
+          ? 'Press Play to watch the ghost text arrive and the bench light up, or Try it yourself to type and get real completions.'
+          : 'Press Play to watch the ghost text arrive and the bench light up.'),
+    );
+  }
+  let nudgeTimer = 0;
+  function nudge(text) {
+    showReplayState(text);
+    const b = $('banner');
+    b.classList.remove('nudge');
+    void b.offsetWidth;
+    b.classList.add('nudge');
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(() => showReplayState(), 6000);
+  }
+
+  /** Stops whatever is playing and ends the bench's run with it. */
+  function stop(message) {
+    playToken++;
+    ghost = null;
+    endRun();
+    playing = false;
+    showReplayState();
+    if (message) setStatus([el('span', {}, message)]);
+  }
+
   async function play(run) {
     document.body.classList.add('replaying');
+    endRun();
     const token = ++playToken;
     ghost = null;
+    playing = true;
+    playedOnce = true;
+    showReplayState();
     const sc = index.scenarios[run.scenarioId];
     const recorded = new Date(run.recordedAt).toISOString().slice(0, 10);
     $('desc').replaceChildren(
@@ -264,7 +362,7 @@ require(['vs/editor/editor.main'], async function () {
         session_id: benchSession || ev.session_id,
       };
       if (ev.step_id) out.step_id = ev.step_id.replace(ev.run_id, runId);
-      toBench({ type: 'bench:events', events: [out] });
+      sendEvent(out);
 
       if (ev.node === 'post_process' && ev.event_type === 'step_finished' && run.text) {
         ghost = { text: run.text, offset };
@@ -284,31 +382,66 @@ require(['vs/editor/editor.main'], async function () {
       if (!(await wait(ADVANCE_PAUSE_MS, token))) return;
       advance();
       play(findRun());
+      return;
     }
+    playing = false;
+    showReplayState();
   }
 
   const playSelected = () => {
     const run = findRun();
     if (run) play(run);
   };
-  $('play').addEventListener('click', playSelected);
+  const playOrStop = () =>
+    playing ? stop('Stopped. Press ▶ Play to watch the recording again.') : playSelected();
+  $('play').addEventListener('click', playOrStop);
+  $('bigPlay').addEventListener('click', playOrStop);
   scenSel.addEventListener('change', playSelected);
   presetSel.addEventListener('change', playSelected);
-  // Typing during a replay stops it (replays never call a model).
-  editor.onKeyDown(() => {
+  // A replay is a recording: typing doesn't edit it (it would orphan the run on the bench and
+  // never ask a model). A keystroke that would edit is held back, and the banner says what to do.
+  const NAV_KEYS = new Set([
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowUp',
+    'ArrowDown',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+    'Escape',
+    'Tab',
+    'Shift',
+    'Control',
+    'Alt',
+    'Meta',
+    'CapsLock',
+  ]);
+  const typingHint = () =>
+    liveCfg && liveCfg.enabled
+      ? 'Typing is off in a recording. Press Try it yourself to type and get real completions.'
+      : 'Typing is off in a recording, which never calls a model. Press Play to watch the ghost text arrive.';
+  editor.onKeyDown((e) => {
     if (live) return;
-    playToken++;
-    ghost = null;
-    setStatus([
-      el(
-        'span',
-        {},
-        liveCfg && liveCfg.enabled
-          ? 'Replay stopped. Press Play, or “Try it yourself” to type with a live model.'
-          : 'Replay stopped. Press Play to resume.',
-      ),
-    ]);
+    const be = e.browserEvent;
+    if (NAV_KEYS.has(be.key)) return;
+    if ((be.metaKey || be.ctrlKey) && ['c', 'a', 'f'].includes(be.key.toLowerCase())) return;
+    e.preventDefault();
+    e.stopPropagation();
+    nudge(typingHint());
   });
+  for (const type of ['paste', 'cut', 'drop']) {
+    $('editor').addEventListener(
+      type,
+      (e) => {
+        if (live) return;
+        e.preventDefault();
+        e.stopPropagation();
+        nudge(typingHint());
+      },
+      true,
+    );
+  }
 
   // ── live mode ──
   const LIVE_API = document.querySelector('meta[name="bespoke-live-api"]').content;
@@ -324,8 +457,10 @@ require(['vs/editor/editor.main'], async function () {
     if (liveCfg.presets.some((p) => p.id === liveCfg.defaultPreset)) {
       liveSel.value = liveCfg.defaultPreset;
     }
-    $('mode').hidden = false;
+    // In replay mode the banner carries the way in (bigTry); the header button is the way back.
+    $('bigTry').hidden = false;
   }
+  showReplayState();
 
   let session = null;
   async function getSession(renew) {
@@ -383,8 +518,7 @@ require(['vs/editor/editor.main'], async function () {
   }
 
   async function enterLive() {
-    playToken++;
-    ghost = null;
+    stop();
     $('mode').disabled = true;
     try {
       await getSession(false);
@@ -395,6 +529,8 @@ require(['vs/editor/editor.main'], async function () {
     }
     live = { debounceMs: 800, ...lastDoc };
     document.body.classList.remove('replaying');
+    $('banner').hidden = true;
+    $('mode').hidden = false;
     $('mode').disabled = false;
     $('mode').textContent = '▶ Back to replay';
     $('replayControls').hidden = true;
@@ -406,6 +542,8 @@ require(['vs/editor/editor.main'], async function () {
 
   function exitLive(message) {
     live = null;
+    $('banner').hidden = false;
+    $('mode').hidden = true;
     $('mode').textContent = '✎ Try it yourself';
     $('replayControls').hidden = false;
     $('liveControls').hidden = true;
@@ -414,6 +552,7 @@ require(['vs/editor/editor.main'], async function () {
   }
 
   $('mode').addEventListener('click', () => (live ? exitLive() : enterLive()));
+  $('bigTry').addEventListener('click', () => enterLive());
   const askNow = () => {
     editor.focus();
     editor.trigger('live', 'editor.action.inlineSuggest.trigger', {});

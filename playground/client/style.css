@@ -140,3 +140,56 @@ button.primary {
 body.replaying .monaco-editor .iPadShowKeyboard {
   display: none;
 }
+/* The replay banner: what this is, and the one thing to do. */
+#banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  font-size: 14px;
+}
+#banner[hidden] {
+  display: none;
+}
+#bannerText {
+  flex: 1 1 320px;
+}
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button.big {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  max-width: none;
+}
+button.big.primary {
+  background: var(--accent);
+  color: #fff;
+}
+button.big.primary:hover {
+  filter: brightness(1.08);
+}
+/* A keystroke during a replay doesn't edit: the banner says why, with a brief nudge. */
+#banner.nudge {
+  animation: nudge 0.5s ease-in-out;
+}
+@keyframes nudge {
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #banner.nudge {
+    animation: none;
+  }
+}
