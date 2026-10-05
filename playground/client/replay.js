@@ -562,6 +562,7 @@ require(['vs/editor/editor.main'], async function () {
 
   function leaveLive() {
     live = null;
+    $('desc').replaceChildren(); // the live note no longer applies; the next replay sets its own
     $('mode').hidden = true;
     $('replayControls').hidden = false;
     $('liveControls').hidden = true;
