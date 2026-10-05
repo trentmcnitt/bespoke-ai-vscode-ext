@@ -86,6 +86,19 @@ describe('live config', () => {
     );
   });
 
+  it('uses Upstash under either env naming, else the in-memory store', () => {
+    expect(liveConfigFromEnv({}).store).toBeInstanceOf(MemoryStore);
+    expect(
+      liveConfigFromEnv({ UPSTASH_REDIS_REST_URL: 'https://u', UPSTASH_REDIS_REST_TOKEN: 't' })
+        .store,
+    ).toBeInstanceOf(UpstashStore);
+    expect(
+      liveConfigFromEnv({ KV_REST_API_URL: 'https://u', KV_REST_API_TOKEN: 't' }).store,
+    ).toBeInstanceOf(UpstashStore);
+    // Half a pair is no store.
+    expect(liveConfigFromEnv({ KV_REST_API_URL: 'https://u' }).store).toBeInstanceOf(MemoryStore);
+  });
+
   it('needs Turnstile unless explicitly allowed without it', async () => {
     const out = await handleLive(cfg({ allowNoTurnstile: false }), req('config'));
     expect(out.body.enabled).toBe(false);

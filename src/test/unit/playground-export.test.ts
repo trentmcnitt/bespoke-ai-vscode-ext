@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -25,6 +25,19 @@ describe('playground export', () => {
 
   it('--live-api points the page at a deployed live API', () => {
     expect(metaOf(exportTo('--live-api', '/api/live/'))).toBe('/api/live/');
+  }, 30000);
+
+  it('copies every script the page loads', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pg-export-'));
+    try {
+      execFileSync(TSX, [join(ROOT, 'playground', 'export.ts'), dir], { stdio: 'pipe' });
+      const html = readFileSync(join(dir, 'index.html'), 'utf8');
+      const local = [...html.matchAll(/<script src="([^":]+)"/g)].map((m) => m[1]);
+      expect(local).toEqual(['replay-state.js', 'replay.js']);
+      for (const f of local) expect(existsSync(join(dir, f))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 30000);
 
   it('refuses a --live-api path that is not a directory', () => {

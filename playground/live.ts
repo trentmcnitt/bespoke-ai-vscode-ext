@@ -15,7 +15,8 @@
  *
  * Env: LIVE_ENABLED=1, LIVE_SESSION_SECRET (required when enabled), TURNSTILE_SECRET_KEY +
  * TURNSTILE_SITE_KEY (required unless LIVE_ALLOW_NO_TURNSTILE=1, for local use),
- * UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (else in-memory: local only),
+ * UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN, or KV_REST_API_URL + KV_REST_API_TOKEN (the
+ * Vercel Upstash integration's names) (else in-memory: local only),
  * LIVE_DAILY_CAP_USD, and the providers' API keys.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
@@ -121,10 +122,10 @@ export interface LiveConfig {
 
 export function liveConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LiveConfig {
   const secret = env.LIVE_SESSION_SECRET ?? '';
-  const store =
-    env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
-      ? new UpstashStore(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN)
-      : new MemoryStore();
+  // The Vercel Marketplace's Upstash integration may inject the KV_* names instead.
+  const redisUrl = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
+  const redisToken = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
+  const store = redisUrl && redisToken ? new UpstashStore(redisUrl, redisToken) : new MemoryStore();
   return {
     enabled: env.LIVE_ENABLED === '1' && secret.length >= 32,
     sessionSecret: secret,

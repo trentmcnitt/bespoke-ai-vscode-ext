@@ -32,7 +32,8 @@ const staticHtml = html.replace(
 );
 if (staticHtml === html) throw new Error('replay.html: bespoke-live-api meta tag not found');
 writeFileSync(join(out, 'index.html'), staticHtml);
-for (const f of ['replay.js', 'style.css']) cpSync(join(root, 'client', f), join(out, f));
+for (const f of ['replay-state.js', 'replay.js', 'style.css'])
+  cpSync(join(root, 'client', f), join(out, f));
 cpSync(join(root, 'topology.json'), join(out, 'topology.json'));
 const recordings = readdirSync(join(root, 'recordings')).filter(
   (f) => f === 'index.json' || f.endsWith('.recording.jsonl'),

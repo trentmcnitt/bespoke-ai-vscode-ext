@@ -59,6 +59,7 @@ const STATIC: Record<string, { file: string; type: string }> = {
   '/app.js': { file: 'client/app.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'client/style.css', type: 'text/css; charset=utf-8' },
   '/replay.html': { file: 'client/replay.html', type: 'text/html; charset=utf-8' },
+  '/replay-state.js': { file: 'client/replay-state.js', type: 'text/javascript; charset=utf-8' },
   '/replay.js': { file: 'client/replay.js', type: 'text/javascript; charset=utf-8' },
   '/topology.json': { file: 'topology.json', type: 'application/json; charset=utf-8' },
 };

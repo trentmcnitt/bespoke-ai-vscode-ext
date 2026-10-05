@@ -7,9 +7,12 @@
  * (or mounts it at api/live/[route].js, which Vercel passes as req.query.route).
  */
 import type { IncomingMessage, ServerResponse } from 'http';
-import { handleLive, liveConfigFromEnv } from './live';
+import { handleLive, liveConfigFromEnv, MemoryStore } from './live';
 
 const cfg = liveConfigFromEnv();
+// Once per cold start, to the function log (not the public config): which limiter store is in use.
+// "memory" means the limits and the daily cap are per instance.
+console.log(`[live] store: ${cfg.store instanceof MemoryStore ? 'memory' : 'upstash'}`);
 
 type VercelRequest = IncomingMessage & {
   body?: unknown;
